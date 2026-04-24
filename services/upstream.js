@@ -43,17 +43,35 @@ export function buildImagePayload(body) {
 }
 
 // 调用上游。把 fetch 结果统一成 { ok, status, data, durationMs }。
-export async function callUpstream({ targetUrl, apiKey, payload, fetchImpl = fetch }) {
+export async function callUpstream({ targetUrl, apiKey, payload, fetchImpl = fetch, timeoutMs = 180000 }) {
   const started = Date.now();
-  const response = await fetchImpl(targetUrl, {
-    method: 'POST',
-    headers: {
-      'authorization': `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-      'accept': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(targetUrl, {
+      method: 'POST',
+      headers: {
+        'authorization': `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        'accept': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 504,
+        data: { error: { message: 'Upstream image generation timed out.' } },
+        durationMs: Date.now() - started
+      };
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const text = await response.text();
   let data;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }

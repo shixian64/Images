@@ -130,11 +130,14 @@ async function generate() {
   showProgress(`正在调用 ${payload.model} …`);
 
   const started = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000);
   try {
     const resp = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
@@ -156,7 +159,9 @@ async function generate() {
     setStatus(`完成 · ${durationMs}ms`, 'ok', 2000);
   } catch (err) {
     const durationMs = Date.now() - started;
-    const message = err.message || String(err);
+    const message = err.name === 'AbortError'
+      ? '生成请求超时，请稍后重试或检查接口配置。'
+      : (err.message || String(err));
     showError(message);
     addLog('error', 'image.generate.failed', {
       model: payload.model,
@@ -168,6 +173,7 @@ async function generate() {
     });
     setStatus('失败', 'err', 2000);
   } finally {
+    clearTimeout(timeoutId);
     $('generate').disabled = false;
     showProgress('');
   }

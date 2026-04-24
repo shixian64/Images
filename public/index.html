@@ -153,50 +153,6 @@
             </label>
           </div>
 
-          <details class="advanced">
-            <summary>商业化配置（租户 / 计费 / 额度）</summary>
-            <div class="form-grid">
-              <label class="field"><span>租户</span>
-                <input id="tenant" placeholder="默认租户" />
-              </label>
-              <label class="field"><span>负责人</span>
-                <input id="owner" placeholder="Admin" />
-              </label>
-              <label class="field"><span>可见范围</span>
-                <select id="visibility">
-                  <option value="admin">仅管理员</option>
-                  <option value="workspace">工作区成员</option>
-                  <option value="public">团队可见</option>
-                </select>
-              </label>
-              <label class="field"><span>套餐</span>
-                <select id="plan">
-                  <option value="free">Free</option>
-                  <option value="pro">Pro</option>
-                  <option value="business">Business</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              </label>
-              <label class="field"><span>月预算 (USD)</span>
-                <input id="monthlyBudget" type="number" min="0" step="1" />
-              </label>
-              <label class="field"><span>月调用额度</span>
-                <input id="monthlyQuota" type="number" min="0" step="1" />
-              </label>
-              <label class="field"><span>单用户每日额度</span>
-                <input id="dailyUserQuota" type="number" min="0" step="1" />
-              </label>
-              <label class="field"><span>速率限制 RPM</span>
-                <input id="rateLimit" type="number" min="0" step="1" />
-              </label>
-              <label class="field span-2"><span>计费标签</span>
-                <input id="billingTag" placeholder="cost-center:image" />
-              </label>
-              <label class="field span-2"><span>备注</span>
-                <textarea id="notes" rows="3" placeholder="描述用途、网关差异等"></textarea>
-              </label>
-            </div>
-          </details>
 
           <div class="row wrap-row action-row">
             <button id="saveProfile" class="primary">保存配置</button>
@@ -207,7 +163,7 @@
 
         <aside class="summary-panel">
           <p class="eyebrow">概览</p>
-          <div class="summary-grid" id="commercialSummary"></div>
+          <div class="summary-grid" id="profileSummary"></div>
         </aside>
       </section>
     </section>

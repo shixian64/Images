@@ -394,17 +394,13 @@ button.danger:hover { background: var(--danger-soft); }
   color: var(--brand);
   border-radius: var(--radius-btn);
   font-size: 13px;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
 }
 .progress::before {
-  content: '';
-  width: 12px; height: 12px;
-  border: 2px solid var(--brand);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  content: '\2022';
+  font-size: 18px;
+  line-height: 1;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============================================================
    Gallery
@@ -585,15 +581,18 @@ button.danger:hover { background: var(--danger-soft); }
 }
 
 .log-summary {
-  display: flex; gap: 12px; flex-wrap: wrap;
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   margin: 8px 0 16px;
   color: var(--text-muted); font-size: 12.5px;
 }
 .log-summary .chip {
-  padding: 3px 10px;
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex; align-items: center;
   background: var(--surface-2);
   border-radius: 999px;
   border: 1px solid var(--border);
+  line-height: 1;
 }
 .log-summary .chip.error { color: var(--danger); }
 .log-summary .chip.warn  { color: var(--warning); }
