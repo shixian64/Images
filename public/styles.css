@@ -29,6 +29,7 @@
   --radius-card: 12px;
   --radius-btn: 8px;
   --radius-thumb: 6px;
+  --control-height: 42px;
 
   --font-ui: 'Inter', 'PingFang SC', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
@@ -930,9 +931,17 @@ button.danger:hover { background: var(--danger-soft); }
   color: var(--text-muted); font-size: 12px;
 }
 .inline-label select, .inline-label input {
-  padding: 7px 10px; font: inherit; font-size: 13px;
+  height: var(--control-height);
+  padding: 0 12px; font: inherit; font-size: 13px;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--radius-btn);
+}
+.logs-actions > button,
+.prompt-history-actions > button {
+  height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .log-summary {
