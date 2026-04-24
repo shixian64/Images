@@ -19,6 +19,7 @@
 
     <nav class="top-menu" aria-label="主导航">
       <button class="tab-button active" data-tab="studioPanel" data-hotkey="gs">生成</button>
+      <button class="tab-button" data-tab="promptPanel" data-hotkey="gt">提示词</button>
       <button class="tab-button" data-tab="galleryPanel" data-hotkey="gg">图库</button>
       <button class="tab-button" data-tab="configPanel" data-hotkey="gp">配置</button>
       <button class="tab-button" data-tab="logsPanel" data-hotkey="gl">
@@ -109,6 +110,148 @@
           </section>
         </section>
       </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- Prompt Manager -->
+    <!-- ============================================================ -->
+    <section id="promptPanel" class="tab-panel" aria-labelledby="promptHeading">
+      <section class="panel prompt-manager">
+        <header class="panel-head prompt-manager-head">
+          <div>
+            <p class="eyebrow">Prompt OS</p>
+            <h2 id="promptHeading">提示词管理</h2>
+            <p class="hint">把零散想法组合成可复用提示词，并沉淀每一次生成记录。</p>
+          </div>
+          <div class="prompt-tabs" role="tablist" aria-label="提示词子面板">
+            <button class="prompt-tab active" data-prompt-tab="builder" role="tab" aria-selected="true">提示词构造</button>
+            <button class="prompt-tab" data-prompt-tab="history" role="tab" aria-selected="false">
+              历史提示词管理 <span id="promptHistoryCount" class="soft-count">0</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="prompt-subpanel active" id="promptBuilderPanel" role="tabpanel">
+          <div class="prompt-builder-grid">
+            <section class="prompt-builder-form" aria-labelledby="promptBuilderHeading">
+              <div class="prompt-section-head">
+                <div>
+                  <p class="eyebrow">Builder</p>
+                  <h3 id="promptBuilderHeading">结构化构造</h3>
+                </div>
+                <button id="promptClearBuilder" class="ghost small" type="button">清空构造</button>
+              </div>
+
+              <div class="prompt-form-grid">
+                <label class="field">
+                  <span>标题</span>
+                  <input id="promptTitleInput" placeholder="例如：雨夜霓虹中的白色跑车" />
+                </label>
+                <label class="field">
+                  <span>标签</span>
+                  <input id="promptTagsInput" placeholder="逗号分隔，例如：产品, 写实, 夜景" />
+                </label>
+                <label class="field span-2">
+                  <span>主体与场景</span>
+                  <textarea id="promptSubjectInput" rows="3" placeholder="谁 / 什么物体，在什么环境里，正在发生什么。"></textarea>
+                </label>
+                <label class="field">
+                  <span>风格与媒介</span>
+                  <textarea id="promptStyleInput" rows="3" placeholder="写实摄影、赛博朋克、海报设计、3D 渲染、胶片质感……"></textarea>
+                </label>
+                <label class="field">
+                  <span>构图与镜头</span>
+                  <textarea id="promptCompositionInput" rows="3" placeholder="近景、俯拍、中心构图、留白、85mm、浅景深……"></textarea>
+                </label>
+                <label class="field">
+                  <span>光线与氛围</span>
+                  <textarea id="promptLightingInput" rows="3" placeholder="柔光、逆光、雨后反光、清晨薄雾、强对比阴影……"></textarea>
+                </label>
+                <label class="field">
+                  <span>色彩与材质</span>
+                  <textarea id="promptPaletteInput" rows="3" placeholder="冷暖对比、黑金、低饱和、玻璃、金属、织物细节……"></textarea>
+                </label>
+                <label class="field">
+                  <span>画面文字</span>
+                  <textarea id="promptTextInput" rows="2" placeholder="如果需要文字，写清楚具体文案、位置与字体气质。"></textarea>
+                </label>
+                <label class="field">
+                  <span>避免项</span>
+                  <textarea id="promptNegativeInput" rows="2" placeholder="避免低清晰度、畸形手指、水印、无关文字、过曝……"></textarea>
+                </label>
+              </div>
+
+              <div class="prompt-chip-bank" aria-label="快速补全">
+                <span>快速补全</span>
+                <button class="prompt-chip" data-target="promptStyleInput" data-value="写实商业摄影，细节清晰，质感高级">写实商业</button>
+                <button class="prompt-chip" data-target="promptCompositionInput" data-value="主体居中，背景留有干净负空间，适合封面裁切">封面构图</button>
+                <button class="prompt-chip" data-target="promptLightingInput" data-value="柔和主光，边缘轮廓光，层次分明">柔光轮廓</button>
+                <button class="prompt-chip" data-target="promptPaletteInput" data-value="低饱和中性色，单一强调色，统一色调">克制配色</button>
+                <button class="prompt-chip" data-target="promptNegativeInput" data-value="避免水印、乱码文字、过度锐化、低分辨率">基础避免</button>
+              </div>
+            </section>
+
+            <aside class="prompt-preview-pane" aria-labelledby="promptPreviewHeading">
+              <div class="prompt-section-head">
+                <div>
+                  <p class="eyebrow">Preview</p>
+                  <h3 id="promptPreviewHeading">最终提示词</h3>
+                </div>
+                <span class="prompt-count"><span id="promptPreviewCount">0</span> 字符</span>
+              </div>
+              <textarea id="promptComposedOutput" rows="13" spellcheck="false" aria-label="最终提示词"></textarea>
+              <div class="prompt-quality-list" id="promptQualityList" aria-label="提示词完整度">
+                <span data-check="subject">主体</span>
+                <span data-check="style">风格</span>
+                <span data-check="composition">构图</span>
+                <span data-check="lighting">光线</span>
+                <span data-check="constraints">约束</span>
+              </div>
+              <div class="prompt-action-row">
+                <button id="promptUseInStudio" class="primary" type="button">送到生成页</button>
+                <button id="promptSaveHistory" class="ghost" type="button">保存到历史</button>
+                <button id="promptCopyOutput" class="ghost" type="button">复制</button>
+              </div>
+              <p class="hint">可以直接编辑最终提示词；保存后会进入历史管理，也可一键回填到生成页。</p>
+            </aside>
+          </div>
+        </div>
+
+        <div class="prompt-subpanel" id="promptHistoryPanel" role="tabpanel">
+          <div class="prompt-history-toolbar">
+            <div class="prompt-history-filters">
+              <label class="inline-label">搜索
+                <input id="promptHistorySearch" placeholder="标题 / 内容 / 标签" />
+              </label>
+              <label class="inline-label">标签
+                <select id="promptTagFilter">
+                  <option value="all">全部标签</option>
+                </select>
+              </label>
+              <label class="inline-label">来源
+                <select id="promptSourceFilter">
+                  <option value="all">全部来源</option>
+                  <option value="builder">构造器</option>
+                  <option value="studio">生成页</option>
+                  <option value="manual">手动</option>
+                </select>
+              </label>
+            </div>
+            <div class="prompt-history-actions">
+              <button id="promptExportHistory" class="ghost" type="button">导出 JSON</button>
+              <button id="promptClearHistory" class="danger ghost" type="button">清空未固定</button>
+            </div>
+          </div>
+
+          <div class="prompt-history-summary" id="promptHistorySummary" aria-live="polite"></div>
+          <div id="promptHistoryList" class="prompt-history-list" data-empty="true">
+            <div class="empty-state">
+              <div class="empty-icon" aria-hidden="true">✦</div>
+              <p>还没有历史提示词。先在构造面板保存，或在生成页完成一次生成。</p>
+            </div>
+          </div>
+        </div>
+      </section>
     </section>
 
     <!-- ============================================================ -->

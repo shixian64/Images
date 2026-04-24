@@ -4,6 +4,7 @@
 import { mountNav } from './modules/nav.js';
 import { mountTheme } from './modules/theme.js';
 import { mountStudioPanel, loadPromptFromLog } from './modules/studio.js';
+import { mountPromptPanel } from './modules/prompts.js';
 import { mountProfilesPanel } from './modules/profiles.js';
 import { mountGalleryPanel, refreshGalleryPanel } from './modules/gallery.js';
 import { mountLogsPanel } from './modules/logs.js';
@@ -15,6 +16,12 @@ mountProfilesPanel();
 mountGalleryPanel();
 mountStudioPanel({
   onSavedImages: () => refreshGalleryPanel({ silent: true })
+});
+mountPromptPanel({
+  onUsePrompt: (prompt) => {
+    loadPromptFromLog(prompt);
+    switchTab('studioPanel');
+  }
 });
 mountLogsPanel({
   onReusePrompt: (prompt) => {

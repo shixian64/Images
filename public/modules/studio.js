@@ -9,6 +9,7 @@ import {
 } from '../../shared/constants.js';
 import { getActiveProfile, onProfilesChanged } from './profiles.js';
 import { addLog } from './logs.js';
+import { addPromptHistory } from './prompts.js';
 
 function renderSelect(id, items) {
   const el = $(id);
@@ -135,6 +136,16 @@ async function generate({ onSavedImages } = {}) {
     output_format: $('output_format').value,
     n: Math.max(1, Number($('n').value) || 1)
   };
+
+  addPromptHistory(prompt, {
+    source: 'studio',
+    title: prompt.slice(0, 28),
+    tags: ['生成'],
+    model: payload.model,
+    size: payload.size,
+    quality: payload.quality,
+    outputFormat: payload.output_format
+  });
 
   $('generate').disabled = true;
   setStatus('生成中…', 'busy');

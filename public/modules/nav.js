@@ -3,7 +3,7 @@
 import { $, $$ } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 
-const TAB_IDS = ['studioPanel', 'galleryPanel', 'configPanel', 'logsPanel'];
+const TAB_IDS = ['studioPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel'];
 
 export function switchTab(tabId) {
   if (!TAB_IDS.includes(tabId)) tabId = 'studioPanel';
@@ -18,7 +18,7 @@ export function mountNav() {
   });
   switchTab(readString(KEYS.activeTab, 'studioPanel'));
 
-  // 键盘序列 G + S/P/L
+  // 键盘序列 G + S/T/G/P/L
   let pending = false;
   let pendingTimer = null;
   document.addEventListener('keydown', (ev) => {
@@ -36,6 +36,7 @@ export function mountNav() {
       pending = false;
       clearTimeout(pendingTimer);
       if (k === 's') switchTab('studioPanel');
+      else if (k === 't') switchTab('promptPanel');
       else if (k === 'g') switchTab('galleryPanel');
       else if (k === 'p') switchTab('configPanel');
       else if (k === 'l') switchTab('logsPanel');
