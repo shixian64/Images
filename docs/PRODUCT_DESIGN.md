@@ -59,7 +59,7 @@ M2. 凭证管理（Profiles）
 - 连通性测试按钮（走一个最便宜的请求）
 
 M3. 生成器
-- Prompt / Negative Prompt / Size / Quality / Background / Output Format / n
+- Prompt / Negative Prompt / Size / Quality / Output Format / n
 - 参考图上传（多图，用于 image-2 的多图输入场景）
 - 一键重新生成、以此为基础变体
 

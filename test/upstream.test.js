@@ -55,13 +55,13 @@ test('buildImagePayload 过滤 auto 值', () => {
     prompt: 'x',
     size: 'auto',
     quality: 'high',
-    background: 'auto',
+    background: 'transparent',
     output_format: 'png'
   });
   assert.equal(p.quality, 'high');
   assert.equal(p.output_format, 'png');
   assert.ok(!('size' in p), 'auto 值的 size 不应传给上游');
-  assert.ok(!('background' in p), 'auto 值的 background 不应传给上游');
+  assert.ok(!('background' in p), 'background 不应传给上游');
 });
 
 test('buildImagePayload 会 trim prompt', () => {

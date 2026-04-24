@@ -4,7 +4,7 @@
 import { $, escapeHtml, setStatus } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 import {
-  BACKGROUNDS, DEFAULT_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
+  DEFAULT_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
   estimateDurationMs
 } from '../../shared/constants.js';
 import { getActiveProfile, onProfilesChanged } from './profiles.js';
@@ -21,7 +21,6 @@ function renderSelect(id, items) {
 function populateOptions() {
   renderSelect('size', SIZES);
   renderSelect('quality', QUALITIES);
-  renderSelect('background', BACKGROUNDS);
   renderSelect('output_format', OUTPUT_FORMATS);
 }
 
@@ -122,7 +121,6 @@ async function generate() {
     prompt,
     size: $('size').value,
     quality: $('quality').value,
-    background: $('background').value,
     output_format: $('output_format').value,
     n: Math.max(1, Number($('n').value) || 1)
   };

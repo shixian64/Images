@@ -17,12 +17,6 @@ export const QUALITIES = [
   { value: 'high', label: 'high' }
 ];
 
-export const BACKGROUNDS = [
-  { value: 'auto', label: 'auto' },
-  { value: 'opaque', label: 'opaque · 实心' },
-  { value: 'transparent', label: 'transparent · 透明' }
-];
-
 export const OUTPUT_FORMATS = [
   { value: 'auto', label: 'auto' },
   { value: 'png', label: 'PNG' },
@@ -35,7 +29,6 @@ export const OUTPUT_FORMATS = [
 export const OPTIONAL_PASSTHROUGH_KEYS = Object.freeze([
   'size',
   'quality',
-  'background',
   'output_format',
   'moderation'
 ]);
