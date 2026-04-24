@@ -1,0 +1,14 @@
+{
+  "name": "image-key-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local web UI for managing OpenAI-compatible image API profiles and generating images with gpt-image-2.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
