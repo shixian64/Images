@@ -4,10 +4,10 @@
 import { $, escapeHtml, setStatus } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 import {
-  DEFAULT_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
+  DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
   estimateDurationMs
 } from '../../shared/constants.js';
-import { getActiveProfile, onProfilesChanged } from './profiles.js';
+import { getActiveProfile, getImageConfig, onProfilesChanged } from './profiles.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 
@@ -44,14 +44,15 @@ function updatePromptCount() {
 
 function updateActiveChip() {
   const p = getActiveProfile();
-  $('activeConfigName').textContent = p ? `${p.name || '未命名'} · ${p.baseUrl || ''}` : '-';
+  const image = getImageConfig(p);
+  $('activeConfigName').textContent = p ? `${p.name || '未命名'} · 生图 ${image.baseUrl || ''}` : '-';
   const dot = document.querySelector('#activeProfileChip .dot');
-  if (dot) dot.dataset.status = p?.testStatus === 'ok' ? 'ok'
-    : p?.testStatus === 'err' ? 'err'
+  if (dot) dot.dataset.status = image?.testStatus === 'ok' ? 'ok'
+    : image?.testStatus === 'err' ? 'err'
     : p?.status === 'active' ? 'warn' : 'unknown';
   // Profile 切换后，把 model 预填成其 default（仅当用户没改过）
-  if (p?.defaultModel && $('model').dataset.userEdited !== '1') {
-    $('model').value = p.defaultModel;
+  if (image?.defaultModel && $('model').dataset.userEdited !== '1') {
+    $('model').value = image.defaultModel;
   }
 }
 
@@ -118,18 +119,19 @@ function renderImages(items, prompt) {
 async function generate({ onSavedImages } = {}) {
   showError('');
   const profile = getActiveProfile();
+  const image = getImageConfig(profile);
   if (!profile) return showError('请先在"配置"页面创建接口配置。');
   if (profile.status !== 'active') return showError('当前接口未启用，请在"配置"页面切换为"启用"。');
-  if (!profile.apiKey) return showError('当前配置缺少 API Key。');
+  if (!image.apiKey) return showError('当前配置缺少生图 API Key。');
 
   const prompt = $('prompt').value.trim();
   if (!prompt) return showError('请填写提示词。');
 
   const payload = {
     name: profile.name,
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    model: $('model').value.trim() || profile.defaultModel || DEFAULT_MODEL,
+    baseUrl: image.baseUrl,
+    apiKey: image.apiKey,
+    model: $('model').value.trim() || image.defaultModel || DEFAULT_IMAGE_MODEL,
     prompt,
     size: $('size').value,
     quality: $('quality').value,
@@ -174,7 +176,7 @@ async function generate({ onSavedImages } = {}) {
     addLog('info', 'image.generate.success', {
       model: payload.model,
       profileName: profile.name,
-      apiKey: profile.apiKey,
+      apiKey: image.apiKey,
       durationMs,
       imageCount: items.length,
       size: payload.size,
@@ -191,7 +193,7 @@ async function generate({ onSavedImages } = {}) {
     addLog('error', 'image.generate.failed', {
       model: payload.model,
       profileName: profile.name,
-      apiKey: profile.apiKey,
+      apiKey: image.apiKey,
       durationMs,
       error: message,
       prompt

@@ -4,6 +4,7 @@
 import http from 'node:http';
 import { join } from 'node:path';
 
+import { handleChat } from './routes/chat.js';
 import { handleGenerate } from './routes/generate.js';
 import { handleGallery } from './routes/gallery.js';
 import { handleTestProfile } from './routes/test-profile.js';
@@ -16,6 +17,7 @@ const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/generate') return handleGenerate(req, res);
+  if (req.method === 'POST' && req.url === '/api/chat') return handleChat(req, res);
   if (req.method === 'POST' && req.url === '/api/test-profile') return handleTestProfile(req, res);
   if (req.method === 'GET' && (req.url === '/api/gallery' || req.url?.startsWith('/api/gallery?'))) return handleGallery(req, res);
   if (req.method === 'GET') return serveStatic(req, res);

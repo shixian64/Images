@@ -14,9 +14,11 @@ export async function handleTestProfile(req, res) {
     const apiKey = String(body.apiKey || '').trim();
     if (!apiKey) throw new Error('API key is required.');
     const targetUrl = resolveModelsUrl(body.baseUrl);
+    const kind = body.kind === 'chat' ? 'chat' : 'image';
 
     logger.info('profile.test.request', {
       targetUrl,
+      kind,
       profileName: body.name,
       apiKey: maskApiKey(apiKey)
     });
@@ -32,15 +34,16 @@ export async function handleTestProfile(req, res) {
 
     if (!response.ok) {
       const error = data?.error?.message || data?.message || `Request failed with ${response.status}`;
-      logger.warn('profile.test.failed', { status: response.status, durationMs, error });
+      logger.warn('profile.test.failed', { status: response.status, durationMs, kind, error });
       return sendJson(res, response.status, { ok: false, error, details: data });
     }
 
     const models = Array.isArray(data?.data) ? data.data.map((item) => item.id).filter(Boolean) : [];
-    logger.info('profile.test.success', { status: response.status, durationMs, modelCount: models.length });
+    logger.info('profile.test.success', { status: response.status, durationMs, kind, modelCount: models.length });
     return sendJson(res, 200, {
       ok: true,
       status: response.status,
+      kind,
       durationMs,
       modelCount: models.length,
       models: models.slice(0, 50)

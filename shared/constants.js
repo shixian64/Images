@@ -1,7 +1,11 @@
 // 前后端共享的常量。浏览器与 Node.js 18+ 都能直接以 ESM 引入，无需打包。
 // 对应 docs/PRODUCT_DESIGN.md §13.1 第 4 条：把尺寸/质量等选项抽成常量。
 
-export const DEFAULT_MODEL = 'gpt-image-2';
+export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+export const DEFAULT_CHAT_MODEL = 'gpt-4.1-mini';
+
+// 兼容旧代码 / 旧 localStorage 字段名；新代码请优先使用 DEFAULT_IMAGE_MODEL。
+export const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;
 
 export const SIZES = [
   { value: 'auto', label: 'auto（由模型决定）' },
@@ -31,6 +35,21 @@ export const OPTIONAL_PASSTHROUGH_KEYS = Object.freeze([
   'quality',
   'output_format',
   'moderation'
+]);
+
+// OpenAI-compatible Chat Completions 的可透传参数白名单。
+// 不透传 stream：当前后端按 JSON 响应处理，不消费 SSE。
+export const CHAT_OPTIONAL_PASSTHROUGH_KEYS = Object.freeze([
+  'temperature',
+  'top_p',
+  'max_tokens',
+  'max_completion_tokens',
+  'presence_penalty',
+  'frequency_penalty',
+  'response_format',
+  'stop',
+  'seed',
+  'user'
 ]);
 
 // 预估耗时表（毫秒），仅用于 UI 提示，不是真实计费。

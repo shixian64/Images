@@ -13,10 +13,10 @@ export async function handleGenerate(req, res) {
   let body = {};
   try {
     body = await readJsonBody(req);
-    const apiKey = String(body.apiKey || '').trim();
+    const apiKey = String(body.imageApiKey || body.apiKey || '').trim();
     if (!apiKey) throw new Error('API key is required.');
 
-    const targetUrl = resolveApiUrl(body.baseUrl);
+    const targetUrl = resolveApiUrl(body.imageBaseUrl || body.baseUrl);
     const payload = buildImagePayload(body);
 
     logger.info('image.generate.request', {
@@ -68,7 +68,7 @@ export async function handleGenerate(req, res) {
     logger.warn('image.generate.rejected', {
       durationMs: Date.now() - started,
       model: body?.model,
-      baseUrl: body?.baseUrl,
+      baseUrl: body?.imageBaseUrl || body?.baseUrl,
       error: error.message || String(error)
     });
     return sendJson(res, 400, { error: error.message || String(error) });

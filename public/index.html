@@ -307,25 +307,48 @@
                 <option value="paused">暂停</option>
               </select>
             </label>
-            <label class="field span-2"><span>Base URL</span>
-              <input id="baseUrl" placeholder="https://api.openai.com 或 https://gateway/openai" />
+            <div class="config-section span-2">
+              <h3>生图模型</h3>
+              <p class="hint">用于生成图片，调用 OpenAI-compatible <code>/v1/images/generations</code>。</p>
+            </div>
+            <label class="field span-2"><span>生图 Base URL</span>
+              <input id="imageBaseUrl" placeholder="https://api.openai.com 或 https://gateway/openai" />
             </label>
-            <label class="field span-2"><span>API Key</span>
-              <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+            <label class="field span-2"><span>生图 API Key</span>
+              <input id="imageApiKey" type="password" placeholder="sk-..." autocomplete="off" />
             </label>
-            <label class="field"><span>默认模型</span>
-              <input id="defaultModel" placeholder="gpt-image-2" />
+            <label class="field"><span>生图默认模型</span>
+              <input id="imageDefaultModel" placeholder="gpt-image-2" />
             </label>
-            <label class="field"><span>连通性</span>
-              <div class="test-result" id="testResult" data-state="idle">未测试</div>
+            <label class="field"><span>生图连通性</span>
+              <div class="test-result" id="imageTestResult" data-state="idle">未测试</div>
+            </label>
+
+            <div class="config-section span-2">
+              <h3>对话模型</h3>
+              <p class="hint">用于 Prompt Assist / 对话能力，调用 OpenAI-compatible <code>/v1/chat/completions</code>。</p>
+            </div>
+            <label class="field span-2"><span>对话 Base URL</span>
+              <input id="chatBaseUrl" placeholder="https://api.openai.com 或 https://gateway/openai" />
+            </label>
+            <label class="field span-2"><span>对话 API Key</span>
+              <input id="chatApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+            </label>
+            <label class="field"><span>对话默认模型</span>
+              <input id="chatDefaultModel" placeholder="gpt-4.1-mini" />
+            </label>
+            <label class="field"><span>对话连通性</span>
+              <div class="test-result" id="chatTestResult" data-state="idle">未测试</div>
             </label>
           </div>
 
 
           <div class="row wrap-row action-row">
-            <button id="saveProfile" class="primary">保存配置</button>
-            <button id="testProfile" class="ghost">测试连接</button>
-            <button id="deleteProfile" class="danger ghost">删除</button>
+            <button id="saveProfile" class="primary" type="button">保存配置</button>
+            <button id="testProfile" class="ghost" type="button">测试全部</button>
+            <button id="testImageProfile" class="ghost" type="button">测试生图</button>
+            <button id="testChatProfile" class="ghost" type="button">测试对话</button>
+            <button id="deleteProfile" class="danger ghost" type="button">删除</button>
           </div>
         </form>
 
@@ -349,15 +372,6 @@
             <p class="hint">本地 localStorage 保留最近 300 条。API Key 以脱敏形式记录。</p>
           </div>
           <div class="logs-actions">
-            <label class="inline-label">等级
-              <select id="logLevelFilter">
-                <option value="all">全部</option>
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warn</option>
-                <option value="error">Error</option>
-              </select>
-            </label>
             <label class="inline-label">搜索
               <input id="logSearch" placeholder="模型 / URL / Prompt / 错误" />
             </label>

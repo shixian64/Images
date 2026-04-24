@@ -1,8 +1,9 @@
 // 集中的 localStorage 访问。未来迁云端时，这里的 read/write 替换为 API 即可。
 
 const KEYS = Object.freeze({
-  profiles: 'image-key-manager.profiles.v2',
-  legacyProfiles: 'image-key-manager.profiles.v1',
+  profiles: 'image-key-manager.profiles.v3',
+  legacyProfiles: 'image-key-manager.profiles.v2',
+  legacyProfilesV1: 'image-key-manager.profiles.v1',
   activeProfile: 'image-key-manager.active',
   activeTab: 'image-key-manager.activeTab',
   logs: 'image-key-manager.logs.v1',

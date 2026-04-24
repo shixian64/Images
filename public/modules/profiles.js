@@ -1,33 +1,108 @@
-// Profiles 面板：CRUD + 连通性测试 + 概览统计。
+// Profiles 面板：CRUD + 生图/对话两套上游配置 + 连通性测试 + 概览统计。
 
 import { $, $$, escapeHtml, maskKey, setStatus } from './dom.js';
 import { KEYS, readJson, writeJson, readString, writeString } from './state.js';
-import { DEFAULT_MODEL } from '../../shared/constants.js';
+import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../../shared/constants.js';
 import { addLog } from './logs.js';
 
 const STATUS_LABEL = { active: '启用', draft: '草稿', paused: '暂停' };
+const DEFAULT_BASE_URL = 'https://api.openai.com';
 
-function defaultProfile(overrides = {}) {
+const ENDPOINT_META = Object.freeze({
+  image: { label: '生图', prefix: 'image', defaultModel: DEFAULT_IMAGE_MODEL },
+  chat: { label: '对话', prefix: 'chat', defaultModel: DEFAULT_CHAT_MODEL }
+});
+
+function createId() {
+  return (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+}
+
+function defaultEndpoint(kind, overrides = {}) {
   return {
-    id: crypto.randomUUID(),
-    name: 'OpenAI 官方',
-    baseUrl: 'https://api.openai.com',
+    baseUrl: DEFAULT_BASE_URL,
     apiKey: '',
-    defaultModel: DEFAULT_MODEL,
-    status: 'active',
-    testStatus: 'unknown',   // ok | err | unknown
+    defaultModel: ENDPOINT_META[kind].defaultModel,
+    testStatus: 'unknown',   // ok | err | busy | unknown
     testLatencyMs: null,
     testedAt: null,
+    testError: '',
     ...overrides
   };
 }
 
-function normalize(profile) {
-  return { ...defaultProfile(), ...profile, id: profile.id || crypto.randomUUID() };
+function normalizeEndpoint(profile = {}, kind) {
+  const nested = profile[kind] && typeof profile[kind] === 'object' ? profile[kind] : {};
+
+  if (kind === 'image') {
+    return defaultEndpoint('image', {
+      baseUrl: firstDefined(nested.baseUrl, profile.imageBaseUrl, profile.baseUrl, DEFAULT_BASE_URL),
+      apiKey: firstDefined(nested.apiKey, profile.imageApiKey, profile.apiKey, ''),
+      defaultModel: firstDefined(nested.defaultModel, profile.imageDefaultModel, profile.defaultModel, DEFAULT_IMAGE_MODEL),
+      testStatus: firstDefined(nested.testStatus, profile.imageTestStatus, profile.testStatus, 'unknown'),
+      testLatencyMs: firstDefined(nested.testLatencyMs, profile.imageTestLatencyMs, profile.testLatencyMs, null),
+      testedAt: firstDefined(nested.testedAt, profile.imageTestedAt, profile.testedAt, null),
+      testError: firstDefined(nested.testError, profile.imageTestError, profile.testError, '')
+    });
+  }
+
+  return defaultEndpoint('chat', {
+    // 旧数据没有对话配置时，默认复用原接口地址/Key，避免升级后需要重新填写。
+    baseUrl: firstDefined(nested.baseUrl, profile.chatBaseUrl, profile.baseUrl, profile.image?.baseUrl, DEFAULT_BASE_URL),
+    apiKey: firstDefined(nested.apiKey, profile.chatApiKey, profile.apiKey, profile.image?.apiKey, ''),
+    defaultModel: firstDefined(nested.defaultModel, profile.chatDefaultModel, profile.chatModel, DEFAULT_CHAT_MODEL),
+    testStatus: firstDefined(nested.testStatus, profile.chatTestStatus, 'unknown'),
+    testLatencyMs: firstDefined(nested.testLatencyMs, profile.chatTestLatencyMs, null),
+    testedAt: firstDefined(nested.testedAt, profile.chatTestedAt, null),
+    testError: firstDefined(nested.testError, profile.chatTestError, '')
+  });
+}
+
+function withImageAliases(profile) {
+  // 保留旧字段，便于历史日志/旧模块读取；真实配置以 image/chat 两段为准。
+  return {
+    ...profile,
+    baseUrl: profile.image.baseUrl,
+    apiKey: profile.image.apiKey,
+    defaultModel: profile.image.defaultModel,
+    testStatus: profile.image.testStatus,
+    testLatencyMs: profile.image.testLatencyMs,
+    testedAt: profile.image.testedAt,
+    testError: profile.image.testError
+  };
+}
+
+function normalize(profile = {}) {
+  const image = normalizeEndpoint(profile, 'image');
+  const chat = normalizeEndpoint(profile, 'chat');
+  return withImageAliases({
+    id: profile.id || createId(),
+    name: profile.name || 'OpenAI 官方',
+    status: profile.status || 'active',
+    image,
+    chat
+  });
+}
+
+function defaultProfile(overrides = {}) {
+  return normalize({
+    id: createId(),
+    name: 'OpenAI 官方',
+    status: 'active',
+    ...overrides
+  });
 }
 
 function loadProfiles() {
-  const raw = readJson(KEYS.profiles, null) || readJson(KEYS.legacyProfiles, null);
+  const raw = readJson(KEYS.profiles, null)
+    || readJson(KEYS.legacyProfiles, null)
+    || readJson(KEYS.legacyProfilesV1, null);
   if (!Array.isArray(raw) || !raw.length) return [defaultProfile()];
   return raw.map(normalize);
 }
@@ -50,7 +125,20 @@ export function getActiveProfile() {
 
 export function getProfiles() { return profiles.slice(); }
 
+function getEndpoint(profile, kind) {
+  return profile?.[kind] || defaultEndpoint(kind);
+}
+
+export function getImageConfig(profile = getActiveProfile()) {
+  return getEndpoint(profile, 'image');
+}
+
+export function getChatConfig(profile = getActiveProfile()) {
+  return getEndpoint(profile, 'chat');
+}
+
 function persist() {
+  profiles = profiles.map(normalize);
   writeJson(KEYS.profiles, profiles);
   writeString(KEYS.activeProfile, activeId);
   emit();
@@ -61,11 +149,13 @@ function persist() {
 function renderList() {
   $('profileList').innerHTML = profiles.map((p) => {
     const active = p.id === activeId ? ' active' : '';
+    const image = getImageConfig(p);
+    const chat = getChatConfig(p);
     return `<li>
       <button class="profile-item${active}" data-id="${escapeHtml(p.id)}">
         <span>
           <strong>${escapeHtml(p.name || '未命名')}</strong>
-          <small>${escapeHtml(p.baseUrl || '未填写 Base URL')}</small>
+          <small>生图 ${escapeHtml(image.baseUrl || '未填写')} · 对话 ${escapeHtml(chat.baseUrl || '未填写')}</small>
         </span>
         <em class="badge ${escapeHtml(p.status)}">${escapeHtml(STATUS_LABEL[p.status] || p.status)}</em>
       </button>
@@ -84,32 +174,51 @@ function renderList() {
 function renderSummary() {
   const activeCount = profiles.filter((p) => p.status === 'active').length;
   const p = getActiveProfile();
+  const image = getImageConfig(p);
+  const chat = getChatConfig(p);
   $('profileSummary').innerHTML = `
     <div><span>接口总数</span><strong>${profiles.length}</strong></div>
     <div><span>启用接口</span><strong>${activeCount}</strong></div>
     <div><span>当前接口</span><strong>${escapeHtml(p?.name || '未命名')}</strong></div>
-    <div><span>密钥</span><strong>${escapeHtml(maskKey(p?.apiKey))}</strong></div>
+    <div><span>生图模型</span><strong>${escapeHtml(image.defaultModel || '-')}</strong></div>
+    <div><span>对话模型</span><strong>${escapeHtml(chat.defaultModel || '-')}</strong></div>
+    <div><span>生图密钥</span><strong>${escapeHtml(maskKey(image.apiKey))}</strong></div>
+    <div><span>对话密钥</span><strong>${escapeHtml(maskKey(chat.apiKey))}</strong></div>
   `;
 }
 
-function renderTestResult() {
+function renderEndpointTestResult(kind) {
   const p = getActiveProfile();
-  const el = $('testResult');
-  if (!p || !p.testStatus || p.testStatus === 'unknown') {
+  const endpoint = getEndpoint(p, kind);
+  const el = $(`${kind}TestResult`);
+  if (!el) return;
+  if (!endpoint.testStatus || endpoint.testStatus === 'unknown') {
     el.dataset.state = 'idle';
     el.textContent = '未测试';
     return;
   }
-  if (p.testStatus === 'ok') {
+  if (endpoint.testStatus === 'ok') {
     el.dataset.state = 'ok';
-    el.textContent = `OK · ${p.testLatencyMs ?? '?'}ms`;
-  } else if (p.testStatus === 'busy') {
+    el.textContent = `OK · ${endpoint.testLatencyMs ?? '?'}ms`;
+  } else if (endpoint.testStatus === 'busy') {
     el.dataset.state = 'busy';
     el.textContent = '测试中…';
   } else {
     el.dataset.state = 'err';
-    el.textContent = `失败 · ${p.testError || '未知错误'}`;
+    el.textContent = `失败 · ${endpoint.testError || '未知错误'}`;
   }
+}
+
+function renderTestResult() {
+  renderEndpointTestResult('image');
+  renderEndpointTestResult('chat');
+}
+
+function fillEndpointForm(kind, endpoint) {
+  const { prefix } = ENDPOINT_META[kind];
+  $(`${prefix}BaseUrl`).value = endpoint.baseUrl || DEFAULT_BASE_URL;
+  $(`${prefix}ApiKey`).value = endpoint.apiKey || '';
+  $(`${prefix}DefaultModel`).value = endpoint.defaultModel || ENDPOINT_META[kind].defaultModel;
 }
 
 function fillForm() {
@@ -117,22 +226,39 @@ function fillForm() {
   if (!p) return;
   $('profileName').value = p.name || '';
   $('profileStatus').value = p.status || 'active';
-  $('baseUrl').value = p.baseUrl || 'https://api.openai.com';
-  $('apiKey').value = p.apiKey || '';
-  $('defaultModel').value = p.defaultModel || DEFAULT_MODEL;
+  fillEndpointForm('image', getImageConfig(p));
+  fillEndpointForm('chat', getChatConfig(p));
+}
+
+function readEndpointForm(kind, currentEndpoint) {
+  const { prefix, defaultModel } = ENDPOINT_META[kind];
+  const next = {
+    ...currentEndpoint,
+    baseUrl: $(`${prefix}BaseUrl`).value.trim() || DEFAULT_BASE_URL,
+    apiKey: $(`${prefix}ApiKey`).value.trim(),
+    defaultModel: $(`${prefix}DefaultModel`).value.trim() || defaultModel
+  };
+
+  const connectionChanged = next.baseUrl !== currentEndpoint.baseUrl || next.apiKey !== currentEndpoint.apiKey;
+  if (connectionChanged) {
+    next.testStatus = 'unknown';
+    next.testLatencyMs = null;
+    next.testedAt = null;
+    next.testError = '';
+  }
+  return next;
 }
 
 function readFormProfile() {
   const current = getActiveProfile() || defaultProfile();
-  return {
+  return normalize({
     ...current,
-    id: activeId || crypto.randomUUID(),
+    id: activeId || createId(),
     name: $('profileName').value.trim() || '未命名配置',
     status: $('profileStatus').value,
-    baseUrl: $('baseUrl').value.trim() || 'https://api.openai.com',
-    apiKey: $('apiKey').value.trim(),
-    defaultModel: $('defaultModel').value.trim() || DEFAULT_MODEL,
-  };
+    image: readEndpointForm('image', getImageConfig(current)),
+    chat: readEndpointForm('chat', getChatConfig(current))
+  });
 }
 
 function renderAll() {
@@ -158,14 +284,21 @@ function save() {
   activeId = next.id;
   persist();
   renderAll();
-  addLog('info', 'profile.saved', { name: next.name, baseUrl: next.baseUrl, status: next.status });
+  addLog('info', 'profile.saved', {
+    name: next.name,
+    imageBaseUrl: next.image.baseUrl,
+    imageModel: next.image.defaultModel,
+    chatBaseUrl: next.chat.baseUrl,
+    chatModel: next.chat.defaultModel,
+    status: next.status
+  });
   setStatus('配置已保存', 'ok', 1600);
 }
 
 function createDraft() {
-  const next = normalize({
-    name: '新接口配置', baseUrl: 'https://api.openai.com',
-    apiKey: '', status: 'draft'
+  const next = defaultProfile({
+    name: '新接口配置',
+    status: 'draft'
   });
   profiles.push(next);
   activeId = next.id;
@@ -189,64 +322,103 @@ function remove() {
   setStatus('配置已删除', 'ok', 1600);
 }
 
-async function testConnection() {
+function upsertProfile(next) {
+  const i = profiles.findIndex((p) => p.id === next.id);
+  if (i >= 0) profiles[i] = normalize(next);
+  else profiles.push(normalize(next));
+  activeId = next.id;
+}
+
+async function testConnection(kind) {
+  const meta = ENDPOINT_META[kind];
   const form = readFormProfile();
-  // 先校验格式
-  try { new URL(form.baseUrl); } catch {
-    setStatus('Base URL 格式不正确', 'err', 2000);
+  const endpoint = getEndpoint(form, kind);
+
+  try { new URL(endpoint.baseUrl); } catch {
+    setStatus(`${meta.label} Base URL 格式不正确`, 'err', 2000);
     return;
   }
-  if (!form.apiKey) {
-    setStatus('请先填写 API Key', 'err', 2000);
+  if (!endpoint.apiKey) {
+    setStatus(`请先填写${meta.label} API Key`, 'err', 2000);
     return;
   }
-  const idx = profiles.findIndex((p) => p.id === form.id);
-  if (idx >= 0) profiles[idx] = { ...profiles[idx], testStatus: 'busy' };
+
+  upsertProfile({
+    ...form,
+    [kind]: { ...endpoint, testStatus: 'busy', testError: '' }
+  });
   renderTestResult();
-  setStatus('测试中…', 'busy');
+  setStatus(`${meta.label}测试中…`, 'busy');
 
   try {
     const resp = await fetch('/api/test-profile', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: form.name, baseUrl: form.baseUrl, apiKey: form.apiKey })
+      body: JSON.stringify({
+        name: form.name,
+        kind,
+        baseUrl: endpoint.baseUrl,
+        apiKey: endpoint.apiKey
+      })
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    const next = {
+    const next = normalize({
       ...form,
-      testStatus: 'ok',
-      testLatencyMs: data.durationMs ?? null,
-      testedAt: new Date().toISOString(),
-      testError: ''
-    };
-    const i = profiles.findIndex((p) => p.id === next.id);
-    if (i >= 0) profiles[i] = next; else profiles.push(next);
+      [kind]: {
+        ...endpoint,
+        testStatus: 'ok',
+        testLatencyMs: data.durationMs ?? null,
+        testedAt: new Date().toISOString(),
+        testError: ''
+      }
+    });
+    upsertProfile(next);
     persist();
     renderAll();
-    addLog('info', 'profile.test.ok', { name: form.name, durationMs: data.durationMs, modelCount: data.modelCount });
-    setStatus(`连接成功 · ${data.modelCount} 个模型`, 'ok', 2400);
+    addLog('info', 'profile.test.ok', {
+      kind: meta.label,
+      name: form.name,
+      baseUrl: endpoint.baseUrl,
+      durationMs: data.durationMs,
+      modelCount: data.modelCount
+    });
+    setStatus(`${meta.label}连接成功 · ${data.modelCount} 个模型`, 'ok', 2400);
   } catch (err) {
-    const next = {
+    const next = normalize({
       ...form,
-      testStatus: 'err',
-      testLatencyMs: null,
-      testedAt: new Date().toISOString(),
-      testError: err.message || String(err)
-    };
-    const i = profiles.findIndex((p) => p.id === next.id);
-    if (i >= 0) profiles[i] = next; else profiles.push(next);
+      [kind]: {
+        ...endpoint,
+        testStatus: 'err',
+        testLatencyMs: null,
+        testedAt: new Date().toISOString(),
+        testError: err.message || String(err)
+      }
+    });
+    upsertProfile(next);
     persist();
     renderAll();
-    addLog('error', 'profile.test.failed', { name: form.name, error: err.message || String(err) });
-    setStatus('连接失败', 'err', 2400);
+    addLog('error', 'profile.test.failed', {
+      kind: meta.label,
+      name: form.name,
+      baseUrl: endpoint.baseUrl,
+      error: err.message || String(err)
+    });
+    setStatus(`${meta.label}连接失败`, 'err', 2400);
   }
+}
+
+async function testAllConnections() {
+  await testConnection('image');
+  await testConnection('chat');
 }
 
 export function mountProfilesPanel() {
   $('saveProfile').addEventListener('click', save);
   $('newProfile').addEventListener('click', createDraft);
   $('deleteProfile').addEventListener('click', remove);
-  $('testProfile').addEventListener('click', testConnection);
+  $('testProfile')?.addEventListener('click', testAllConnections);
+  $('testImageProfile')?.addEventListener('click', () => testConnection('image'));
+  $('testChatProfile')?.addEventListener('click', () => testConnection('chat'));
   renderAll();
 }

@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildChatPayload,
   buildImagePayload,
   resolveApiUrl,
+  resolveChatCompletionsUrl,
   resolveModelsUrl
 } from '../services/upstream.js';
 
@@ -35,6 +37,13 @@ test('resolveApiUrl 空值 / 非法 URL 抛错', () => {
 test('resolveModelsUrl 指向 /v1/models', () => {
   assert.equal(resolveModelsUrl('https://api.openai.com'), 'https://api.openai.com/v1/models');
   assert.equal(resolveModelsUrl('https://api.openai.com/v1'), 'https://api.openai.com/v1/models');
+});
+
+// --- resolveChatCompletionsUrl ---
+
+test('resolveChatCompletionsUrl 指向 /v1/chat/completions', () => {
+  assert.equal(resolveChatCompletionsUrl('https://api.openai.com'), 'https://api.openai.com/v1/chat/completions');
+  assert.equal(resolveChatCompletionsUrl('https://api.openai.com/v1'), 'https://api.openai.com/v1/chat/completions');
 });
 
 // --- buildImagePayload ---
@@ -73,4 +82,35 @@ test('buildImagePayload 只带白名单字段，忽略未知字段', () => {
   const p = buildImagePayload({ prompt: 'x', evil_field: 'boom', apiKey: 'sk-xxx' });
   assert.ok(!('evil_field' in p));
   assert.ok(!('apiKey' in p), 'apiKey 绝不能跟进 upstream body');
+});
+
+// --- buildChatPayload ---
+
+test('buildChatPayload 需要 messages 或 prompt', () => {
+  assert.throws(() => buildChatPayload({}), /Messages are required/);
+  assert.throws(() => buildChatPayload({ messages: [] }), /Messages are required/);
+});
+
+test('buildChatPayload 支持 prompt 简写并使用默认对话模型', () => {
+  const p = buildChatPayload({ prompt: 'hello' });
+  assert.equal(p.model, 'gpt-4.1-mini');
+  assert.deepEqual(p.messages, [{ role: 'user', content: 'hello' }]);
+});
+
+test('buildChatPayload 支持 messages 与可选参数白名单', () => {
+  const p = buildChatPayload({
+    model: 'custom-chat',
+    messages: [{ role: 'user', content: 'hi' }],
+    temperature: 0.2,
+    max_tokens: 128,
+    stream: true,
+    apiKey: 'sk-xxx',
+    baseUrl: 'https://api.openai.com'
+  });
+  assert.equal(p.model, 'custom-chat');
+  assert.equal(p.temperature, 0.2);
+  assert.equal(p.max_tokens, 128);
+  assert.ok(!('stream' in p), '当前 JSON 代理不透传 stream');
+  assert.ok(!('apiKey' in p));
+  assert.ok(!('baseUrl' in p));
 });

@@ -580,6 +580,18 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .form-grid .span-2 { grid-column: span 2; }
 
+.config-section {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+.config-section h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.config-section .hint { margin: 0; }
+
 .test-result {
   padding: 9px 12px;
   border: 1px dashed var(--border);
@@ -940,6 +952,18 @@ button.danger:hover { background: var(--danger-soft); }
 .log-summary .chip.error { color: var(--danger); }
 .log-summary .chip.warn  { color: var(--warning); }
 .log-summary .chip.info  { color: var(--brand); }
+.log-summary button.chip {
+  font: inherit;
+  cursor: pointer;
+}
+.log-summary button.chip:hover {
+  border-color: currentColor;
+  background: var(--surface-3);
+}
+.log-summary button.chip.active {
+  border-color: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
+}
 
 .log-list {
   display: flex; flex-direction: column; gap: 6px;
