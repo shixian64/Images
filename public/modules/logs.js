@@ -70,14 +70,23 @@ function filterLogs(level, keyword) {
   });
 }
 
-function renderSummary(filtered) {
+function renderSummary(filtered, activeLevel = 'all') {
   const counts = { debug: 0, info: 0, warn: 0, error: 0 };
   for (const l of logs) counts[l.level] = (counts[l.level] || 0) + 1;
+  const levelChip = (level, label) => `
+    <button
+      type="button"
+      class="chip ${level} level-chip${activeLevel === level ? ' active' : ''}"
+      data-level-filter="${level}"
+      aria-pressed="${activeLevel === level ? 'true' : 'false'}"
+      title="筛选 ${label} 日志；再次点击取消筛选"
+    >${label} ${counts[level]}</button>`;
+
   $('logSummary').innerHTML = `
     <span class="chip">共 ${logs.length} 条 · 显示 ${filtered.length}</span>
-    <span class="chip info">Info ${counts.info}</span>
-    <span class="chip warn">Warn ${counts.warn}</span>
-    <span class="chip error">Error ${counts.error}</span>
+    ${levelChip('info', 'Info')}
+    ${levelChip('warn', 'Warn')}
+    ${levelChip('error', 'Error')}
   `;
 
   const badge = $('logErrorBadge');
@@ -141,19 +150,23 @@ function renderList(filtered, { onReusePrompt } = {}) {
 }
 
 export function mountLogsPanel({ onReusePrompt } = {}) {
-  const levelEl = $('logLevelFilter');
   const searchEl = $('logSearch');
+  let activeLevel = 'all';
 
   function rerender() {
-    const level = levelEl.value || 'all';
     const keyword = (searchEl.value || '').trim();
-    const filtered = filterLogs(level, keyword);
-    renderSummary(filtered);
+    const filtered = filterLogs(activeLevel, keyword);
+    renderSummary(filtered, activeLevel);
     renderList(filtered, { onReusePrompt });
   }
 
-  levelEl.addEventListener('change', rerender);
   searchEl.addEventListener('input', rerender);
+  $('logSummary').addEventListener('click', (ev) => {
+    const chip = ev.target.closest('[data-level-filter]');
+    if (!chip) return;
+    activeLevel = activeLevel === chip.dataset.levelFilter ? 'all' : chip.dataset.levelFilter;
+    rerender();
+  });
   $('exportLogs').addEventListener('click', exportLogs);
   $('clearLogs').addEventListener('click', () => {
     if (confirm('确认清空所有日志？')) clearLogs();
