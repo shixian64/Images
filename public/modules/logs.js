@@ -86,6 +86,7 @@ function renderSummary(filtered) {
       badge.hidden = false;
       badge.textContent = String(counts.error);
     } else {
+      badge.textContent = '0';
       badge.hidden = true;
     }
   }

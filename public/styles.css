@@ -170,6 +170,7 @@ kbd {
   border-radius: 10px;
   font-size: 11px; line-height: 18px; text-align: center;
 }
+.menu-badge[hidden] { display: none; }
 
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 
