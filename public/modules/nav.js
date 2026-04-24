@@ -1,9 +1,9 @@
-// Tab 切换 + 记忆 + 快捷键（G S / G P / G L）。对应 §5.1 键盘友好。
+// Tab 切换 + 记忆 + 快捷键（G S / G G / G P / G L）。对应 §5.1 键盘友好。
 
 import { $, $$ } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 
-const TAB_IDS = ['studioPanel', 'configPanel', 'logsPanel'];
+const TAB_IDS = ['studioPanel', 'galleryPanel', 'configPanel', 'logsPanel'];
 
 export function switchTab(tabId) {
   if (!TAB_IDS.includes(tabId)) tabId = 'studioPanel';
@@ -36,6 +36,7 @@ export function mountNav() {
       pending = false;
       clearTimeout(pendingTimer);
       if (k === 's') switchTab('studioPanel');
+      else if (k === 'g') switchTab('galleryPanel');
       else if (k === 'p') switchTab('configPanel');
       else if (k === 'l') switchTab('logsPanel');
     }

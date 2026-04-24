@@ -1,9 +1,11 @@
 // 静态文件路由。
-// 主根：public/；额外根：/shared/* 映射到项目根的 shared/（供浏览器 ESM import）。
+// 主根：public/；额外根：
+// - /shared/* 映射到项目根的 shared/（供浏览器 ESM import）
+// - /gallery-files/* 映射到本地 generated/（展示自动保存的图片）
 // 仍然防止路径穿越。
 
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -14,11 +16,13 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp'
+  '.webp': 'image/webp',
+  '.gif': 'image/gif'
 };
 
 export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
   const sharedDir = join(rootDir, 'shared');
+  const galleryDir = join(rootDir, 'generated');
 
   function resolveFile(pathname) {
     // /shared/* —— 映射到项目根的 shared/，限制在 sharedDir 内。
@@ -26,6 +30,13 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       const rel = normalize(pathname.slice('/shared/'.length)).replace(/^([.][.][/\\])+/, '');
       const filePath = join(sharedDir, rel);
       return { filePath, root: sharedDir };
+    }
+    // /gallery-files/* —— 只暴露 generated/ 下的图库文件。
+    if (pathname.startsWith('/gallery-files/')) {
+      const rel = normalize(pathname.slice('/gallery-files/'.length)).replace(/^([.][.][/\\])+/, '');
+      const safeRel = rel.startsWith(`images${sep}`) ? rel : '__not_found__';
+      const filePath = join(galleryDir, safeRel);
+      return { filePath, root: galleryDir };
     }
     // 默认：public/ 下。
     const requested = pathname === '/' ? '/index.html' : pathname;

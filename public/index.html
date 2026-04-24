@@ -19,6 +19,7 @@
 
     <nav class="top-menu" aria-label="主导航">
       <button class="tab-button active" data-tab="studioPanel" data-hotkey="gs">生成</button>
+      <button class="tab-button" data-tab="galleryPanel" data-hotkey="gg">图库</button>
       <button class="tab-button" data-tab="configPanel" data-hotkey="gp">配置</button>
       <button class="tab-button" data-tab="logsPanel" data-hotkey="gl">
         日志 <span id="logErrorBadge" class="menu-badge" hidden>0</span>
@@ -111,6 +112,32 @@
     </section>
 
     <!-- ============================================================ -->
+    <!-- Gallery -->
+    <!-- ============================================================ -->
+    <section id="galleryPanel" class="tab-panel" aria-labelledby="galleryHeading">
+      <section class="panel saved-gallery-panel">
+        <header class="panel-head gallery-head">
+          <div>
+            <p class="eyebrow">本地图库</p>
+            <h2 id="galleryHeading">自动保存的图片</h2>
+            <p class="hint">生成成功后会自动保存到本地 <code>generated/images</code>；程序启动时自动读取并显示。</p>
+          </div>
+          <div class="gallery-actions">
+            <button id="refreshGallery" class="ghost">刷新图库</button>
+          </div>
+        </header>
+
+        <div class="gallery-summary" id="gallerySummary" aria-live="polite"></div>
+        <div id="savedGallery" class="gallery saved-gallery" data-empty="true">
+          <div class="empty-state">
+            <div class="empty-icon" aria-hidden="true">▦</div>
+            <p>正在加载本地图库…</p>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============================================================ -->
     <!-- Profiles -->
     <!-- ============================================================ -->
     <section id="configPanel" class="tab-panel" aria-labelledby="configHeading">
@@ -124,7 +151,6 @@
             <button id="newProfile" class="ghost">+ 新建</button>
           </header>
           <ul id="profileList" class="profile-list" aria-label="配置列表"></ul>
-          <p class="hint">配置仅保存在当前浏览器 localStorage；Key 在日志中以 <code>sk-p••••abcd</code> 的形式脱敏展示。</p>
         </aside>
 
         <form class="profile-form" id="profileForm" autocomplete="off" onsubmit="return false;">
@@ -164,6 +190,7 @@
         <aside class="summary-panel">
           <p class="eyebrow">概览</p>
           <div class="summary-grid" id="profileSummary"></div>
+          <p class="hint summary-note">配置仅保存在当前浏览器 localStorage；Key 在日志中以 <code>sk-p••••abcd</code> 的形式脱敏展示。</p>
         </aside>
       </section>
     </section>

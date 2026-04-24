@@ -414,6 +414,25 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .gallery[data-empty="true"] { display: block; }
 
+.saved-gallery-panel .gallery-head { align-items: flex-end; }
+.gallery-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gallery-summary {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin: 8px 0 16px;
+  color: var(--text-muted); font-size: 12.5px;
+}
+.gallery-summary .chip {
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex; align-items: center;
+  background: var(--surface-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  line-height: 1;
+}
+.gallery-summary .chip.error { color: var(--danger); }
+.gallery-summary .chip.info { color: var(--brand); }
+
 .empty-state {
   padding: 48px 24px;
   text-align: center;
@@ -454,6 +473,11 @@ button.danger:hover { background: var(--danger-soft); }
   font-size: 12px;
   color: var(--text-muted);
   display: flex; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap;
+}
+.image-card .compact-meta {
+  padding-top: 0;
+  color: var(--text-faint);
 }
 .image-card .revised {
   padding: 0 12px 10px;
@@ -461,6 +485,22 @@ button.danger:hover { background: var(--danger-soft); }
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+.image-card .prompt-preview {
+  padding: 0 12px 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.image-card .saved-badge {
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 600;
 }
 .image-card .card-actions {
   position: absolute; top: 8px; right: 8px;
@@ -564,6 +604,7 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .summary-grid span { color: var(--text-faint); font-size: 12px; }
 .summary-grid strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.summary-note { margin: 14px 0 0; }
 
 /* ============================================================
    Logs

@@ -68,7 +68,10 @@ function showProgress(message) {
 }
 
 function imageSrcFromItem(item) {
+  if (item.local_url) return item.local_url;
+  if (item.localUrl) return item.localUrl;
   if (item.url) return item.url;
+  if (item.b64_json && String(item.b64_json).startsWith('data:')) return item.b64_json;
   if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
   return '';
 }
@@ -92,18 +95,26 @@ function renderImages(items, prompt) {
       ? `<p class="revised">${escapeHtml(item.revised_prompt)}</p>`
       : '';
     const stem = `image-${Date.now()}-${index + 1}`;
+    const downloadName = item.file_name || `${stem}.png`;
+    const savedBadge = item.local_url || item.localUrl
+      ? '<span class="saved-badge">已保存到本地</span>'
+      : '';
+    const saveError = item.save_error
+      ? `<p class="revised">本地保存失败：${escapeHtml(item.save_error)}</p>`
+      : '';
     return `<article class="image-card">
-      <img src="${src}" alt="${altBase || `Generated image ${index + 1}`}" />
+      <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
       <div class="card-actions">
-        <a href="${src}" download="${stem}.png">下载</a>
+        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
       </div>
-      <div class="image-meta"><span>#${index + 1}</span></div>
+      <div class="image-meta"><span>#${index + 1}</span>${savedBadge}</div>
       ${revised}
+      ${saveError}
     </article>`;
   }).join('');
 }
 
-async function generate() {
+async function generate({ onSavedImages } = {}) {
   showError('');
   const profile = getActiveProfile();
   if (!profile) return showError('请先在"配置"页面创建接口配置。');
@@ -144,6 +155,9 @@ async function generate() {
 
     const items = data?.data || [];
     renderImages(items, prompt);
+    if (items.some((item) => item.local_url || item.localUrl) || data?.saved?.length) {
+      onSavedImages?.(items);
+    }
     const durationMs = Date.now() - started;
 
     addLog('info', 'image.generate.success', {
@@ -187,7 +201,7 @@ export function loadPromptFromLog(prompt) {
   updatePromptCount();
 }
 
-export function mountStudioPanel() {
+export function mountStudioPanel({ onSavedImages } = {}) {
   populateOptions();
 
   // 恢复 Prompt 草稿
@@ -211,13 +225,13 @@ export function mountStudioPanel() {
   // 标记用户手动改过 model，之后 profile 切换不再覆盖
   $('model').addEventListener('input', () => { $('model').dataset.userEdited = '1'; });
 
-  $('generate').addEventListener('click', generate);
+  $('generate').addEventListener('click', () => generate({ onSavedImages }));
 
   // ⌘/Ctrl + Enter：在 textarea 内也能触发
   document.addEventListener('keydown', (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
       ev.preventDefault();
-      generate();
+      generate({ onSavedImages });
     }
   });
 

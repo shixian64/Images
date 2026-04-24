@@ -6,6 +6,7 @@ import { readJsonBody, sendJson } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
+import { saveGeneratedImages } from '../services/gallery-store.js';
 
 export async function handleGenerate(req, res) {
   const started = Date.now();
@@ -35,12 +36,34 @@ export async function handleGenerate(req, res) {
       return sendJson(res, status, { error: errMsg, details: data });
     }
 
+    const imageItems = Array.isArray(data?.data) ? data.data : [];
+    let saved = [];
+    try {
+      const saveResult = await saveGeneratedImages(imageItems, {
+        prompt: payload.prompt,
+        model: payload.model,
+        size: body.size || '',
+        quality: body.quality || '',
+        outputFormat: body.output_format || '',
+        profileName: body.name || ''
+      });
+      saved = saveResult.saved;
+      if (Array.isArray(data?.data)) data.data = saveResult.items;
+    } catch (saveError) {
+      logger.warn('image.generate.save_failed', {
+        model: payload.model,
+        imageCount: imageItems.length,
+        error: saveError.message || String(saveError)
+      });
+    }
+
     logger.info('image.generate.success', {
       status, durationMs,
       model: payload.model,
-      imageCount: Array.isArray(data?.data) ? data.data.length : 0
+      imageCount: imageItems.length,
+      savedCount: saved.length
     });
-    return sendJson(res, 200, data);
+    return sendJson(res, 200, { ...data, saved });
   } catch (error) {
     logger.warn('image.generate.rejected', {
       durationMs: Date.now() - started,
