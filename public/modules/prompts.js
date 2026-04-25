@@ -185,11 +185,48 @@ function loadBuilderDraft() {
 
 function clearBuilder() {
   for (const [, id] of BUILDER_FIELDS) {
-    if ($(id)) $(id).value = '';
+    const el = $(id);
+    if (!el) continue;
+    el.value = '';
+    resetTextareaNodeSize(el);
   }
+  bindBuilderFieldInputs();
   saveBuilderDraft();
   updatePreviewCount();
   updateQualityList();
+}
+
+function resetTextareaNodeSize(el) {
+  // Native textarea resizing is kept as per-node browser state in some engines.
+  // Replacing the node clears that state so "清空构造" also restores the default box size.
+  if (el.tagName !== 'TEXTAREA' || !el.parentNode) return el;
+  const clone = el.cloneNode(true);
+  clone.value = el.value;
+  clone.removeAttribute('data-builder-input-bound');
+  clone.style.removeProperty('width');
+  clone.style.removeProperty('height');
+  el.replaceWith(clone);
+  return clone;
+}
+
+function handleBuilderFieldInput(id) {
+  if (id === 'promptComposedOutput') {
+    updatePreviewCount();
+    saveBuilderDraft();
+  } else if (id === 'promptTitleInput' || id === 'promptTagsInput') {
+    saveBuilderDraft();
+  } else {
+    recomputeOutput();
+  }
+}
+
+function bindBuilderFieldInputs() {
+  for (const [, id] of BUILDER_FIELDS) {
+    const el = $(id);
+    if (!el || el.dataset.builderInputBound === 'true') continue;
+    el.dataset.builderInputBound = 'true';
+    el.addEventListener('input', () => handleBuilderFieldInput(id));
+  }
 }
 
 function appendToField(id, value) {
@@ -484,20 +521,7 @@ export function mountPromptPanel({ onUsePrompt } = {}) {
   });
   switchPromptSubpanel(readStringScoped(KEYS.promptManagerTab, 'builder'));
 
-  for (const [, id] of BUILDER_FIELDS) {
-    const el = $(id);
-    if (!el) continue;
-    el.addEventListener('input', () => {
-      if (id === 'promptComposedOutput') {
-        updatePreviewCount();
-        saveBuilderDraft();
-      } else if (id === 'promptTitleInput' || id === 'promptTagsInput') {
-        saveBuilderDraft();
-      } else {
-        recomputeOutput();
-      }
-    });
-  }
+  bindBuilderFieldInputs();
 
   $$('.prompt-chip').forEach((btn) => {
     btn.addEventListener('click', () => appendToField(btn.dataset.target, btn.dataset.value));
