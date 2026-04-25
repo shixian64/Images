@@ -1229,6 +1229,72 @@ body.preview-open { overflow: hidden; }
 }
 .user-menu-dropdown button:hover { background: var(--surface-2); }
 
+/* 管理菜单 */
+.management-tabs {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+.management-tab {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.management-tab:hover,
+.management-tab.active {
+  background: transparent;
+  color: var(--brand);
+}
+.management-tab:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+.management-pane {
+  margin-top: 12px;
+}
+.management-pane[hidden] { display: none; }
+.management-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0 16px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.management-summary .chip,
+.users-table .chip {
+  min-height: 26px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  line-height: 1;
+  white-space: nowrap;
+}
+.management-summary .chip.info,
+.users-table .chip.info {
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+.management-summary .chip.error,
+.users-table .chip.err {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.users-table .chip.ok {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.management-hint { margin: -4px 0 14px; }
+
 /* 用户管理表格 */
 .users-table {
   width: 100%;
@@ -1282,6 +1348,40 @@ body.preview-open { overflow: hidden; }
 .users-table .users-role-select:disabled {
   opacity: .55;
   cursor: not-allowed;
+}
+
+.management-table {
+  table-layout: fixed;
+}
+.management-user-cell,
+.management-file-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.management-user-cell strong,
+.management-file-cell strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.management-user-cell small,
+.management-file-cell small {
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-gallery-thumb {
+  width: 56px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-thumb);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: block;
 }
 
 /* 模态对话框 */

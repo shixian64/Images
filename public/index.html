@@ -25,7 +25,7 @@
       <button class="tab-button" data-tab="logsPanel" data-hotkey="gl">
         日志 <span id="logErrorBadge" class="menu-badge" hidden>0</span>
       </button>
-      <button class="tab-button" data-tab="usersPanel" data-hotkey="gu" data-admin-only hidden>用户</button>
+      <button class="tab-button" data-tab="usersPanel" data-hotkey="gu" data-admin-only hidden>管理</button>
     </nav>
 
     <div class="topbar-right">
@@ -395,18 +395,77 @@
     <!-- ============================================================ -->
     <!-- Users (admin only) -->
     <!-- ============================================================ -->
-    <section id="usersPanel" class="tab-panel" data-admin-only hidden aria-labelledby="usersHeading">
-      <div class="panel">
-        <header class="panel-head">
-          <div>
-            <p class="eyebrow">用户管理</p>
-            <h2 id="usersHeading">用户</h2>
-          </div>
-          <div>
-            <button class="ghost small" id="usersRefresh">刷新</button>
-          </div>
-        </header>
-        <div id="usersTableWrap"></div>
+    <section id="usersPanel" class="tab-panel" data-admin-only hidden aria-labelledby="managementHeading">
+      <div class="panel management-panel">
+        <nav class="management-tabs" role="tablist" aria-label="管理菜单">
+          <button
+            class="management-tab active"
+            id="managementTabUsers"
+            type="button"
+            role="tab"
+            aria-controls="usersManagement"
+            aria-selected="true"
+            data-management-tab="usersManagement"
+          >用户管理</button>
+          <button
+            class="management-tab"
+            id="managementTabQuota"
+            type="button"
+            role="tab"
+            aria-controls="quotaManagement"
+            aria-selected="false"
+            data-management-tab="quotaManagement"
+          >额度管理</button>
+          <button
+            class="management-tab"
+            id="managementTabGallery"
+            type="button"
+            role="tab"
+            aria-controls="galleryManagement"
+            aria-selected="false"
+            data-management-tab="galleryManagement"
+          >图库管理</button>
+        </nav>
+
+        <section id="usersManagement" class="management-pane active" role="tabpanel" aria-labelledby="managementTabUsers">
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">用户管理</p>
+              <h2 id="managementHeading">用户</h2>
+            </div>
+            <div>
+              <button class="ghost small" id="usersRefresh">刷新</button>
+            </div>
+          </header>
+          <div id="usersTableWrap"></div>
+        </section>
+
+        <section id="quotaManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabQuota" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">额度管理</p>
+              <h2>额度</h2>
+            </div>
+            <div>
+              <button class="ghost small" id="quotaRefresh">刷新</button>
+            </div>
+          </header>
+          <div id="quotaTableWrap"></div>
+        </section>
+
+        <section id="galleryManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabGallery" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">图库管理</p>
+              <h2>图库</h2>
+            </div>
+            <div>
+              <button class="ghost small" id="adminGalleryRefresh">刷新</button>
+            </div>
+          </header>
+          <div id="adminGallerySummary" class="management-summary" aria-live="polite"></div>
+          <div id="adminGalleryTableWrap"></div>
+        </section>
       </div>
     </section>
   </main>
