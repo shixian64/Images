@@ -98,11 +98,21 @@ export async function callUpstream({
   payload,
   fetchImpl = fetch,
   timeoutMs = 180000,
-  timeoutMessage = 'Upstream request timed out.'
+  timeoutMessage = 'Upstream request timed out.',
+  signal
 }) {
   const started = Date.now();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromCaller = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) abortFromCaller();
+    else signal.addEventListener('abort', abortFromCaller, { once: true });
+  }
   let response;
   try {
     response = await fetchImpl(targetUrl, {
@@ -119,14 +129,15 @@ export async function callUpstream({
     if (err.name === 'AbortError') {
       return {
         ok: false,
-        status: 504,
-        data: { error: { message: timeoutMessage } },
+        status: timedOut ? 504 : 499,
+        data: { error: { message: timedOut ? timeoutMessage : 'Client closed request.' } },
         durationMs: Date.now() - started
       };
     }
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener?.('abort', abortFromCaller);
   }
   const text = await response.text();
   let data;

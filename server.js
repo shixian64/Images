@@ -6,7 +6,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 
 import { handleChat } from './routes/chat.js';
-import { handleGenerate } from './routes/generate.js';
+import { handleGenerate, handleGenerateStream } from './routes/generate.js';
 import { handleGallery } from './routes/gallery.js';
 import { handleTestProfile } from './routes/test-profile.js';
 import { handleAuthRoute } from './routes/auth.js';
@@ -62,6 +62,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me') {
       return handleQuotaRoute(req, res, pathname);
     }
+    if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
     if (req.method === 'POST' && pathname === '/api/generate') return handleGenerate(req, res);
     if (req.method === 'POST' && pathname === '/api/chat') return handleChat(req, res);
     if (req.method === 'POST' && pathname === '/api/test-profile') return handleTestProfile(req, res);
