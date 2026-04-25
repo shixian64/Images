@@ -693,7 +693,7 @@ button.danger:hover { background: var(--danger-soft); }
     var(--surface-2);
 }
 .prompt-preview-pane > .hint {
-  margin-top: auto;
+  margin-top: 12px;
 }
 
 .prompt-section-head {
@@ -767,7 +767,7 @@ button.danger:hover { background: var(--danger-soft); }
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 12px 0;
+  margin: auto 0 12px;
 }
 .prompt-quality-list span {
   padding: 4px 9px;
