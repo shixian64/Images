@@ -149,15 +149,9 @@ function persist() {
 function renderList() {
   $('profileList').innerHTML = profiles.map((p) => {
     const active = p.id === activeId ? ' active' : '';
-    const image = getImageConfig(p);
-    const chat = getChatConfig(p);
     return `<li>
       <button class="profile-item${active}" data-id="${escapeHtml(p.id)}">
-        <span>
-          <strong>${escapeHtml(p.name || '未命名')}</strong>
-          <small>生图 ${escapeHtml(image.baseUrl || '未填写')} · 对话 ${escapeHtml(chat.baseUrl || '未填写')}</small>
-        </span>
-        <em class="badge ${escapeHtml(p.status)}">${escapeHtml(STATUS_LABEL[p.status] || p.status)}</em>
+        <strong>${escapeHtml(p.name || '未命名')}</strong>
       </button>
     </li>`;
   }).join('');
