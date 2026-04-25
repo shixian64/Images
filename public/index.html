@@ -468,11 +468,21 @@
               <h2>额度</h2>
             </div>
             <div class="management-actions">
-              <button class="ghost small" id="quotaEditDefaults">编辑默认值</button>
               <button class="ghost small" id="quotaRefresh">刷新</button>
             </div>
           </header>
+          <p class="quota-defaults-hint">默认额度（应用于未覆盖该字段的所有用户，留空 = 不限，失焦自动保存）</p>
           <div id="quotaDefaultsCard" class="quota-defaults-card"></div>
+
+          <div id="quotaBulkBar" class="admin-gallery-bulk quota-bulk" hidden>
+            <span id="quotaBulkCount">已选 0 人</span>
+            <button class="ghost small" id="quotaBulkClear">取消选择</button>
+            <button class="ghost small" id="quotaBulkEdit">批量编辑额度</button>
+            <button class="ghost small" id="quotaBulkResetToday">批量重置今日</button>
+            <button class="ghost small" id="quotaBulkResetMonth">批量重置本月</button>
+            <button class="danger ghost small" id="quotaBulkRestore">批量恢复默认</button>
+          </div>
+
           <div id="quotaTableWrap"></div>
         </section>
 

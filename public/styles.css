@@ -1864,6 +1864,174 @@ body.drawer-open { overflow: hidden; }
 .quota-progress.mid > span  { background: var(--warning); }
 .quota-progress.high > span { background: var(--danger); }
 
+/* ---- 额度管理：可编辑默认值卡片 ---- */
+.quota-defaults-hint {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.quota-default-card { gap: 6px; }
+.quota-default-input {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.quota-default-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 1px dashed var(--border);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: border-color 120ms, background 120ms;
+}
+.quota-default-input input::placeholder { color: var(--text-faint); font-weight: 500; }
+.quota-default-input input:hover { background: var(--surface-2); }
+.quota-default-input input:focus {
+  outline: none;
+  background: var(--surface-2);
+  border-color: var(--brand);
+  border-bottom-style: solid;
+}
+.quota-default-input em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ---- 额度管理：表格内 inline 输入 ---- */
+.quota-table { table-layout: auto; }
+.quota-table th { white-space: nowrap; }
+.quota-table .quota-check {
+  width: 32px;
+  text-align: center;
+}
+.quota-table tr.selected td { background: var(--brand-soft); }
+
+.quota-inline-cell {
+  width: 96px;
+  position: relative;
+}
+.quota-inline-input {
+  width: 76px;
+  padding: 4px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.quota-inline-input::placeholder { color: var(--text-faint); }
+.quota-inline-input:hover { border-color: var(--text-faint); }
+.quota-inline-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
+}
+.quota-inline-input.overridden {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 600;
+}
+
+/* ---- 额度管理：用量摘要 mini 进度条 ---- */
+.quota-usage-summary {
+  min-width: 200px;
+  font-variant-numeric: tabular-nums;
+}
+.quota-usage-line {
+  display: grid;
+  grid-template-columns: 14px 60px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.quota-usage-line span { color: var(--text-faint); font-size: 11px; }
+.quota-usage-line small { color: var(--text-muted); white-space: nowrap; }
+.quota-mini {
+  display: inline-block;
+  width: 60px;
+  height: 5px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.quota-mini > i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: inherit;
+  transition: width 220ms ease;
+}
+.quota-mini.mid > i  { background: var(--warning); }
+.quota-mini.high > i { background: var(--danger); }
+.quota-mini-unlim {
+  background: repeating-linear-gradient(90deg, var(--surface-3) 0 4px, transparent 4px 8px);
+  height: 5px;
+}
+.quota-fail-chip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: 999px;
+}
+
+/* ---- 额度管理：行级 ⋯ 菜单 ---- */
+.quota-row-action {
+  width: 36px;
+  text-align: center;
+}
+.quota-row-action .icon-only {
+  padding: 4px 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+.quota-row-menu {
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.quota-row-menu button {
+  text-align: left;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.quota-row-menu button:hover { background: var(--surface-2); }
+.quota-row-menu button.danger { color: var(--danger); }
+.quota-row-menu button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+/* ---- 额度管理：批量栏额外按钮间距 ---- */
+.quota-bulk { flex-wrap: wrap; }
+
 .usage-row {
   display: flex;
   justify-content: space-between;
