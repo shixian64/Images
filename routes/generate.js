@@ -7,6 +7,11 @@ import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
 import { saveGeneratedImages } from '../services/gallery-store.js';
+import {
+  assertCanGenerate,
+  recordSuccess,
+  recordFailure
+} from '../services/quota.js';
 
 export async function handleGenerate(req, res) {
   const started = Date.now();
@@ -23,6 +28,20 @@ export async function handleGenerate(req, res) {
     const targetUrl = resolveApiUrl(body.imageBaseUrl || body.baseUrl);
     const payload = buildImagePayload(body);
 
+    // 配额拦截：管理员豁免，其他用户按 daily/monthly/storage 检查。
+    const userInfo = req.session.user;
+    if (userInfo.role !== 'admin') {
+      const check = assertCanGenerate(userInfo.id, { n: payload.n || 1 });
+      if (!check.ok) {
+        logger.warn('image.generate.quota_exceeded', {
+          userId: userInfo.id,
+          code: check.code,
+          model: payload.model
+        });
+        return sendJson(res, 429, { error: check.message, code: check.code });
+      }
+    }
+
     logger.info('image.generate.request', {
       targetUrl,
       model: payload.model,
@@ -37,6 +56,7 @@ export async function handleGenerate(req, res) {
       logger.error('image.generate.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
+      recordFailure(userInfo.id);
       return sendJson(res, status, { error: errMsg, details: data });
     }
 
@@ -64,6 +84,14 @@ export async function handleGenerate(req, res) {
         error: saveError.message || String(saveError)
       });
     }
+
+    // 用量记账：成功调用计 1 次 + 实际入库的图数 / 字节数
+    const savedBytes = saved.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
+    recordSuccess(userInfo.id, {
+      calls: 1,
+      images: saved.length || imageItems.length || 0,
+      bytes: savedBytes
+    });
 
     logger.info('image.generate.success', {
       status, durationMs,

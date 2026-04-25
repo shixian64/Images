@@ -12,6 +12,8 @@ import { handleTestProfile } from './routes/test-profile.js';
 import { handleAuthRoute } from './routes/auth.js';
 import { handleUsersRoute } from './routes/users.js';
 import { handleProfileRoute } from './routes/profile.js';
+import { handleAdminGalleryRoute } from './routes/admin-gallery.js';
+import { handleQuotaRoute } from './routes/quota.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
@@ -54,10 +56,17 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/api/profile')) {
       return handleProfileRoute(req, res, pathname);
     }
+    if (pathname.startsWith('/api/admin/gallery')) {
+      return handleAdminGalleryRoute(req, res, pathname, url);
+    }
+    if (pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me') {
+      return handleQuotaRoute(req, res, pathname);
+    }
     if (req.method === 'POST' && pathname === '/api/generate') return handleGenerate(req, res);
     if (req.method === 'POST' && pathname === '/api/chat') return handleChat(req, res);
     if (req.method === 'POST' && pathname === '/api/test-profile') return handleTestProfile(req, res);
     if (req.method === 'GET' && pathname === '/api/gallery') return handleGallery(req, res);
+    if (pathname.startsWith('/api/gallery/')) return handleGallery(req, res, pathname);
 
     return sendJson(res, 404, { error: 'not found' });
   }

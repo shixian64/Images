@@ -2,6 +2,7 @@
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
+import * as dialog from './dialog.js';
 
 let galleryItems = [];
 let mounted = false;
@@ -124,13 +125,14 @@ function renderGallery() {
     ].filter(Boolean).join(' · ');
     const downloadName = item.filename || `gallery-${index + 1}`;
 
-    return `<article class="image-card gallery-card">
+    return `<article class="image-card gallery-card" data-gallery-id="${escapeHtml(item.id || '')}">
       <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
         <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
       </button>
       <div class="card-actions">
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
         <a href="${escapeHtml(src)}" target="_blank" rel="noreferrer">打开</a>
+        ${item.id ? `<button type="button" data-gallery-delete>删除</button>` : ''}
       </div>
       <div class="image-meta">
         <span>#${galleryItems.length - index}</span>
@@ -174,10 +176,39 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
   }
 }
 
+async function handleDeleteFromCard(card) {
+  const id = card?.dataset?.galleryId;
+  if (!id) return;
+  const ok = await dialog.confirm({
+    title: '删除图片',
+    message: '将从本地图库永久移除，且不可恢复。继续？',
+    confirmText: '删除',
+    danger: true
+  });
+  if (!ok) return;
+  try {
+    const resp = await apiFetch(`/api/gallery/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    setStatus('图片已删除', 'ok', 1400);
+    await refreshGalleryPanel({ silent: true });
+  } catch (err) {
+    setStatus(`删除失败：${err?.message || err}`, 'err', 2000);
+  }
+}
+
 export function mountGalleryPanel() {
   mounted = true;
   $('refreshGallery').addEventListener('click', () => refreshGalleryPanel());
   $('savedGallery').addEventListener('click', (ev) => {
+    const delBtn = ev.target.closest('[data-gallery-delete]');
+    if (delBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const card = delBtn.closest('.image-card');
+      handleDeleteFromCard(card);
+      return;
+    }
     const trigger = ev.target.closest('.image-preview-trigger');
     if (!trigger) return;
     const index = Number(trigger.dataset.galleryIndex);

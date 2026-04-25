@@ -3,15 +3,16 @@
 // 元数据写入 SQLite images 表（走 services/db.js）。
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 
 import { images as imagesTable, dbPaths } from './db.js';
 import {
   userImageDir,
   userImageRel,
   assertUserPath,
-  guardPaths
+  guardPaths,
+  isUnderUserImages
 } from './path-guard.js';
 
 const GALLERY_ROOT = guardPaths.generatedRoot;
@@ -286,6 +287,194 @@ export async function listGallery({ userId, isAdmin = false, limit = 500 } = {})
     count: items.length,
     storage: isAdmin ? 'generated/users/* + legacy' : `generated/${userImageRel(userId)}`
   };
+}
+
+// 把 images.path 转成绝对路径，仅当落在受信目录下才返回。
+function resolveStoredAbs(relPath) {
+  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
+  if (!segments.length) return null;
+  const abs = resolve(GALLERY_ROOT, ...segments);
+  const root = resolve(GALLERY_ROOT) + sep;
+  if (abs !== resolve(GALLERY_ROOT) && !abs.startsWith(root)) return null;
+  return abs;
+}
+
+// 删除单张图片：DB + 物理文件。
+// 普通用户仅能删自己的；admin 可删任意。
+export async function removeImage(id, { userId, isAdmin = false } = {}) {
+  if (!id) throw new Error('image id required');
+  const row = imagesTable.findById(id);
+  if (!row) throw new Error('image not found');
+  if (!isAdmin && row.user_id !== userId) throw new Error('forbidden');
+
+  const abs = resolveStoredAbs(row.path);
+  if (abs) {
+    try {
+      await unlink(abs);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        // 物理删除失败也继续删 db 行，避免 db/磁盘失同步；调用方可拿到 warning
+      }
+    }
+  }
+  imagesTable.deleteById(id);
+  return { id, path: row.path, userId: row.user_id, bytes: row.bytes };
+}
+
+export async function removeImagesBulk(ids, ctx = {}) {
+  const results = { ok: [], failed: [] };
+  for (const id of ids || []) {
+    try {
+      const r = await removeImage(id, ctx);
+      results.ok.push(r);
+    } catch (err) {
+      results.failed.push({ id, error: err.message || String(err) });
+    }
+  }
+  return results;
+}
+
+// 全量统计：用于管理员图库面板顶部。
+export async function adminStats() {
+  const rows = imagesTable.listAll(100000);
+  const today = new Date().toISOString().slice(0, 10);
+  const byUser = new Map();
+  const byModel = new Map();
+  let totalBytes = 0;
+  let savedToday = 0;
+
+  for (const row of rows) {
+    totalBytes += Number(row.bytes) || 0;
+    if (String(row.created_at || '').startsWith(today)) savedToday += 1;
+
+    const u = row.user_id || 'unknown';
+    const ub = byUser.get(u) || { count: 0, bytes: 0 };
+    ub.count += 1;
+    ub.bytes += Number(row.bytes) || 0;
+    byUser.set(u, ub);
+
+    const m = row.model || 'unknown';
+    byModel.set(m, (byModel.get(m) || 0) + 1);
+  }
+
+  const topUsers = [...byUser.entries()]
+    .map(([userId, v]) => ({ userId, ...v }))
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 10);
+
+  const topModels = [...byModel.entries()]
+    .map(([model, count]) => ({ model, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    total: rows.length,
+    totalBytes,
+    savedToday,
+    topUsers,
+    topModels
+  };
+}
+
+// 扫描孤儿：DB 行无文件 + 文件系统多余文件。
+export async function scanOrphans() {
+  const rows = imagesTable.listAll(100000);
+  const dbKnownPaths = new Set();
+  const missingFiles = [];
+
+  for (const row of rows) {
+    const segs = String(row.path || '').split(/[\\/]+/).filter(Boolean);
+    if (!segs.length) continue;
+    dbKnownPaths.add(segs.join('/'));
+    const abs = resolve(GALLERY_ROOT, ...segs);
+    try {
+      const st = await stat(abs);
+      if (!st.isFile()) {
+        missingFiles.push({
+          id: row.id,
+          path: row.path,
+          userId: row.user_id,
+          createdAt: row.created_at
+        });
+      }
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        missingFiles.push({
+          id: row.id,
+          path: row.path,
+          userId: row.user_id,
+          createdAt: row.created_at,
+          bytes: Number(row.bytes) || 0
+        });
+      }
+    }
+  }
+
+  // 反向扫 generated/users/<uid>/images 下的真实文件
+  const danglingFiles = [];
+  try {
+    const userDirs = await readdir(guardPaths.usersRoot, { withFileTypes: true }).catch(() => []);
+    for (const ud of userDirs) {
+      if (!ud.isDirectory()) continue;
+      const imagesDir = join(guardPaths.usersRoot, ud.name, 'images');
+      await walkAndCheck(imagesDir, ud.name, dbKnownPaths, danglingFiles);
+    }
+  } catch {
+    // ignore
+  }
+
+  return {
+    missingFiles,
+    danglingFiles
+  };
+}
+
+async function walkAndCheck(dir, userId, knownPaths, danglingFiles) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const ent of entries) {
+    const abs = join(dir, ent.name);
+    if (ent.isDirectory()) {
+      await walkAndCheck(abs, userId, knownPaths, danglingFiles);
+      continue;
+    }
+    if (!isUnderUserImages(abs)) continue;
+    const rel = abs.slice(GALLERY_ROOT.length + 1).split(sep).join('/');
+    if (!knownPaths.has(rel)) {
+      try {
+        const st = await stat(abs);
+        danglingFiles.push({
+          path: rel,
+          userId,
+          bytes: st.size,
+          mtime: st.mtime?.toISOString?.() || null
+        });
+      } catch {
+        danglingFiles.push({ path: rel, userId });
+      }
+    }
+  }
+}
+
+// 删除一个孤儿文件（物理路径，仅 admin 可调）。
+export async function removeDanglingFile(relPath) {
+  if (!relPath || typeof relPath !== 'string') throw new Error('invalid path');
+  const segs = relPath.split(/[\\/]+/).filter(Boolean);
+  if (!segs.length) throw new Error('invalid path');
+  if (segs[0] !== 'users') throw new Error('only user-scoped files can be removed');
+
+  const abs = resolve(GALLERY_ROOT, ...segs);
+  if (!isUnderUserImages(abs)) throw new Error('path outside user dir');
+  // 再次确认 DB 中没人认领该文件
+  const row = imagesTable.findByPath(segs.join('/'));
+  if (row) throw new Error('file is referenced by db row, refuse to delete');
+
+  await unlink(abs);
+  return { path: relPath };
 }
 
 export const galleryPaths = Object.freeze({

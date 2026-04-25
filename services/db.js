@@ -75,6 +75,51 @@ CREATE TABLE IF NOT EXISTS images (
 );
 CREATE INDEX IF NOT EXISTS idx_images_user_created ON images(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_created      ON images(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_images_model        ON images(model);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          TEXT PRIMARY KEY,
+  created_at  TEXT NOT NULL,
+  actor_id    TEXT,
+  actor_name  TEXT,
+  action      TEXT NOT NULL,
+  target_type TEXT,
+  target_id   TEXT,
+  ip          TEXT,
+  user_agent  TEXT,
+  meta        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_target  ON audit_logs(target_type, target_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor   ON audit_logs(actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_quotas (
+  user_id          TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  daily_limit      INTEGER,
+  monthly_limit    INTEGER,
+  storage_limit_mb INTEGER,
+  concurrent_limit INTEGER,
+  updated_at       TEXT NOT NULL,
+  updated_by       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS usage_daily (
+  user_id     TEXT NOT NULL,
+  day         TEXT NOT NULL,
+  call_count  INTEGER NOT NULL DEFAULT 0,
+  image_count INTEGER NOT NULL DEFAULT 0,
+  bytes       INTEGER NOT NULL DEFAULT 0,
+  fail_count  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_user_day ON usage_daily(user_id, day DESC);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
 `;
 
 export function migrate() {
@@ -204,6 +249,9 @@ export const users = {
   },
   touchLogin(id) {
     open().prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(nowIso(), id);
+  },
+  delete(id) {
+    open().prepare('DELETE FROM users WHERE id = ?').run(id);
   }
 };
 
@@ -240,6 +288,13 @@ export const sessions = {
   destroyExpired() {
     const res = open().prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowIso());
     return res.changes;
+  },
+  listByUser(userId) {
+    return open().prepare(`
+      SELECT id, user_id, created_at, expires_at, user_agent, ip
+      FROM sessions WHERE user_id = ?
+      ORDER BY created_at DESC
+    `).all(userId);
   }
 };
 
@@ -294,6 +349,182 @@ export const images = {
   },
   deleteByUser(userId) {
     open().prepare('DELETE FROM images WHERE user_id = ?').run(userId);
+  },
+  deleteById(id) {
+    open().prepare('DELETE FROM images WHERE id = ?').run(id);
+  },
+  statsByUser(userId) {
+    return open().prepare(`
+      SELECT
+        COUNT(*)        AS count,
+        COALESCE(SUM(bytes), 0) AS bytes,
+        MAX(created_at) AS last_at
+      FROM images WHERE user_id = ?
+    `).get(userId) || { count: 0, bytes: 0, last_at: null };
+  }
+};
+
+// ---- audit_logs ----
+
+export const auditLogs = {
+  insert({ actorId, actorName, action, targetType, targetId, ip, userAgent, meta }) {
+    const db = open();
+    const id = randomUUID();
+    const now = nowIso();
+    db.prepare(`
+      INSERT INTO audit_logs
+      (id, created_at, actor_id, actor_name, action, target_type, target_id, ip, user_agent, meta)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      now,
+      actorId || null,
+      actorName || null,
+      action,
+      targetType || null,
+      targetId || null,
+      ip || null,
+      userAgent || null,
+      meta ? JSON.stringify(meta) : null
+    );
+    return { id, createdAt: now };
+  },
+  listByTarget(targetType, targetId, limit = 50) {
+    return open().prepare(`
+      SELECT * FROM audit_logs
+      WHERE target_type = ? AND target_id = ?
+      ORDER BY created_at DESC LIMIT ?
+    `).all(targetType, targetId, limit);
+  },
+  listRecent(limit = 200) {
+    return open().prepare(`
+      SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?
+    `).all(limit);
+  }
+};
+
+// ---- user_quotas ----
+
+export const userQuotas = {
+  get(userId) {
+    return open().prepare('SELECT * FROM user_quotas WHERE user_id = ?').get(userId) || null;
+  },
+  upsert(userId, patch, updatedBy) {
+    const db = open();
+    const cur = this.get(userId);
+    const next = { ...(cur || {}), ...patch };
+    if (cur) {
+      db.prepare(`
+        UPDATE user_quotas SET
+          daily_limit = ?, monthly_limit = ?, storage_limit_mb = ?, concurrent_limit = ?,
+          updated_at = ?, updated_by = ?
+        WHERE user_id = ?
+      `).run(
+        next.daily_limit ?? null,
+        next.monthly_limit ?? null,
+        next.storage_limit_mb ?? null,
+        next.concurrent_limit ?? null,
+        nowIso(),
+        updatedBy || null,
+        userId
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO user_quotas
+        (user_id, daily_limit, monthly_limit, storage_limit_mb, concurrent_limit, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        userId,
+        next.daily_limit ?? null,
+        next.monthly_limit ?? null,
+        next.storage_limit_mb ?? null,
+        next.concurrent_limit ?? null,
+        nowIso(),
+        updatedBy || null
+      );
+    }
+    return this.get(userId);
+  },
+  delete(userId) {
+    open().prepare('DELETE FROM user_quotas WHERE user_id = ?').run(userId);
+  }
+};
+
+// ---- usage_daily ----
+
+export const usageDaily = {
+  get(userId, day) {
+    return open().prepare(
+      'SELECT * FROM usage_daily WHERE user_id = ? AND day = ?'
+    ).get(userId, day) || null;
+  },
+  // 增量累加。若行不存在则插入。
+  bump(userId, day, { calls = 0, images = 0, bytes = 0, fails = 0 } = {}) {
+    const db = open();
+    const cur = this.get(userId, day);
+    if (cur) {
+      db.prepare(`
+        UPDATE usage_daily SET
+          call_count  = call_count  + ?,
+          image_count = image_count + ?,
+          bytes       = bytes       + ?,
+          fail_count  = fail_count  + ?
+        WHERE user_id = ? AND day = ?
+      `).run(calls, images, bytes, fails, userId, day);
+    } else {
+      db.prepare(`
+        INSERT INTO usage_daily (user_id, day, call_count, image_count, bytes, fail_count)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userId, day, calls, images, bytes, fails);
+    }
+  },
+  // 区间聚合：[fromDay, toDay] 含端点，YYYY-MM-DD。
+  sum(userId, fromDay, toDay) {
+    const row = open().prepare(`
+      SELECT
+        COALESCE(SUM(call_count), 0)  AS calls,
+        COALESCE(SUM(image_count), 0) AS images,
+        COALESCE(SUM(bytes), 0)       AS bytes,
+        COALESCE(SUM(fail_count), 0)  AS fails
+      FROM usage_daily
+      WHERE user_id = ? AND day >= ? AND day <= ?
+    `).get(userId, fromDay, toDay);
+    return {
+      calls: Number(row?.calls) || 0,
+      images: Number(row?.images) || 0,
+      bytes: Number(row?.bytes) || 0,
+      fails: Number(row?.fails) || 0
+    };
+  },
+  // 清空某用户的某段时间 (admin 应急)
+  reset(userId, fromDay, toDay) {
+    open().prepare(
+      'DELETE FROM usage_daily WHERE user_id = ? AND day >= ? AND day <= ?'
+    ).run(userId, fromDay, toDay);
+  }
+};
+
+// ---- system_settings ----
+
+export const systemSettings = {
+  get(key) {
+    const row = open().prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
+    if (!row) return null;
+    try { return JSON.parse(row.value); } catch { return row.value; }
+  },
+  set(key, value, updatedBy) {
+    const db = open();
+    const json = JSON.stringify(value);
+    const cur = db.prepare('SELECT key FROM system_settings WHERE key = ?').get(key);
+    if (cur) {
+      db.prepare(
+        'UPDATE system_settings SET value = ?, updated_at = ?, updated_by = ? WHERE key = ?'
+      ).run(json, nowIso(), updatedBy || null, key);
+    } else {
+      db.prepare(
+        'INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)'
+      ).run(key, json, nowIso(), updatedBy || null);
+    }
   }
 };
 

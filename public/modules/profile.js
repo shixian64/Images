@@ -1,8 +1,9 @@
-// 个人资料下拉菜单 + 修改资料/修改密码对话框。
+// 个人资料下拉菜单 + 修改资料/修改密码对话框 + 我的用量。
 // 注意：此文件的"profile"指"用户个人资料"，与 profiles.js（接口配置）同名不同义。
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch, logout, setCurrentUser } from './auth.js';
+import * as drawer from './drawer.js';
 
 let menuMounted = false;
 let profileDialog = null;
@@ -28,6 +29,7 @@ function renderMenu() {
     <div class="user-menu-dropdown" role="menu" hidden>
       <button role="menuitem" data-action="profile" type="button">个人资料</button>
       <button role="menuitem" data-action="password" type="button">修改密码</button>
+      <button role="menuitem" data-action="usage" type="button">我的用量</button>
       <button role="menuitem" data-action="logout" type="button">退出登录</button>
     </div>
   `;
@@ -197,6 +199,90 @@ function openPasswordDialog() {
   else dlg.setAttribute('open', '');
 }
 
+function fmtUsageBytes(bytes) {
+  const v = Number(bytes) || 0;
+  if (!v) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = v;
+  let i = 0;
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
+  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function progressBar(used, limit, label) {
+  if (!limit) {
+    return `<div class="usage-row"><span>${escapeHtml(label)}</span><strong>${used} / 不限</strong></div>`;
+  }
+  const p = Math.min(100, Math.round((Number(used) || 0) / limit * 100));
+  const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
+  return `
+    <div class="usage-row">
+      <span>${escapeHtml(label)}</span>
+      <strong>${used} / ${limit} (${p}%)</strong>
+    </div>
+    <div class="quota-progress ${cls}"><span style="width:${p}%"></span></div>
+  `;
+}
+
+function storageBar(usedBytes, limitMb) {
+  const usedMb = (Number(usedBytes) || 0) / (1024 * 1024);
+  const display = fmtUsageBytes(usedBytes);
+  if (!limitMb) {
+    return `<div class="usage-row"><span>存储</span><strong>${display} / 不限</strong></div>`;
+  }
+  const p = Math.min(100, Math.round(usedMb / limitMb * 100));
+  const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
+  return `
+    <div class="usage-row">
+      <span>存储</span>
+      <strong>${display} / ${limitMb} MB (${p}%)</strong>
+    </div>
+    <div class="quota-progress ${cls}"><span style="width:${p}%"></span></div>
+  `;
+}
+
+async function openUsageDrawer() {
+  drawer.open({
+    eyebrow: '我的用量',
+    title: '使用情况',
+    body: '<div class="empty-state"><p>正在加载…</p></div>'
+  });
+  try {
+    const resp = await apiFetch('/api/quota/me');
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    const q = data.quota || {};
+    const u = data.usage || {};
+    const today = u.today || {};
+    const month = u.month || {};
+    const storage = u.storage || {};
+
+    const html = `
+      <div class="user-detail">
+        <section class="user-detail-block">
+          <h3>今日</h3>
+          ${progressBar(today.calls || 0, q.daily_limit, '生成调用次数')}
+          <p class="hint">失败 ${today.fails || 0} 次 · 入库 ${today.images || 0} 张</p>
+        </section>
+        <section class="user-detail-block">
+          <h3>本月</h3>
+          ${progressBar(month.calls || 0, q.monthly_limit, '生成调用次数')}
+          <p class="hint">失败 ${month.fails || 0} 次 · 入库 ${month.images || 0} 张</p>
+        </section>
+        <section class="user-detail-block">
+          <h3>存储</h3>
+          ${storageBar(storage.bytes || 0, q.storage_limit_mb)}
+          <p class="hint">本地图库共 ${storage.images || 0} 张</p>
+        </section>
+        <p class="hint">额度由管理员维护。如需提升上限，请联系管理员。</p>
+      </div>
+    `;
+    drawer.update({ body: html });
+  } catch (err) {
+    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>` });
+  }
+}
+
 export function mountProfileMenu(user) {
   currentUser = user || null;
   setCurrentUser(currentUser);
@@ -221,6 +307,7 @@ export function mountProfileMenu(user) {
       const action = item.dataset.action;
       if (action === 'profile') openProfileDialog();
       else if (action === 'password') openPasswordDialog();
+      else if (action === 'usage') openUsageDrawer();
       else if (action === 'logout') logout();
       return;
     }
