@@ -1890,6 +1890,12 @@ body.drawer-open { overflow: hidden; }
   border-radius: 4px;
   transition: border-color 120ms, background 120ms;
 }
+.quota-default-input input::-webkit-outer-spin-button,
+.quota-default-input input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.quota-default-input input { -moz-appearance: textfield; appearance: textfield; }
 .quota-default-input input::placeholder { color: var(--text-faint); font-weight: 500; }
 .quota-default-input input:hover { background: var(--surface-2); }
 .quota-default-input input:focus {
@@ -1929,6 +1935,12 @@ body.drawer-open { overflow: hidden; }
   text-align: right;
   transition: border-color 120ms, box-shadow 120ms;
 }
+.quota-inline-input::-webkit-outer-spin-button,
+.quota-inline-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.quota-inline-input { -moz-appearance: textfield; appearance: textfield; }
 .quota-inline-input::placeholder { color: var(--text-faint); }
 .quota-inline-input:hover { border-color: var(--text-faint); }
 .quota-inline-input:focus {
