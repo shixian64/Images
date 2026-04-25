@@ -673,7 +673,7 @@ button.danger:hover { background: var(--danger-soft); }
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .prompt-builder-form,
@@ -686,9 +686,14 @@ button.danger:hover { background: var(--danger-soft); }
 .prompt-preview-pane {
   position: sticky;
   top: 84px;
+  display: flex;
+  flex-direction: column;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 48%, transparent), transparent 160px),
     var(--surface-2);
+}
+.prompt-preview-pane > .hint {
+  margin-top: auto;
 }
 
 .prompt-section-head {
