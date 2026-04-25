@@ -5,6 +5,60 @@ import { $, escapeHtml, setStatus } from './dom.js';
 let galleryItems = [];
 let mounted = false;
 
+let previewModal = null;
+let lastPreviewTrigger = null;
+
+function ensurePreviewModal() {
+  if (previewModal) return previewModal;
+
+  const modal = document.createElement('div');
+  modal.className = 'image-preview-modal';
+  modal.hidden = true;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', '原图预览');
+  modal.innerHTML = `
+    <div class="image-preview-backdrop" data-preview-close></div>
+    <div class="image-preview-frame">
+      <button class="image-preview-close" type="button" aria-label="关闭原图预览" data-preview-close>×</button>
+      <img class="image-preview-image" alt="" />
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (ev) => {
+    if (ev.target?.hasAttribute?.('data-preview-close')) closePreviewModal();
+  });
+
+  previewModal = modal;
+  return previewModal;
+}
+
+function openPreviewModal(item, trigger) {
+  const src = item?.url || item?.local_url || item?.localUrl || '';
+  if (!src) return;
+
+  const prompt = item.prompt || item.revisedPrompt || '';
+  lastPreviewTrigger = trigger || null;
+  const modal = ensurePreviewModal();
+  const img = modal.querySelector('.image-preview-image');
+  img.src = src;
+  img.alt = (prompt || '本地图库原图').slice(0, 120);
+  modal.hidden = false;
+  document.body.classList.add('preview-open');
+  modal.querySelector('.image-preview-close')?.focus();
+}
+
+function closePreviewModal() {
+  if (!previewModal || previewModal.hidden) return;
+  const img = previewModal.querySelector('.image-preview-image');
+  previewModal.hidden = true;
+  if (img) img.removeAttribute('src');
+  document.body.classList.remove('preview-open');
+  lastPreviewTrigger?.focus?.();
+  lastPreviewTrigger = null;
+}
+
 function formatTime(iso) {
   if (!iso) return '-';
   const date = new Date(iso);
@@ -70,7 +124,9 @@ function renderGallery() {
     const downloadName = item.filename || `gallery-${index + 1}`;
 
     return `<article class="image-card gallery-card">
-      <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
+      <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
+        <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
+      </button>
       <div class="card-actions">
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
         <a href="${escapeHtml(src)}" target="_blank" rel="noreferrer">打开</a>
@@ -120,5 +176,14 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
 export function mountGalleryPanel() {
   mounted = true;
   $('refreshGallery').addEventListener('click', () => refreshGalleryPanel());
+  $('savedGallery').addEventListener('click', (ev) => {
+    const trigger = ev.target.closest('.image-preview-trigger');
+    if (!trigger) return;
+    const index = Number(trigger.dataset.galleryIndex);
+    openPreviewModal(galleryItems[index], trigger);
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closePreviewModal();
+  });
   refreshGalleryPanel({ silent: true });
 }

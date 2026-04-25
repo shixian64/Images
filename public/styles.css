@@ -469,6 +469,24 @@ button.danger:hover { background: var(--danger-soft); }
   object-fit: cover;
   background: var(--surface-3);
 }
+
+.image-card .image-preview-trigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: zoom-in;
+  text-align: left;
+}
+.image-card .image-preview-trigger:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+.image-card .image-preview-trigger:hover img {
+  filter: brightness(0.96);
+}
 .image-card .image-meta {
   padding: 10px 12px;
   font-size: 12px;
@@ -505,6 +523,7 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .image-card .card-actions {
   position: absolute; top: 8px; right: 8px;
+  z-index: 2;
   display: flex; gap: 4px;
   opacity: 0; transition: opacity 120ms ease;
 }
@@ -519,6 +538,70 @@ button.danger:hover { background: var(--danger-soft); }
   border-radius: 6px;
   cursor: pointer;
   text-decoration: none;
+}
+
+body.preview-open { overflow: hidden; }
+
+.image-preview-modal[hidden] { display: none; }
+.image-preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+.image-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.image-preview-frame {
+  position: relative;
+  z-index: 1;
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-card);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+.image-preview-image {
+  display: block;
+  max-width: 96vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  background: var(--surface-3);
+  border-radius: var(--radius-card);
+}
+.image-preview-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: white;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.image-preview-close:hover { background: rgba(0, 0, 0, 0.78); }
+@media (max-width: 720px) {
+  .image-preview-modal { padding: 12px; }
+  .image-preview-frame { max-width: 100%; }
+  .image-preview-image { max-width: calc(100vw - 24px); }
 }
 
 /* ============================================================
