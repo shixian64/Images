@@ -9,8 +9,21 @@ import { mountProfilesPanel } from './modules/profiles.js';
 import { mountGalleryPanel, refreshGalleryPanel } from './modules/gallery.js';
 import { mountLogsPanel } from './modules/logs.js';
 import { switchTab } from './modules/nav.js';
+import { getMe, setCurrentUser } from './modules/auth.js';
+import { mountProfileMenu } from './modules/profile.js';
+import { mountUsersPanel } from './modules/users.js';
+
+// why：入口先确认登录态，未登录立即跳转，避免后续模块触发 401 噪音。
+const me = await getMe();
+if (!me) {
+  location.href = '/login.html';
+  // 终止后续初始化；location 赋值后新页面即将接管。
+  throw new Error('unauthenticated');
+}
+setCurrentUser(me);
 
 mountTheme();
+mountProfileMenu(me);
 mountNav();
 mountProfilesPanel();
 mountGalleryPanel();
@@ -29,3 +42,8 @@ mountLogsPanel({
     switchTab('studioPanel');
   }
 });
+
+if (me.role === 'admin') {
+  mountUsersPanel();
+  document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = false; });
+}

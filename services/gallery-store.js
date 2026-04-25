@@ -1,16 +1,20 @@
-// 本地图库存储层。
-// 生成成功后把上游返回的图片落盘到 generated/images/，并维护 generated/gallery.json 索引。
+// 本地图库存储层（按用户隔离）。
+// 生成成功后把上游返回的图片落盘到 generated/users/<uid>/images/，
+// 元数据写入 SQLite images 表（走 services/db.js）。
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-const GALLERY_ROOT = join(process.cwd(), 'generated');
-const IMAGE_ROOT = join(GALLERY_ROOT, 'images');
-const INDEX_FILE = join(GALLERY_ROOT, 'gallery.json');
+import { images as imagesTable, dbPaths } from './db.js';
+import {
+  userImageDir,
+  userImageRel,
+  assertUserPath,
+  guardPaths
+} from './path-guard.js';
 
-const STORE_VERSION = 1;
-const MAX_INDEX_ITEMS = 1000;
+const GALLERY_ROOT = guardPaths.generatedRoot;
 
 const MIME_BY_EXT = {
   png: 'image/png',
@@ -39,6 +43,7 @@ function normalizeMimeType(contentType) {
   return String(contentType || '').split(';')[0].trim().toLowerCase();
 }
 
+// 按 magic bytes / content-type 推断扩展名和 MIME。
 function detectImageType(buffer, { contentType = '', fallbackFormat = 'png' } = {}) {
   const mime = normalizeMimeType(contentType);
   if (EXT_BY_MIME[mime]) {
@@ -83,46 +88,10 @@ function parseBase64Image(raw) {
   return { buffer: Buffer.from(text, 'base64'), contentType: '' };
 }
 
-async function ensureStore() {
-  await mkdir(IMAGE_ROOT, { recursive: true });
-}
-
-function isSafeRelativePath(relPath) {
-  const value = String(relPath || '');
-  if (!value || isAbsolute(value)) return false;
-  const normalized = normalize(value);
-  return normalized !== '..'
-    && !normalized.startsWith(`..${sep}`)
-    && !/^[a-zA-Z]:/.test(normalized)
-    && normalized.startsWith(`images${sep}`);
-}
-
+// relPath 形如 users/<uid>/images/<date>/<file> 或旧路径 images/<date>/<file>。
+// 按 / 分段后对每段 encodeURIComponent，再用 / 拼接。
 function toPublicUrl(relPath) {
-  return `/gallery-files/${String(relPath).split(/[\\/]+/).map(encodeURIComponent).join('/')}`;
-}
-
-async function readIndex() {
-  try {
-    const raw = await readFile(INDEX_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-    if (Array.isArray(parsed.items)) return parsed.items;
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
-  return [];
-}
-
-async function writeIndex(items) {
-  await ensureStore();
-  const payload = {
-    version: STORE_VERSION,
-    updatedAt: new Date().toISOString(),
-    items: items.slice(0, MAX_INDEX_ITEMS)
-  };
-  const temp = `${INDEX_FILE}.tmp`;
-  await writeFile(temp, JSON.stringify(payload, null, 2), 'utf8');
-  await rename(temp, INDEX_FILE);
+  return `/gallery-files/${String(relPath).split(/[\\/]+/).filter(Boolean).map(encodeURIComponent).join('/')}`;
 }
 
 async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } = {}) {
@@ -157,33 +126,38 @@ function buildFileName(createdAt, index, ext) {
   return `${safeTs}-${index + 1}-${randomUUID().slice(0, 8)}.${ext}`;
 }
 
-function metadataForSavedImage({ item, context, asset, relPath, fileName, index, createdAt }) {
-  const id = randomUUID();
+// 把 db 行（snake_case）映射成前端沿用的 camelCase 结构。
+function rowToItem(row) {
   return {
-    id,
-    createdAt,
-    filename: fileName,
-    path: relPath,
-    url: toPublicUrl(relPath),
-    mimeType: asset.mimeType,
-    bytes: asset.buffer.length,
-    prompt: context.prompt || '',
-    revisedPrompt: item?.revised_prompt || '',
-    model: context.model || '',
-    size: context.size || '',
-    quality: context.quality || '',
-    outputFormat: context.outputFormat || '',
-    profileName: context.profileName || '',
-    sourceType: asset.sourceType,
-    index: index + 1
+    id: row.id,
+    userId: row.user_id,
+    createdAt: row.created_at,
+    filename: row.filename,
+    path: row.path,
+    mimeType: row.mime_type,
+    bytes: Number(row.bytes) || 0,
+    prompt: row.prompt || '',
+    revisedPrompt: row.revised_prompt || '',
+    model: row.model || '',
+    size: row.size || '',
+    quality: row.quality || '',
+    outputFormat: row.output_format || '',
+    profileName: row.profile_name || '',
+    sourceType: row.source_type || '',
+    index: Number.isFinite(row.image_index) ? row.image_index : null
   };
 }
 
+// 保存上游返回的图片到当前用户目录，并写入 SQLite。
 export async function saveGeneratedImages(items, context = {}, options = {}) {
+  const userId = options?.userId;
+  if (!userId) throw new Error('saveGeneratedImages requires userId');
   if (!Array.isArray(items) || !items.length) return { items: [], saved: [] };
 
-  await ensureStore();
-  const index = await readIndex();
+  // 确保用户图片目录存在。
+  const userDir = userImageDir(userId);
+  await mkdir(userDir, { recursive: true });
+
   const nextItems = [];
   const saved = [];
 
@@ -202,73 +176,120 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       const createdAt = new Date().toISOString();
       const dateDir = createdAt.slice(0, 10);
       const fileName = buildFileName(createdAt, imageIndex, asset.ext);
-      const relPath = `images/${dateDir}/${fileName}`;
-      const filePath = join(GALLERY_ROOT, ...relPath.split('/'));
+
+      // 物理路径：generated/users/<uid>/images/<date>/<file>
+      const filePath = join(userDir, dateDir, fileName);
+      // 校验 normalize 后仍在用户目录里。
+      assertUserPath(filePath, userId);
 
       await mkdir(dirname(filePath), { recursive: true });
       await writeFile(filePath, asset.buffer);
 
-      const meta = metadataForSavedImage({
-        item,
-        context,
-        asset,
-        relPath,
-        fileName,
-        index: imageIndex,
-        createdAt
+      // 相对路径（存库 & 给前端拼 URL）：users/<uid>/images/<date>/<file>
+      const relPath = `${userImageRel(userId)}/${dateDir}/${fileName}`;
+      const id = randomUUID();
+
+      imagesTable.insert({
+        id,
+        userId,
+        createdAt,
+        filename: fileName,
+        path: relPath,
+        mimeType: asset.mimeType,
+        bytes: asset.buffer.length,
+        prompt: context.prompt || '',
+        revisedPrompt: item?.revised_prompt || '',
+        model: context.model || '',
+        size: context.size || '',
+        quality: context.quality || '',
+        outputFormat: context.outputFormat || '',
+        profileName: context.profileName || '',
+        sourceType: asset.sourceType,
+        index: imageIndex + 1
       });
 
-      index.unshift(meta);
+      const publicUrl = toPublicUrl(relPath);
+      const meta = {
+        id,
+        userId,
+        createdAt,
+        filename: fileName,
+        path: relPath,
+        url: publicUrl,
+        mimeType: asset.mimeType,
+        bytes: asset.buffer.length,
+        prompt: context.prompt || '',
+        revisedPrompt: item?.revised_prompt || '',
+        model: context.model || '',
+        size: context.size || '',
+        quality: context.quality || '',
+        outputFormat: context.outputFormat || '',
+        profileName: context.profileName || '',
+        sourceType: asset.sourceType,
+        index: imageIndex + 1
+      };
+
       saved.push(meta);
       nextItems.push({
         ...item,
-        local_url: meta.url,
-        localUrl: meta.url,
-        gallery_id: meta.id,
-        file_name: meta.filename,
-        mime_type: meta.mimeType,
-        bytes: meta.bytes
+        local_url: publicUrl,
+        localUrl: publicUrl,
+        gallery_id: id,
+        file_name: fileName,
+        mime_type: asset.mimeType,
+        bytes: asset.buffer.length
       });
     } catch (err) {
       nextItems.push({ ...item, save_error: err.message || String(err) });
     }
   }
 
-  if (saved.length) await writeIndex(index);
   return { items: nextItems, saved };
 }
 
-export async function listGallery({ limit = 500 } = {}) {
-  const index = await readIndex();
-  const items = [];
+// 读取当前用户（或 admin 全量）的图库；过滤物理文件不存在的条目。
+export async function listGallery({ userId, isAdmin = false, limit = 500 } = {}) {
+  if (!isAdmin && !userId) {
+    throw new Error('listGallery requires userId or isAdmin');
+  }
+  const cap = Math.max(1, Number(limit) || 500);
+  const rows = isAdmin
+    ? imagesTable.listAll(cap)
+    : imagesTable.listByUser(userId, cap);
 
-  for (const item of index) {
-    if (!isSafeRelativePath(item.path)) continue;
-    const filePath = join(GALLERY_ROOT, ...String(item.path).split(/[\\/]+/));
+  const items = [];
+  for (const row of rows) {
+    const item = rowToItem(row);
+    // path 可能是新格式 users/<uid>/images/... 或旧格式 images/...
+    const filePath = join(GALLERY_ROOT, ...item.path.split(/[\\/]+/).filter(Boolean));
     try {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) continue;
+      const publicUrl = toPublicUrl(item.path);
       items.push({
         ...item,
-        url: toPublicUrl(item.path),
-        downloadUrl: toPublicUrl(item.path),
+        url: publicUrl,
+        downloadUrl: publicUrl,
         bytes: item.bytes || fileStat.size
       });
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
+      // 物理文件丢了 —— 跳过，不影响其他条目
     }
   }
 
+  // db 已按 created_at DESC 返回；再兜底排序一次。
   items.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
   return {
-    items: items.slice(0, Math.max(1, Number(limit) || 500)),
+    items,
     count: items.length,
-    storage: 'generated/images'
+    storage: isAdmin ? 'generated/users/* + legacy' : `generated/${userImageRel(userId)}`
   };
 }
 
 export const galleryPaths = Object.freeze({
   root: GALLERY_ROOT,
-  images: IMAGE_ROOT,
-  index: INDEX_FILE
+  images: guardPaths.usersRoot,
+  index: dbPaths.file
 });

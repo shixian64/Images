@@ -2,12 +2,19 @@
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
 import { $, escapeHtml, maskKey } from './dom.js';
-import { KEYS, readJson, writeJson } from './state.js';
+import { KEYS, readJsonScoped, writeJsonScoped } from './state.js';
 
 const MAX_LOGS = 300;
 const LEVEL_ORDER = ['debug', 'info', 'warn', 'error'];
 
-let logs = readJson(KEYS.logs, []);
+// why：延迟到首次访问/挂载，模块加载期用户尚未就绪；避免误用 guest scope。
+let logs = [];
+let logsLoaded = false;
+function ensureLogsLoaded() {
+  if (logsLoaded) return;
+  logsLoaded = true;
+  logs = readJsonScoped(KEYS.logs, []);
+}
 const listeners = new Set();
 
 function emit() { for (const fn of listeners) fn(); }
@@ -28,6 +35,7 @@ function sanitizeMeta(meta) {
 }
 
 export function addLog(level, message, meta = {}) {
+  ensureLogsLoaded();
   if (!LEVEL_ORDER.includes(level)) level = 'info';
   const entry = {
     id: (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random()}`,
@@ -38,20 +46,22 @@ export function addLog(level, message, meta = {}) {
   };
   logs.unshift(entry);
   if (logs.length > MAX_LOGS) logs.length = MAX_LOGS;
-  writeJson(KEYS.logs, logs);
+  writeJsonScoped(KEYS.logs, logs);
   emit();
   return entry;
 }
 
-export function getLogs() { return logs.slice(); }
+export function getLogs() { ensureLogsLoaded(); return logs.slice(); }
 
 export function clearLogs() {
+  ensureLogsLoaded();
   logs = [];
-  writeJson(KEYS.logs, logs);
+  writeJsonScoped(KEYS.logs, logs);
   emit();
 }
 
 export function exportLogs() {
+  ensureLogsLoaded();
   const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -150,6 +160,7 @@ function renderList(filtered, { onReusePrompt } = {}) {
 }
 
 export function mountLogsPanel({ onReusePrompt } = {}) {
+  ensureLogsLoaded();
   const searchEl = $('logSearch');
   let activeLevel = 'all';
 

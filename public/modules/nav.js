@@ -3,7 +3,7 @@
 import { $, $$ } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 
-const TAB_IDS = ['studioPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel'];
+const TAB_IDS = ['studioPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel', 'usersPanel'];
 
 export function switchTab(tabId) {
   if (!TAB_IDS.includes(tabId)) tabId = 'studioPanel';
@@ -40,6 +40,7 @@ export function mountNav() {
       else if (k === 'g') switchTab('galleryPanel');
       else if (k === 'p') switchTab('configPanel');
       else if (k === 'l') switchTab('logsPanel');
+      else if (k === 'u') switchTab('usersPanel');
     }
   });
 }

@@ -1,9 +1,14 @@
 // Profiles 面板：CRUD + 生图/对话两套上游配置 + 连通性测试 + 概览统计。
 
 import { $, $$, escapeHtml, maskKey, setStatus } from './dom.js';
-import { KEYS, readJson, writeJson, readString, writeString } from './state.js';
+import {
+  KEYS,
+  readJsonScoped, writeJsonScoped,
+  readStringScoped, writeStringScoped
+} from './state.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../../shared/constants.js';
 import { addLog } from './logs.js';
+import { apiFetch } from './auth.js';
 
 const STATUS_LABEL = { active: '启用', draft: '草稿', paused: '暂停' };
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -100,16 +105,27 @@ function defaultProfile(overrides = {}) {
 }
 
 function loadProfiles() {
-  const raw = readJson(KEYS.profiles, null)
-    || readJson(KEYS.legacyProfiles, null)
-    || readJson(KEYS.legacyProfilesV1, null);
+  // why：legacy 历史数据跨用户共享是历史包袱，只做新用户的空态回退；新数据按 userId 隔离存储。
+  const raw = readJsonScoped(KEYS.profiles, null)
+    || readJsonScoped(KEYS.legacyProfiles, null)
+    || readJsonScoped(KEYS.legacyProfilesV1, null);
   if (!Array.isArray(raw) || !raw.length) return [defaultProfile()];
   return raw.map(normalize);
 }
 
-let profiles = loadProfiles();
-let activeId = readString(KEYS.activeProfile, '') || profiles[0].id;
-if (!profiles.some((p) => p.id === activeId)) activeId = profiles[0].id;
+// why：此处不立即 loadProfiles()，因 ES module 顶层执行时当前用户尚未就绪；
+// 留到 mountProfilesPanel() 阶段再载入，此时 app.js 已 setCurrentUser(me)。
+let profiles = [defaultProfile()];
+let activeId = profiles[0].id;
+let profilesInitialized = false;
+
+function initProfilesIfNeeded() {
+  if (profilesInitialized) return;
+  profilesInitialized = true;
+  profiles = loadProfiles();
+  activeId = readStringScoped(KEYS.activeProfile, '') || profiles[0].id;
+  if (!profiles.some((p) => p.id === activeId)) activeId = profiles[0].id;
+}
 
 const listeners = new Set();
 
@@ -139,8 +155,8 @@ export function getChatConfig(profile = getActiveProfile()) {
 
 function persist() {
   profiles = profiles.map(normalize);
-  writeJson(KEYS.profiles, profiles);
-  writeString(KEYS.activeProfile, activeId);
+  writeJsonScoped(KEYS.profiles, profiles);
+  writeStringScoped(KEYS.activeProfile, activeId);
   emit();
 }
 
@@ -345,15 +361,14 @@ async function testConnection(kind) {
   setStatus(`${meta.label}测试中…`, 'busy');
 
   try {
-    const resp = await fetch('/api/test-profile', {
+    const resp = await apiFetch('/api/test-profile', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         name: form.name,
         kind,
         baseUrl: endpoint.baseUrl,
         apiKey: endpoint.apiKey
-      })
+      }
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
@@ -408,6 +423,7 @@ async function testAllConnections() {
 }
 
 export function mountProfilesPanel() {
+  initProfilesIfNeeded();
   $('saveProfile').addEventListener('click', save);
   $('newProfile').addEventListener('click', createDraft);
   $('deleteProfile').addEventListener('click', remove);

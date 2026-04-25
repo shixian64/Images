@@ -10,6 +10,10 @@ import { saveGeneratedImages } from '../services/gallery-store.js';
 
 export async function handleGenerate(req, res) {
   const started = Date.now();
+  // 防御性鉴权（server.js 也会拦）：未登录直接 401
+  if (!req.session?.user) {
+    return sendJson(res, 401, { error: 'unauthorized' });
+  }
   let body = {};
   try {
     body = await readJsonBody(req);
@@ -39,14 +43,18 @@ export async function handleGenerate(req, res) {
     const imageItems = Array.isArray(data?.data) ? data.data : [];
     let saved = [];
     try {
-      const saveResult = await saveGeneratedImages(imageItems, {
-        prompt: payload.prompt,
-        model: payload.model,
-        size: body.size || '',
-        quality: body.quality || '',
-        outputFormat: body.output_format || '',
-        profileName: body.name || ''
-      });
+      const saveResult = await saveGeneratedImages(
+        imageItems,
+        {
+          prompt: payload.prompt,
+          model: payload.model,
+          size: body.size || '',
+          quality: body.quality || '',
+          outputFormat: body.output_format || '',
+          profileName: body.name || ''
+        },
+        { userId: req.session.user.id }
+      );
       saved = saveResult.saved;
       if (Array.isArray(data?.data)) data.data = saveResult.items;
     } catch (saveError) {

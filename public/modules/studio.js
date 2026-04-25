@@ -2,7 +2,7 @@
 // 对应 docs §5.3 Studio 详细设计 + §5.1 键盘友好 + §5.6 状态与反馈。
 
 import { $, escapeHtml, setStatus } from './dom.js';
-import { KEYS, readString, writeString } from './state.js';
+import { KEYS, readStringScoped, writeStringScoped } from './state.js';
 import {
   DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
   estimateDurationMs
@@ -10,6 +10,7 @@ import {
 import { getActiveProfile, getImageConfig, onProfilesChanged } from './profiles.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
+import { apiFetch } from './auth.js';
 
 function renderSelect(id, items) {
   const el = $(id);
@@ -157,10 +158,9 @@ async function generate({ onSavedImages } = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 180000);
   try {
-    const resp = await fetch('/api/generate', {
+    const resp = await apiFetch('/api/generate', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: payload,
       signal: controller.signal
     });
     const data = await resp.json();
@@ -210,7 +210,7 @@ async function generate({ onSavedImages } = {}) {
 export function loadPromptFromLog(prompt) {
   if (!prompt) return;
   $('prompt').value = prompt;
-  writeString(KEYS.promptDraft, prompt);
+  writeStringScoped(KEYS.promptDraft, prompt);
   updatePromptCount();
 }
 
@@ -218,7 +218,7 @@ export function mountStudioPanel({ onSavedImages } = {}) {
   populateOptions();
 
   // 恢复 Prompt 草稿
-  const draft = readString(KEYS.promptDraft, '');
+  const draft = readStringScoped(KEYS.promptDraft, '');
   if (draft) $('prompt').value = draft;
   updatePromptCount();
   updateEstimate();
@@ -232,7 +232,7 @@ export function mountStudioPanel({ onSavedImages } = {}) {
 
   $('prompt').addEventListener('input', () => {
     updatePromptCount();
-    writeString(KEYS.promptDraft, $('prompt').value);
+    writeStringScoped(KEYS.promptDraft, $('prompt').value);
   });
 
   // 标记用户手动改过 model，之后 profile 切换不再覆盖

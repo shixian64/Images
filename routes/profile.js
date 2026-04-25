@@ -1,0 +1,93 @@
+// /api/profile* 路由：当前用户的资料与密码维护。
+// TAG: hmt---
+
+import { sendJson, readJsonBody } from '../utils/http.js';
+import { requireAuth } from '../middleware/guard.js';
+import { users, sessions } from '../services/db.js';
+import { updateProfile, changePassword } from '../services/users.js';
+import { createSession, sanitizeUser } from '../services/auth.js';
+import { setSessionCookie } from '../utils/cookies.js';
+import { logger } from '../utils/logger.js';
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function handleGet(req, res) {
+  // 保险起见以 id 再查一次，避免 session 里的快照过期
+  const fresh = users.findById(req.session.user.id);
+  if (!fresh) {
+    sendJson(res, 404, { error: 'user not found' });
+    return;
+  }
+  sendJson(res, 200, { user: sanitizeUser(fresh) });
+}
+
+async function handlePatch(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'invalid json' });
+    return;
+  }
+  const { username, email, avatarUrl } = body || {};
+  try {
+    const user = updateProfile(req.session.user.id, { username, email, avatarUrl });
+    sendJson(res, 200, { user });
+  } catch (err) {
+    sendJson(res, 400, { error: err.message });
+  }
+}
+
+async function handlePassword(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'invalid json' });
+    return;
+  }
+  const { oldPassword, newPassword } = body || {};
+  const userId = req.session.user.id;
+  try {
+    changePassword(userId, oldPassword, newPassword);
+  } catch (err) {
+    const status = err.message === 'invalid credentials' ? 401 : 400;
+    sendJson(res, status, { error: err.message });
+    return;
+  }
+  // 改密后吊销该用户所有 session（含其他设备），为当前请求重建一条
+  sessions.destroyByUser(userId);
+  const sid = createSession({
+    userId,
+    ua: req.headers['user-agent'] || '',
+    ip: clientIp(req)
+  });
+  setSessionCookie(res, sid);
+  logger.info('profile.password_changed', { userId });
+  res.writeHead(204);
+  res.end();
+}
+
+export async function handleProfileRoute(req, res, pathname) {
+  if (!requireAuth(req, res)) return;
+
+  const method = req.method;
+  if (pathname === '/api/profile' || pathname === '/api/profile/') {
+    if (method === 'GET') return handleGet(req, res);
+    if (method === 'PATCH') return handlePatch(req, res);
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  if (pathname === '/api/profile/password') {
+    if (method === 'POST') return handlePassword(req, res);
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  sendJson(res, 404, { error: 'not found' });
+}
+
+export default handleProfileRoute;

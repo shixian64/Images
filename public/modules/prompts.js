@@ -2,7 +2,11 @@
 // 全部数据保存在 localStorage，和 Studio / Logs 保持同一个轻量客户端架构。
 
 import { $, $$, escapeHtml, setStatus } from './dom.js';
-import { KEYS, readJson, readString, writeJson, writeString } from './state.js';
+import {
+  KEYS,
+  readJsonScoped, writeJsonScoped,
+  readStringScoped, writeStringScoped
+} from './state.js';
 
 const MAX_PROMPT_HISTORY = 160;
 
@@ -25,7 +29,14 @@ const BUILDER_FIELDS = [
   ['composed', 'promptComposedOutput']
 ];
 
-let history = normalizeHistory(readJson(KEYS.promptHistory, []));
+// why：延迟到 mount 阶段再按用户 scope 加载历史，避免 import 期拿到 guest 数据。
+let history = [];
+let historyLoaded = false;
+function ensureHistoryLoaded() {
+  if (historyLoaded) return;
+  historyLoaded = true;
+  history = normalizeHistory(readJsonScoped(KEYS.promptHistory, []));
+}
 const listeners = new Set();
 
 function emitHistoryChanged() {
@@ -62,7 +73,7 @@ function normalizeHistory(value) {
 }
 
 function saveHistory() {
-  writeJson(KEYS.promptHistory, history);
+  writeJsonScoped(KEYS.promptHistory, history);
   emitHistoryChanged();
 }
 
@@ -102,7 +113,7 @@ function builderSnapshot() {
 }
 
 function saveBuilderDraft() {
-  writeJson(KEYS.promptBuilderDraft, builderSnapshot());
+  writeJsonScoped(KEYS.promptBuilderDraft, builderSnapshot());
 }
 
 function getBuilderParts() {
@@ -163,7 +174,7 @@ function updateQualityList() {
 }
 
 function loadBuilderDraft() {
-  const draft = readJson(KEYS.promptBuilderDraft, {});
+  const draft = readJsonScoped(KEYS.promptBuilderDraft, {});
   for (const [name, id] of BUILDER_FIELDS) {
     if ($(id)) $(id).value = draft?.[name] || '';
   }
@@ -190,7 +201,7 @@ function appendToField(id, value) {
 }
 
 function hydrateHistoryFromLogs() {
-  const logs = readJson(KEYS.logs, []);
+  const logs = readJsonScoped(KEYS.logs, []);
   if (!Array.isArray(logs) || !logs.length) return;
   const known = new Set(history.map((item) => item.prompt));
   for (const log of logs.slice().reverse()) {
@@ -222,6 +233,7 @@ function currentPromptPayload(source = 'builder') {
 }
 
 export function addPromptHistory(prompt, meta = {}) {
+  ensureHistoryLoaded();
   const normalizedPrompt = String(prompt || '').trim();
   if (!normalizedPrompt) return null;
 
@@ -457,19 +469,20 @@ function switchPromptSubpanel(tab) {
   });
   $('promptBuilderPanel')?.classList.toggle('active', target === 'builder');
   $('promptHistoryPanel')?.classList.toggle('active', target === 'history');
-  writeString(KEYS.promptManagerTab, target);
+  writeStringScoped(KEYS.promptManagerTab, target);
 }
 
 export function mountPromptPanel({ onUsePrompt } = {}) {
   if (!$('promptPanel')) return;
 
+  ensureHistoryLoaded();
   loadBuilderDraft();
   hydrateHistoryFromLogs();
 
   $$('.prompt-tab').forEach((btn) => {
     btn.addEventListener('click', () => switchPromptSubpanel(btn.dataset.promptTab));
   });
-  switchPromptSubpanel(readString(KEYS.promptManagerTab, 'builder'));
+  switchPromptSubpanel(readStringScoped(KEYS.promptManagerTab, 'builder'));
 
   for (const [, id] of BUILDER_FIELDS) {
     const el = $(id);

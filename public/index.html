@@ -25,10 +25,12 @@
       <button class="tab-button" data-tab="logsPanel" data-hotkey="gl">
         日志 <span id="logErrorBadge" class="menu-badge" hidden>0</span>
       </button>
+      <button class="tab-button" data-tab="usersPanel" data-hotkey="gu" data-admin-only hidden>用户</button>
     </nav>
 
     <div class="topbar-right">
       <span class="status-chip" id="status" data-state="ready">就绪</span>
+      <div id="userMenu" class="user-menu"></div>
       <button class="icon-button" id="themeToggle" title="切换主题" aria-label="切换主题">
         <span class="theme-icon" data-theme-icon>◐</span>
       </button>
@@ -388,6 +390,24 @@
           </div>
         </div>
       </section>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- Users (admin only) -->
+    <!-- ============================================================ -->
+    <section id="usersPanel" class="tab-panel" data-admin-only hidden aria-labelledby="usersHeading">
+      <div class="panel">
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">用户管理</p>
+            <h2 id="usersHeading">用户</h2>
+          </div>
+          <div>
+            <button class="ghost small" id="usersRefresh">刷新</button>
+          </div>
+        </header>
+        <div id="usersTableWrap"></div>
+      </div>
     </section>
   </main>
 

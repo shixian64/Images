@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录 · 图像工作台</title>
+  <meta name="color-scheme" content="light dark" />
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    /* why：登录页仅此一处使用，内联减少额外资源请求。 */
+    body.auth-body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
+      padding: 32px 28px;
+    }
+    .auth-card h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .auth-card h1 .brand-mark {
+      color: var(--brand);
+    }
+    .auth-card .eyebrow {
+      margin: 0 0 24px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .auth-card .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+    .auth-card .field > span { font-size: 12px; color: var(--text-muted); }
+    .auth-card input {
+      height: var(--control-height);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-btn);
+      padding: 0 12px;
+      background: var(--surface-2);
+      color: var(--text);
+      font: inherit;
+    }
+    .auth-card input:focus {
+      outline: 2px solid var(--brand-soft);
+      border-color: var(--brand);
+    }
+    .auth-card .primary {
+      width: 100%;
+      height: var(--control-height);
+      border: none;
+      border-radius: var(--radius-btn);
+      background: var(--brand);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    .auth-card .primary:hover:not(:disabled) { background: var(--brand-hover); }
+    .auth-card .primary:disabled { opacity: .6; cursor: progress; }
+    .auth-switch {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .auth-switch button {
+      background: none;
+      border: none;
+      color: var(--brand);
+      cursor: pointer;
+      padding: 0 4px;
+      font: inherit;
+    }
+    .auth-error {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius-btn);
+      background: var(--danger-soft);
+      color: var(--danger);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body class="auth-body">
+  <section class="auth-card" aria-labelledby="authHeading">
+    <h1 id="authHeading"><span class="brand-mark" aria-hidden="true">◆</span><span data-auth-title>登录</span></h1>
+    <p class="eyebrow">图像工作台 · BYOK</p>
+
+    <div class="error-banner auth-error" id="authError" hidden role="alert"></div>
+
+    <!-- 登录表单 -->
+    <form id="loginForm" autocomplete="on">
+      <label class="field">
+        <span>用户名或邮箱</span>
+        <input name="login" required autocomplete="username" />
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input name="password" type="password" required autocomplete="current-password" />
+      </label>
+      <button class="primary" type="submit">登录</button>
+    </form>
+
+    <!-- 注册表单 -->
+    <form id="registerForm" autocomplete="on" hidden>
+      <label class="field">
+        <span>用户名（3-32 位字母/数字/下划线/连字符）</span>
+        <input name="username" required pattern="[a-zA-Z0-9_\-]{3,32}" autocomplete="username" />
+      </label>
+      <label class="field">
+        <span>邮箱</span>
+        <input name="email" type="email" required autocomplete="email" />
+      </label>
+      <label class="field">
+        <span>密码（至少 8 位）</span>
+        <input name="password" type="password" required minlength="8" autocomplete="new-password" />
+      </label>
+      <label class="field">
+        <span>确认密码</span>
+        <input name="confirmPassword" type="password" required minlength="8" autocomplete="new-password" />
+      </label>
+      <button class="primary" type="submit">注册并登录</button>
+    </form>
+
+    <p class="auth-switch">
+      <span data-switch-hint>还没有账号？</span>
+      <button type="button" id="switchMode" data-switch-label>去注册</button>
+    </p>
+  </section>
+
+  <script type="module">
+    // why：登录页不依赖 modules/auth.js，避免循环 import；最小 fetch 即可。
+    const $ = (sel) => document.querySelector(sel);
+    const loginForm = $('#loginForm');
+    const registerForm = $('#registerForm');
+    const errorBox = $('#authError');
+    const switchBtn = $('#switchMode');
+    const title = document.querySelector('[data-auth-title]');
+    const switchHint = document.querySelector('[data-switch-hint]');
+    const switchLabel = document.querySelector('[data-switch-label]');
+
+    let mode = 'login';
+
+    function showError(msg) {
+      if (!msg) { errorBox.hidden = true; errorBox.textContent = ''; return; }
+      errorBox.hidden = false;
+      errorBox.textContent = msg;
+    }
+
+    function setMode(next) {
+      mode = next;
+      showError('');
+      if (mode === 'login') {
+        loginForm.hidden = false;
+        registerForm.hidden = true;
+        title.textContent = '登录';
+        switchHint.textContent = '还没有账号？';
+        switchLabel.textContent = '去注册';
+      } else {
+        loginForm.hidden = true;
+        registerForm.hidden = false;
+        title.textContent = '注册';
+        switchHint.textContent = '已有账号？';
+        switchLabel.textContent = '去登录';
+      }
+    }
+
+    switchBtn.addEventListener('click', () => setMode(mode === 'login' ? 'register' : 'login'));
+
+    async function postJson(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'fetch'
+        },
+        body: JSON.stringify(body)
+      });
+    }
+
+    async function handleResponse(resp) {
+      if (resp.ok) { location.href = '/'; return; }
+      let msg = `请求失败 (HTTP ${resp.status})`;
+      try {
+        const data = await resp.json();
+        if (data?.error) msg = String(data.error);
+      } catch {}
+      showError(msg);
+    }
+
+    loginForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      showError('');
+      const fd = new FormData(loginForm);
+      const login = String(fd.get('login') || '').trim();
+      const password = String(fd.get('password') || '');
+      if (!login || !password) { showError('请填写用户名/邮箱和密码'); return; }
+      const btn = loginForm.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const resp = await postJson('/api/auth/login', { login, password });
+        await handleResponse(resp);
+      } catch (err) {
+        showError(err?.message || '网络错误');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    registerForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      showError('');
+      const fd = new FormData(registerForm);
+      const username = String(fd.get('username') || '').trim();
+      const email = String(fd.get('email') || '').trim();
+      const password = String(fd.get('password') || '');
+      const confirmPassword = String(fd.get('confirmPassword') || '');
+
+      // 前端最小校验，服务端会再校验一次。
+      if (!/^[a-zA-Z0-9_-]{3,32}$/.test(username)) { showError('用户名格式不正确'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showError('邮箱格式不正确'); return; }
+      if (password.length < 8) { showError('密码至少 8 位'); return; }
+      if (password !== confirmPassword) { showError('两次密码不一致'); return; }
+
+      const btn = registerForm.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const resp = await postJson('/api/auth/register', { username, email, password });
+        await handleResponse(resp);
+      } catch (err) {
+        showError(err?.message || '网络错误');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

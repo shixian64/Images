@@ -1,6 +1,7 @@
 // 本地图库面板：启动时自动读取服务端 generated/gallery.json，并展示已落盘图片。
 
 import { $, escapeHtml, setStatus } from './dom.js';
+import { apiFetch } from './auth.js';
 
 let galleryItems = [];
 let mounted = false;
@@ -156,7 +157,7 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
       list.innerHTML = emptyHtml('正在加载本地图库…');
     }
 
-    const resp = await fetch('/api/gallery?limit=500', { headers: { accept: 'application/json' } });
+    const resp = await apiFetch('/api/gallery?limit=500', { headers: { accept: 'application/json' } });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 

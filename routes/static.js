@@ -1,11 +1,15 @@
 // 静态文件路由。
 // 主根：public/；额外根：
 // - /shared/* 映射到项目根的 shared/（供浏览器 ESM import）
-// - /gallery-files/* 映射到本地 generated/（展示自动保存的图片）
-// 仍然防止路径穿越。
+// - /gallery-files/users/<uid>/images/... 映射到 generated/users/<uid>/images/...
+//   仅限当前登录用户（uid 匹配）或 admin。
+// - /gallery-files/images/...（旧迁移路径）通过 images 表查 user_id 做归属校验。
+// 统一用 path.normalize + startsWith 做路径穿越防护。
 
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join, normalize } from 'node:path';
+
+import { images as imagesTable } from '../services/db.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -20,41 +24,109 @@ const MIME = {
   '.gif': 'image/gif'
 };
 
-export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
-  const sharedDir = join(rootDir, 'shared');
-  const galleryDir = join(rootDir, 'generated');
+function send403(res) {
+  res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('Forbidden');
+}
 
-  function resolveFile(pathname) {
-    // /shared/* —— 映射到项目根的 shared/，限制在 sharedDir 内。
+function send404(res) {
+  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('Not found');
+}
+
+// 判断 filePath 规范化后是否仍在 root 内（防穿越）。
+function isInside(filePath, root) {
+  const normalizedFile = normalize(filePath);
+  const normalizedRoot = normalize(root);
+  // 允许完全等于 root，或以 root + 分隔符 开头
+  if (normalizedFile === normalizedRoot) return true;
+  const withSep = normalizedRoot.endsWith('/') || normalizedRoot.endsWith('\\')
+    ? normalizedRoot
+    : normalizedRoot + (normalizedRoot.includes('\\') ? '\\' : '/');
+  return normalizedFile.startsWith(withSep);
+}
+
+export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
+  const sharedDir = normalize(join(rootDir, 'shared'));
+  const generatedDir = normalize(join(rootDir, 'generated'));
+  const usersRoot = normalize(join(generatedDir, 'users'));
+  const legacyImagesRoot = normalize(join(generatedDir, 'images'));
+
+  // 返回 { filePath, root } 或 { forbidden: true } 或 { notFound: true }。
+  function resolveGalleryFile(pathname, session) {
+    // 期望以 /gallery-files/ 开头
+    const rel = pathname.slice('/gallery-files/'.length);
+    if (!rel) return { notFound: true };
+
+    // 形态 1：users/<uid>/images/...
+    const userMatch = rel.match(/^users\/([^/]+)\/images\/(.+)$/);
+    if (userMatch) {
+      const uid = userMatch[1];
+      const rest = userMatch[2];
+      const user = session?.user;
+      if (!user) return { forbidden: true };
+      if (user.id !== uid && user.role !== 'admin') return { forbidden: true };
+
+      const filePath = normalize(join(generatedDir, 'users', uid, 'images', rest));
+      const expectedRoot = normalize(join(generatedDir, 'users', uid, 'images'));
+      if (!isInside(filePath, expectedRoot)) return { forbidden: true };
+      return { filePath, root: expectedRoot };
+    }
+
+    // 形态 2：旧路径 images/<date>/<file>（迁移前的历史图）
+    if (rel.startsWith('images/')) {
+      // 相对 generated/ 的路径，保持 db.images.path 的原值一致
+      const relPath = normalize(rel);
+      const filePath = normalize(join(generatedDir, relPath));
+      if (!isInside(filePath, legacyImagesRoot)) return { forbidden: true };
+
+      const user = session?.user;
+      if (!user) return { forbidden: true };
+
+      // 用 normalize 后的正向斜杠形式查 db（db 里存的也是 / 分隔）
+      const lookupKey = relPath.split(/[\\/]+/).filter(Boolean).join('/');
+      const row = imagesTable.findByPath(lookupKey);
+      if (!row) return { forbidden: true };
+      if (row.user_id !== user.id && user.role !== 'admin') return { forbidden: true };
+
+      return { filePath, root: legacyImagesRoot };
+    }
+
+    // 其他 /gallery-files/* 一律 404
+    return { notFound: true };
+  }
+
+  function resolveFile(pathname, session) {
+    // /shared/* —— 映射到项目根的 shared/
     if (pathname.startsWith('/shared/')) {
       const rel = normalize(pathname.slice('/shared/'.length)).replace(/^([.][.][/\\])+/, '');
-      const filePath = join(sharedDir, rel);
+      const filePath = normalize(join(sharedDir, rel));
+      if (!isInside(filePath, sharedDir)) return { forbidden: true };
       return { filePath, root: sharedDir };
     }
-    // /gallery-files/* —— 只暴露 generated/ 下的图库文件。
+
+    // /gallery-files/* —— 按用户隔离
     if (pathname.startsWith('/gallery-files/')) {
-      const rel = normalize(pathname.slice('/gallery-files/'.length)).replace(/^([.][.][/\\])+/, '');
-      const safeRel = rel.startsWith(`images${sep}`) ? rel : '__not_found__';
-      const filePath = join(galleryDir, safeRel);
-      return { filePath, root: galleryDir };
+      return resolveGalleryFile(pathname, session);
     }
-    // 默认：public/ 下。
+
+    // 默认：public/ 下
     const requested = pathname === '/' ? '/index.html' : pathname;
     const safePath = normalize(requested).replace(/^([.][.][/\\])+/, '');
-    const filePath = join(publicDir, safePath);
-    return { filePath, root: publicDir };
+    const filePath = normalize(join(publicDir, safePath));
+    if (!isInside(filePath, normalize(publicDir))) return { forbidden: true };
+    return { filePath, root: normalize(publicDir) };
   }
 
   return async function serveStatic(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
-    const { filePath, root } = resolveFile(pathname);
+    const resolved = resolveFile(pathname, req.session);
 
-    if (!filePath.startsWith(root)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
+    if (resolved.forbidden) return send403(res);
+    if (resolved.notFound) return send404(res);
+
+    const { filePath } = resolved;
 
     try {
       const content = await readFile(filePath);
@@ -64,8 +136,7 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       });
       res.end(content);
     } catch {
-      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('Not found');
+      return send404(res);
     }
   };
 }

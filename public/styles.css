@@ -1142,3 +1142,215 @@ body.preview-open { overflow: hidden; }
   .log-item .log-msg   { grid-row: 2; grid-column: 1 / -1; }
   .log-item .log-actions { grid-row: 3; grid-column: 1 / -1; }
 }
+
+/* ============================================================
+   Auth / User Menu / Users Panel / Dialog — Task 4 追加
+   ============================================================ */
+
+/* 通用错误提示条 */
+.error-banner {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-radius: var(--radius-btn);
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+/* 右上角用户菜单 */
+.user-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+}
+.user-menu-trigger:hover { background: var(--surface-3); }
+.user-menu-trigger .user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+}
+.user-menu-trigger img.user-avatar { object-fit: cover; }
+.user-menu-trigger .user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.user-menu-trigger .user-caret {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+}
+.user-menu-dropdown[hidden] { display: none; }
+.user-menu-dropdown button {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  font: inherit;
+}
+.user-menu-dropdown button:hover { background: var(--surface-2); }
+
+/* 用户管理表格 */
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.users-table th,
+.users-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+.users-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  background: var(--surface-2);
+  position: sticky;
+  top: 0;
+}
+.users-table tr:last-child td { border-bottom: none; }
+.users-table .users-role-select {
+  height: 30px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 0 8px;
+}
+.users-table .users-status-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.users-table .users-status-btn.primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.users-table .users-status-btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.users-table .users-status-btn:disabled,
+.users-table .users-role-select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* 模态对话框 */
+dialog.app-dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 0;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  max-width: 420px;
+  width: calc(100% - 32px);
+}
+dialog.app-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+.app-dialog-form {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  gap: 10px;
+  margin: 0;
+}
+.app-dialog-form h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.app-dialog-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.app-dialog-form .field > span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.app-dialog-form input {
+  height: var(--control-height);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  padding: 0 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.app-dialog-form input:focus {
+  outline: 2px solid var(--brand-soft);
+  border-color: var(--brand);
+}
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.app-dialog-actions button {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.app-dialog-actions button.primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.app-dialog-actions button.primary:hover:not(:disabled) { background: var(--brand-hover); }
+.app-dialog-actions button:disabled { opacity: .6; cursor: progress; }
