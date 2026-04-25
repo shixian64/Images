@@ -747,6 +747,7 @@ button.danger:hover { background: var(--danger-soft); }
 
 #promptComposedOutput {
   width: 100%;
+  flex: 1 1 auto;
   min-height: 280px;
   resize: vertical;
   padding: 12px;
@@ -767,7 +768,7 @@ button.danger:hover { background: var(--danger-soft); }
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: auto 0 12px;
+  margin: 12px 0;
 }
 .prompt-quality-list span {
   padding: 4px 9px;
