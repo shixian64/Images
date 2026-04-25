@@ -14,6 +14,11 @@ import { apiFetch } from './auth.js';
 
 const GENERATE_TIMEOUT_MS = 10 * 60 * 1000;
 
+let studioPreviewItems = [];
+let studioPreviewPrompt = '';
+let previewModal = null;
+let lastPreviewTrigger = null;
+
 function renderSelect(id, items) {
   const el = $(id);
   if (!el) return;
@@ -81,9 +86,62 @@ function imageSrcFromItem(item) {
   return '';
 }
 
+function ensurePreviewModal() {
+  if (previewModal) return previewModal;
+
+  const modal = document.createElement('div');
+  modal.className = 'image-preview-modal';
+  modal.hidden = true;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', '原图预览');
+  modal.innerHTML = `
+    <div class="image-preview-backdrop" data-preview-close></div>
+    <div class="image-preview-frame">
+      <button class="image-preview-close" type="button" aria-label="关闭原图预览" data-preview-close>×</button>
+      <img class="image-preview-image" alt="" />
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (ev) => {
+    if (ev.target?.hasAttribute?.('data-preview-close')) closePreviewModal();
+  });
+
+  previewModal = modal;
+  return previewModal;
+}
+
+function openPreviewModal(item, trigger) {
+  const src = imageSrcFromItem(item || {});
+  if (!src) return;
+
+  const prompt = item?.revised_prompt || item?.revisedPrompt || studioPreviewPrompt || '';
+  lastPreviewTrigger = trigger || null;
+  const modal = ensurePreviewModal();
+  const img = modal.querySelector('.image-preview-image');
+  img.src = src;
+  img.alt = (prompt || '生成图片原图').slice(0, 120);
+  modal.hidden = false;
+  document.body.classList.add('preview-open');
+  modal.querySelector('.image-preview-close')?.focus();
+}
+
+function closePreviewModal() {
+  if (!previewModal || previewModal.hidden) return;
+  const img = previewModal.querySelector('.image-preview-image');
+  previewModal.hidden = true;
+  if (img) img.removeAttribute('src');
+  document.body.classList.remove('preview-open');
+  lastPreviewTrigger?.focus?.();
+  lastPreviewTrigger = null;
+}
+
 function renderImages(items, prompt) {
   const gallery = $('gallery');
   if (!items.length) {
+    studioPreviewItems = [];
+    studioPreviewPrompt = '';
     gallery.dataset.empty = 'true';
     gallery.innerHTML = `
       <div class="empty-state">
@@ -92,6 +150,8 @@ function renderImages(items, prompt) {
       </div>`;
     return;
   }
+  studioPreviewItems = items;
+  studioPreviewPrompt = prompt || '';
   gallery.dataset.empty = 'false';
   const altBase = escapeHtml((prompt || '').slice(0, 100));
   gallery.innerHTML = items.map((item, index) => {
@@ -101,18 +161,16 @@ function renderImages(items, prompt) {
       : '';
     const stem = `image-${Date.now()}-${index + 1}`;
     const downloadName = item.file_name || `${stem}.png`;
-    const savedBadge = item.local_url || item.localUrl
-      ? '<span class="saved-badge">已保存到本地</span>'
-      : '';
     const saveError = item.save_error
       ? `<p class="revised">本地保存失败：${escapeHtml(item.save_error)}</p>`
       : '';
     return `<article class="image-card">
-      <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
+      <button class="image-preview-trigger" type="button" data-studio-index="${index}" aria-label="放大查看第 ${index + 1} 张生成图">
+        <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
+      </button>
       <div class="card-actions">
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
       </div>
-      <div class="image-meta"><span>#${index + 1}</span>${savedBadge}</div>
       ${revised}
       ${saveError}
     </article>`;
@@ -329,9 +387,16 @@ export function mountStudioPanel({ onSavedImages } = {}) {
   $('model').addEventListener('input', () => { $('model').dataset.userEdited = '1'; });
 
   $('generate').addEventListener('click', () => generate({ onSavedImages }));
+  $('gallery').addEventListener('click', (ev) => {
+    const trigger = ev.target.closest('.image-preview-trigger');
+    if (!trigger) return;
+    const index = Number(trigger.dataset.studioIndex);
+    openPreviewModal(studioPreviewItems[index], trigger);
+  });
 
   // ⌘/Ctrl + Enter：在 textarea 内也能触发
   document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closePreviewModal();
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
       ev.preventDefault();
       generate({ onSavedImages });
