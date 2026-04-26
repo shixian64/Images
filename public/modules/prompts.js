@@ -124,8 +124,7 @@ function buildLargeSquarePreviewUrl(url) {
 
   return source
     .replace(/(width(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}1200`)
-    .replace(/(quality(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}92`)
-    .replace(/(fit(?:%3D|=))(?:cover|crop|contain|scale-down)/i, (_match, prefix) => `${prefix}contain`);
+    .replace(/(quality(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}92`);
 }
 
 function ensureSquarePreviewModal() {
@@ -768,7 +767,7 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
       ? `<button class="prompt-square-preview" type="button" data-square-preview="${escapeHtml(previewUrl)}" aria-label="打开 ${escapeHtml(item.title)} 示例图">
           <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(`${item.title} 示例图`)}" loading="lazy" referrerpolicy="no-referrer" />
         </button>`
-      : '';
+      : '<div class="prompt-square-preview prompt-square-preview-placeholder" aria-hidden="true"><span>暂无示例图</span></div>';
     return `
       <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
         <div class="prompt-square-rank">#${index + 1}</div>
@@ -787,13 +786,13 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
           <span>使用 ${Number(item.useCount) || 0} 次</span>
           ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
         </div>
+        ${preview}
         <div class="prompt-history-buttons">
           <button data-action="use-square" type="button">使用</button>
           <button data-action="copy-square" type="button">复制</button>
           <button data-action="save-square" type="button">保存到历史</button>
           ${mine ? '<button data-action="unpublish-square" class="danger" type="button">取消公开</button>' : ''}
         </div>
-        ${preview}
       </article>`;
   }).join('');
 
