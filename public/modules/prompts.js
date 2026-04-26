@@ -45,6 +45,9 @@ let squareItems = [];
 let squareLoaded = false;
 let squareLoading = false;
 let squareUsePromptHandler = null;
+let squarePreviewModal = null;
+let lastSquarePreviewTrigger = null;
+let squarePreviewKeyBound = false;
 
 function emitHistoryChanged() {
   for (const fn of listeners) fn();
@@ -112,6 +115,66 @@ function formatTime(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '-';
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function buildLargeSquarePreviewUrl(url) {
+  if (!url) return '';
+  const source = String(url);
+  if (!source.includes('/cdn-cgi/image/')) return source;
+
+  return source
+    .replace(/(width(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}1200`)
+    .replace(/(quality(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}92`)
+    .replace(/(fit(?:%3D|=))(?:cover|crop|contain|scale-down)/i, (_match, prefix) => `${prefix}contain`);
+}
+
+function ensureSquarePreviewModal() {
+  if (squarePreviewModal) return squarePreviewModal;
+
+  const modal = document.createElement('div');
+  modal.className = 'image-preview-modal prompt-square-image-preview-modal';
+  modal.hidden = true;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', '提示词示例图预览');
+  modal.innerHTML = `
+    <div class="image-preview-backdrop" data-square-preview-close></div>
+    <div class="image-preview-frame">
+      <button class="image-preview-close" type="button" aria-label="关闭示例图预览" data-square-preview-close>×</button>
+      <img class="image-preview-image" alt="" referrerpolicy="no-referrer" />
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (ev) => {
+    if (ev.target?.hasAttribute?.('data-square-preview-close')) closeSquarePreviewModal();
+  });
+
+  squarePreviewModal = modal;
+  return squarePreviewModal;
+}
+
+function openSquarePreviewModal({ url, alt }, trigger) {
+  if (!url) return;
+  lastSquarePreviewTrigger = trigger || null;
+  const modal = ensureSquarePreviewModal();
+  const img = modal.querySelector('.image-preview-image');
+  img.src = buildLargeSquarePreviewUrl(url);
+  img.alt = (alt || '提示词广场示例图').slice(0, 120);
+  img.referrerPolicy = 'no-referrer';
+  modal.hidden = false;
+  document.body.classList.add('preview-open');
+  modal.querySelector('.image-preview-close')?.focus();
+}
+
+function closeSquarePreviewModal() {
+  if (!squarePreviewModal || squarePreviewModal.hidden) return;
+  const img = squarePreviewModal.querySelector('.image-preview-image');
+  squarePreviewModal.hidden = true;
+  if (img) img.removeAttribute('src');
+  document.body.classList.remove('preview-open');
+  lastSquarePreviewTrigger?.focus?.();
+  lastSquarePreviewTrigger = null;
 }
 
 function builderSnapshot() {
@@ -296,7 +359,8 @@ export function addPromptHistory(prompt, meta = {}) {
     sref: meta.sref || '',
     sourceHot: meta.sourceHot || '',
     sourceName: meta.sourceName || '',
-    sourceUrl: meta.sourceUrl || ''
+    sourceUrl: meta.sourceUrl || '',
+    previewImages: Array.isArray(meta.previewImages) ? meta.previewImages : []
   };
 
   if (index >= 0) {
@@ -697,6 +761,14 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
       item.meta?.quality
     ].filter(Boolean).join(' · ');
     const mine = item.owner?.id === getCurrentUserId();
+    const previewUrl = Array.isArray(item.meta?.previewImages)
+      ? item.meta.previewImages[0]
+      : item.meta?.previewImage || '';
+    const preview = previewUrl
+      ? `<button class="prompt-square-preview" type="button" data-square-preview="${escapeHtml(previewUrl)}" aria-label="打开 ${escapeHtml(item.title)} 示例图">
+          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(`${item.title} 示例图`)}" loading="lazy" referrerpolicy="no-referrer" />
+        </button>`
+      : '';
     return `
       <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
         <div class="prompt-square-rank">#${index + 1}</div>
@@ -721,10 +793,22 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
           <button data-action="save-square" type="button">保存到历史</button>
           ${mine ? '<button data-action="unpublish-square" class="danger" type="button">取消公开</button>' : ''}
         </div>
+        ${preview}
       </article>`;
   }).join('');
 
   list.onclick = async (ev) => {
+    const previewBtn = ev.target.closest('[data-square-preview]');
+    if (previewBtn) {
+      const itemEl = previewBtn.closest('.prompt-square-card');
+      const item = squareItems.find((it) => it.id === itemEl?.dataset.id);
+      openSquarePreviewModal({
+        url: previewBtn.dataset.squarePreview,
+        alt: item ? `${item.title} 示例图` : '提示词广场示例图'
+      }, previewBtn);
+      return;
+    }
+
     const btn = ev.target.closest('button[data-action]');
     const itemEl = ev.target.closest('.prompt-square-card');
     if (!btn || !itemEl) return;
@@ -754,7 +838,8 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
           sref: item.meta?.sref,
           sourceHot: item.meta?.sourceHot,
           sourceName: item.meta?.sourceName,
-          sourceUrl: item.meta?.sourceUrl
+          sourceUrl: item.meta?.sourceUrl,
+          previewImages: item.meta?.previewImages
         });
         setStatus('已保存到历史提示词', 'ok', 1400);
       } else if (action === 'unpublish-square') {
@@ -941,6 +1026,12 @@ export function mountPromptPanel({ onUsePrompt } = {}) {
   $('promptSquareRefresh')?.addEventListener('click', () => refreshPromptSquare({ onUsePrompt }));
   $('promptExportHistory')?.addEventListener('click', exportPromptHistory);
   $('promptClearHistory')?.addEventListener('click', clearUnpinnedHistory);
+  if (!squarePreviewKeyBound) {
+    squarePreviewKeyBound = true;
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') closeSquarePreviewModal();
+    });
+  }
 
   onPromptHistoryChanged(() => renderHistory({ onUsePrompt }));
   renderHistory({ onUsePrompt });

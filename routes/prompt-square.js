@@ -50,6 +50,20 @@ function sanitizeMeta(input, parts) {
     const value = trimText(src[key], 120);
     if (value) meta[key] = value;
   }
+  for (const key of ['sref', 'sourceName']) {
+    const value = trimText(src[key], 120);
+    if (value) meta[key] = value;
+  }
+  const sourceHot = Number(src.sourceHot);
+  if (Number.isFinite(sourceHot) && sourceHot > 0) meta.sourceHot = Math.floor(sourceHot);
+  const sourceUrl = trimText(src.sourceUrl, 500);
+  if (/^https?:\/\//i.test(sourceUrl)) meta.sourceUrl = sourceUrl;
+  const previewImages = Array.isArray(src.previewImages) ? src.previewImages : [];
+  const cleanPreviewImages = previewImages
+    .map((url) => trimText(url, 500))
+    .filter((url) => /^https?:\/\//i.test(url))
+    .slice(0, 4);
+  if (cleanPreviewImages.length) meta.previewImages = cleanPreviewImages;
   const cleanParts = sanitizeParts(parts || src.parts);
   if (cleanParts) meta.parts = cleanParts;
   return meta;

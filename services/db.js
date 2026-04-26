@@ -193,21 +193,27 @@ function migratePromptSquareNullableOwner(db) {
 }
 
 function seedPromptSquareDefaults(db) {
-  const seedKey = 'prompt_square.seed.promptsref_sref_v1';
+  const seedKey = 'prompt_square.seed.promptsref_sref_v3';
   const done = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey);
   if (done) return;
 
-  const exists = db.prepare('SELECT id FROM prompt_square WHERE source_prompt_id = ? LIMIT 1');
+  const exists = db.prepare('SELECT id, published_at FROM prompt_square WHERE source_prompt_id = ? LIMIT 1');
   const insert = db.prepare(`
     INSERT INTO prompt_square
     (id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at)
     VALUES (?, NULL, ?, ?, ?, ?, 'seed', ?, 0, ?, ?, ?)
   `);
+  const update = db.prepare(`
+    UPDATE prompt_square
+    SET title = ?, prompt = ?, tags = ?, source = 'seed', meta = ?, updated_at = ?
+    WHERE id = ?
+  `);
   const startedAt = Date.now();
   let inserted = 0;
+  let updated = 0;
   for (const seed of PROMPT_SQUARE_SEEDS) {
     const sourcePromptId = `promptsref:sref:${seed.sref}`;
-    if (exists.get(sourcePromptId)) continue;
+    const existing = exists.get(sourcePromptId);
     const publishedAt = new Date(startedAt - (seed.rank - 1) * 1000).toISOString();
     const meta = {
       seed: true,
@@ -215,8 +221,21 @@ function seedPromptSquareDefaults(db) {
       sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
       sourceRank: seed.rank,
       sourceHot: seed.sourceHot,
-      sref: seed.sref
+      sref: seed.sref,
+      previewImages: Array.isArray(seed.previewImages) ? seed.previewImages : []
     };
+    if (existing) {
+      const res = update.run(
+        seed.title,
+        seed.prompt,
+        JSON.stringify(seed.tags),
+        JSON.stringify(meta),
+        nowIso(),
+        existing.id
+      );
+      if (res.changes) updated += 1;
+      continue;
+    }
     const res = insert.run(
       randomUUID(),
       sourcePromptId,
@@ -237,9 +256,10 @@ function seedPromptSquareDefaults(db) {
   `).run(seedKey, JSON.stringify({
     sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
     total: PROMPT_SQUARE_SEEDS.length,
-    inserted
+    inserted,
+    updated
   }), nowIso());
-  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v1', inserted });
+  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v3', inserted, updated });
 }
 
 function migrateLegacyGallery(db) {
