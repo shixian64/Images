@@ -4,6 +4,7 @@ import {
   assertAllowedUpstreamUrl,
   buildChatPayload,
   buildImagePayload,
+  callUpstream,
   resolveApiUrl,
   resolveChatCompletionsUrl,
   resolveModelsUrl
@@ -55,6 +56,27 @@ test('assertAllowedUpstreamUrl 拒绝 localhost / 私网 IP / 解析到私网的
   await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
     lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
   }), /private address/);
+});
+
+test('assertAllowedUpstreamUrl rejects private IPv4-mapped IPv6 addresses', async () => {
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:127.0.0.1]/v1/models'), /not allowed/);
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:169.254.169.254]/v1/models'), /not allowed/);
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
+    lookupImpl: async () => [{ address: '::ffff:7f00:1', family: 6 }]
+  }), /private address/);
+});
+
+test('callUpstream disables automatic fetch redirects', async () => {
+  const result = await callUpstream({
+    targetUrl: 'https://gateway.example.com/v1/chat/completions',
+    apiKey: 'sk-test',
+    payload: { model: 'x', messages: [{ role: 'user', content: 'hi' }] },
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.redirect, 'manual');
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+  });
+  assert.equal(result.ok, true);
 });
 
 // --- resolveModelsUrl ---

@@ -56,13 +56,60 @@ function isBlockedIpv4(ip) {
   return BLOCKED_IPV4_CIDRS.some(([base, bits]) => ipv4InCidr(ip, base, bits));
 }
 
+function ipv6ToHextets(ip) {
+  let value = normalizeHostname(ip).split('%')[0];
+
+  if (value.includes('.')) {
+    const lastColon = value.lastIndexOf(':');
+    const dotted = value.slice(lastColon + 1);
+    const embedded = ipv4ToInt(dotted);
+    if (lastColon < 0 || embedded === null) return null;
+    value = `${value.slice(0, lastColon)}:${((embedded >>> 16) & 0xffff).toString(16)}:${(embedded & 0xffff).toString(16)}`;
+  }
+
+  const compressed = value.split('::');
+  if (compressed.length > 2) return null;
+
+  const left = compressed[0] ? compressed[0].split(':') : [];
+  const right = compressed.length === 2 && compressed[1] ? compressed[1].split(':') : [];
+  const zeroCount = compressed.length === 2 ? 8 - left.length - right.length : 0;
+  if (zeroCount < 0) return null;
+
+  const parts = compressed.length === 2
+    ? [...left, ...Array(zeroCount).fill('0'), ...right]
+    : left;
+  if (parts.length !== 8) return null;
+
+  const hextets = parts.map((part) => {
+    if (!/^[0-9a-f]{1,4}$/i.test(part)) return null;
+    return Number.parseInt(part, 16);
+  });
+  return hextets.some((part) => part === null) ? null : hextets;
+}
+
+function embeddedIpv4FromIpv6(ip) {
+  const hextets = ipv6ToHextets(ip);
+  if (!hextets) return null;
+
+  const first80Zero = hextets.slice(0, 5).every((part) => part === 0);
+  const first96Zero = first80Zero && hextets[5] === 0;
+  const isMapped = first80Zero && hextets[5] === 0xffff;
+  const isCompatible = first96Zero && (hextets[6] !== 0 || hextets[7] !== 0);
+  if (!isMapped && !isCompatible) return null;
+
+  return [
+    (hextets[6] >>> 8) & 0xff,
+    hextets[6] & 0xff,
+    (hextets[7] >>> 8) & 0xff,
+    hextets[7] & 0xff
+  ].join('.');
+}
+
 function isBlockedIpv6(ip) {
   const value = normalizeHostname(ip);
   if (value === '::' || value === '::1') return true;
-  if (value.startsWith('::ffff:')) {
-    const mapped = value.slice('::ffff:'.length);
-    if (isIP(mapped) === 4) return isBlockedIpv4(mapped);
-  }
+  const embeddedIpv4 = embeddedIpv4FromIpv6(value);
+  if (embeddedIpv4) return isBlockedIpv4(embeddedIpv4);
   return /^(fc|fd)/.test(value)
     || /^fe[89ab]/.test(value)
     || value.startsWith('ff');
@@ -235,6 +282,7 @@ export async function callUpstream({
         'accept': 'application/json'
       },
       body: JSON.stringify(payload),
+      redirect: 'manual',
       signal: controller.signal
     });
   } catch (err) {

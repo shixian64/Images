@@ -26,7 +26,8 @@ export async function handleTestProfile(req, res) {
 
     const response = await fetch(targetUrl, {
       method: 'GET',
-      headers: { 'authorization': `Bearer ${apiKey}`, 'accept': 'application/json' }
+      headers: { 'authorization': `Bearer ${apiKey}`, 'accept': 'application/json' },
+      redirect: 'manual'
     });
     const text = await response.text();
     let data;
