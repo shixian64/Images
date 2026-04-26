@@ -94,3 +94,52 @@ npm test
 ## 下一步
 
 见 `docs/PRODUCT_DESIGN.md` §13.2（迁 Next.js + Prisma + Auth.js + S3）。当前仓库仍是单用户本地工具；云端多用户、订阅、团队空间、服务端 KMS 都是后续阶段。
+
+## Docker 部署
+
+项目已提供 `Dockerfile`、`.dockerignore`、`docker-compose.yml` 与 `.env.example`。运行时数据都写入容器内 `/app/generated`，compose 默认使用命名卷 `image-studio-generated` 持久化 SQLite 数据库、WAL 文件和生成图片。
+
+```bash
+cp .env.example .env
+# 修改 .env 里的 ADMIN_BOOTSTRAP_TOKEN
+docker compose up -d --build
+```
+
+访问：
+
+```text
+http://localhost:8787
+```
+
+健康检查：
+
+```text
+GET /healthz
+```
+
+### Docker / 资源参数说明
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOST_PORT` | `8787` | 宿主机暴露端口，容器内固定监听 `8787`。 |
+| `ADMIN_BOOTSTRAP_TOKEN` | 空 | 首个管理员注册令牌；生产环境请设置成长随机值。 |
+| `CONTAINER_MEMORY_LIMIT` | `512m` | Docker 容器内存上限。 |
+| `CONTAINER_CPUS` | `1.0` | Docker 容器 CPU 上限。当前服务是 Node 单进程，通常 1 核够用。 |
+| `NODE_OPTIONS` | `--max-old-space-size=384` | V8 heap 上限；应低于容器内存，给 `Buffer`、SQLite、native 内存留余量。 |
+| `MAX_JSON_BODY_BYTES` | `1048576` | 单个 JSON 请求体最大字节数，超过返回 `413`，避免大 body 占满内存。 |
+| `MAX_IMAGES_PER_REQUEST` | `4` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
+| `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
+| `GENERATE_STREAM_HEARTBEAT_MS` | `15000` | SSE 生图接口心跳间隔，单位毫秒。 |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Docker 停止时的优雅关闭等待时间，单位毫秒。 |
+| `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。生产环境保持 `0`。 |
+| `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost/私网/metadata 等上游。生产环境保持 `0`。 |
+| `NODE_ENV` | `development` | 直接 HTTP 访问容器时保持 `development`；放在 HTTPS 反向代理后面时可改 `production`。 |
+
+### 当前基础资源保护
+
+- JSON body 读取增加 `MAX_JSON_BODY_BYTES` 上限。
+- 静态文件和图库文件改为流式发送，避免大图下载时整文件进入内存。
+- `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
+- 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
+- Docker compose 默认限制内存、CPU、PID，启用只读根文件系统，并仅把 `/app/generated` 作为持久化写入点。
+- 服务支持 `SIGTERM` / `SIGINT` 优雅关闭，便于 Docker 更新或停止容器。
