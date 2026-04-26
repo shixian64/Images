@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assertAllowedUpstreamUrl,
   buildChatPayload,
   buildImagePayload,
   resolveApiUrl,
@@ -30,6 +31,30 @@ test('resolveApiUrl 空值 / 非法 URL 抛错', () => {
   assert.throws(() => resolveApiUrl(''), /Base URL is required/);
   assert.throws(() => resolveApiUrl('   '), /Base URL is required/);
   assert.throws(() => resolveApiUrl('not a url'));
+  assert.throws(() => resolveApiUrl('file:///tmp/socket'), /http or https/);
+});
+
+// --- SSRF guard ---
+
+test('assertAllowedUpstreamUrl 允许解析到公网地址的 HTTPS 上游', async () => {
+  await assert.doesNotReject(() => assertAllowedUpstreamUrl('https://gateway.example.com/v1/models', {
+    lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }]
+  }));
+});
+
+test('assertAllowedUpstreamUrl 默认拒绝 HTTP 上游', async () => {
+  await assert.rejects(() => assertAllowedUpstreamUrl('http://gateway.example.com/v1/models', {
+    lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }]
+  }), /https/);
+});
+
+test('assertAllowedUpstreamUrl 拒绝 localhost / 私网 IP / 解析到私网的域名', async () => {
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://localhost/v1/models'), /not allowed/);
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://127.0.0.1/v1/models'), /not allowed/);
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://10.0.0.1/v1/models'), /not allowed/);
+  await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
+    lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
+  }), /private address/);
 });
 
 // --- resolveModelsUrl ---

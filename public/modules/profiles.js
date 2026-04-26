@@ -4,7 +4,8 @@ import { $, $$, escapeHtml, maskKey, setStatus } from './dom.js';
 import {
   KEYS,
   readJsonScoped, writeJsonScoped,
-  readStringScoped, writeStringScoped
+  readStringScoped, writeStringScoped,
+  removeKeyScoped
 } from './state.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../../shared/constants.js';
 import { addLog } from './logs.js';
@@ -83,6 +84,36 @@ function withImageAliases(profile) {
   };
 }
 
+function withoutPersistedSecrets(profile = {}) {
+  const copy = { ...profile };
+  delete copy.apiKey;
+  delete copy.imageApiKey;
+  delete copy.chatApiKey;
+  if (copy.image && typeof copy.image === 'object') copy.image = { ...copy.image, apiKey: '' };
+  if (copy.chat && typeof copy.chat === 'object') copy.chat = { ...copy.chat, apiKey: '' };
+  return copy;
+}
+
+function stripProfileSecrets(profile = {}) {
+  const image = profile.image && typeof profile.image === 'object'
+    ? { ...profile.image, apiKey: '' }
+    : profile.image;
+  const chat = profile.chat && typeof profile.chat === 'object'
+    ? { ...profile.chat, apiKey: '' }
+    : profile.chat;
+  const stripped = {
+    ...profile,
+    image,
+    chat,
+    apiKey: '',
+    imageApiKey: '',
+    chatApiKey: ''
+  };
+  if (stripped.image) stripped.baseUrl = stripped.image.baseUrl || stripped.baseUrl;
+  if (stripped.image) stripped.defaultModel = stripped.image.defaultModel || stripped.defaultModel;
+  return stripped;
+}
+
 function normalize(profile = {}) {
   const image = normalizeEndpoint(profile, 'image');
   const chat = normalizeEndpoint(profile, 'chat');
@@ -110,7 +141,7 @@ function loadProfiles() {
     || readJsonScoped(KEYS.legacyProfiles, null)
     || readJsonScoped(KEYS.legacyProfilesV1, null);
   if (!Array.isArray(raw) || !raw.length) return [defaultProfile()];
-  return raw.map(normalize);
+  return raw.map((item) => normalize(withoutPersistedSecrets(item)));
 }
 
 // why：此处不立即 loadProfiles()，因 ES module 顶层执行时当前用户尚未就绪；
@@ -125,6 +156,7 @@ function initProfilesIfNeeded() {
   profiles = loadProfiles();
   activeId = readStringScoped(KEYS.activeProfile, '') || profiles[0].id;
   if (!profiles.some((p) => p.id === activeId)) activeId = profiles[0].id;
+  persistStoredProfiles();
 }
 
 const listeners = new Set();
@@ -153,9 +185,15 @@ export function getChatConfig(profile = getActiveProfile()) {
   return getEndpoint(profile, 'chat');
 }
 
+function persistStoredProfiles() {
+  writeJsonScoped(KEYS.profiles, profiles.map(stripProfileSecrets));
+  removeKeyScoped(KEYS.legacyProfiles);
+  removeKeyScoped(KEYS.legacyProfilesV1);
+}
+
 function persist() {
   profiles = profiles.map(normalize);
-  writeJsonScoped(KEYS.profiles, profiles);
+  persistStoredProfiles();
   writeStringScoped(KEYS.activeProfile, activeId);
   emit();
 }

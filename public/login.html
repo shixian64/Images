@@ -130,6 +130,10 @@
         <span>确认密码</span>
         <input name="confirmPassword" type="password" required minlength="8" autocomplete="new-password" />
       </label>
+      <label class="field">
+        <span>管理员初始化令牌（可留空）</span>
+        <input name="adminBootstrapToken" type="password" autocomplete="off" />
+      </label>
       <button class="primary" type="submit">注册并登录</button>
     </form>
 
@@ -227,6 +231,7 @@
       const email = String(fd.get('email') || '').trim();
       const password = String(fd.get('password') || '');
       const confirmPassword = String(fd.get('confirmPassword') || '');
+      const adminBootstrapToken = String(fd.get('adminBootstrapToken') || '');
 
       // 前端最小校验，服务端会再校验一次。
       if (!/^[a-zA-Z0-9_-]{3,32}$/.test(username)) { showError('用户名格式不正确'); return; }
@@ -237,7 +242,9 @@
       const btn = registerForm.querySelector('button[type="submit"]');
       btn.disabled = true;
       try {
-        const resp = await postJson('/api/auth/register', { username, email, password });
+        const payload = { username, email, password };
+        if (adminBootstrapToken) payload.adminBootstrapToken = adminBootstrapToken;
+        const resp = await postJson('/api/auth/register', payload);
         await handleResponse(resp);
       } catch (err) {
         showError(err?.message || '网络错误');

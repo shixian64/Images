@@ -23,7 +23,6 @@ export function getUserDetail(userId) {
   if (!row) throw new Error('user not found');
   const stats = images.statsByUser(userId);
   const userSessions = sessions.listByUser(userId).map((s) => ({
-    id: s.id,
     createdAt: s.created_at,
     expiresAt: s.expires_at,
     userAgent: s.user_agent,

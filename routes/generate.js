@@ -5,7 +5,7 @@
 import { readJsonBody, sendJson } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
-import { buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
+import { assertAllowedUpstreamUrl, buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
 import { saveGeneratedImages } from '../services/gallery-store.js';
 import {
   assertCanGenerate,
@@ -31,6 +31,7 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
   if (!apiKey) throw new Error('API key is required.');
 
   const targetUrl = resolveApiUrl(body.imageBaseUrl || body.baseUrl);
+  await assertAllowedUpstreamUrl(targetUrl);
   const payload = buildImagePayload(body);
 
   // 配额拦截：管理员豁免，其他用户按 daily/monthly/storage 检查。
@@ -72,7 +73,7 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
       status, durationMs, model: payload.model, error: errMsg
     });
     recordFailure(userInfo.id);
-    return { status, body: { error: errMsg, details: data } };
+    return { status, body: { error: errMsg } };
   }
 
   onProgress?.({

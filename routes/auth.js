@@ -44,9 +44,9 @@ async function handleRegister(req, res) {
     sendJson(res, 400, { error: 'invalid json' });
     return;
   }
-  const { username, email, password } = body || {};
+  const { username, email, password, adminBootstrapToken } = body || {};
   try {
-    const user = authRegister({ username, email, password });
+    const user = authRegister({ username, email, password, adminBootstrapToken });
     // 注册成功自动登录：创建一条 session，下发 cookie
     const sid = createSession({ userId: user.id, ua: userAgent(req), ip });
     setSessionCookie(res, sid);

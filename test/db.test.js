@@ -11,9 +11,12 @@ let workDir;
 let prevCwd;
 let db;
 let auth;
+let prevBootstrapToken;
 
 before(async () => {
   prevCwd = process.cwd();
+  prevBootstrapToken = process.env.ADMIN_BOOTSTRAP_TOKEN;
+  process.env.ADMIN_BOOTSTRAP_TOKEN = 'bootstrap-secret';
   workDir = mkdtempSync(join(tmpdir(), 'image-studio-db-'));
   mkdirSync(join(workDir, 'generated'), { recursive: true });
   process.chdir(workDir);
@@ -25,6 +28,8 @@ before(async () => {
 
 after(() => {
   process.chdir(prevCwd);
+  if (prevBootstrapToken === undefined) delete process.env.ADMIN_BOOTSTRAP_TOKEN;
+  else process.env.ADMIN_BOOTSTRAP_TOKEN = prevBootstrapToken;
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
@@ -72,7 +77,12 @@ test('legacy gallery.json migration: deferred until admin exists, then idempoten
   assert.equal(db.images.listAll(10).length, 0);
 
   // 注册首位用户 → 自动 admin
-  const adminUser = auth.register({ username: 'admin1', email: 'a@b.com', password: 'longenough1' });
+  const adminUser = auth.register({
+    username: 'admin1',
+    email: 'a@b.com',
+    password: 'longenough1',
+    adminBootstrapToken: 'bootstrap-secret'
+  });
   assert.equal(adminUser.role, 'admin');
 
   // 再次 migrate → 触发 legacy 搬迁

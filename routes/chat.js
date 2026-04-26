@@ -4,7 +4,7 @@
 import { readJsonBody, sendJson } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
-import { buildChatPayload, callUpstream, resolveChatCompletionsUrl } from '../services/upstream.js';
+import { assertAllowedUpstreamUrl, buildChatPayload, callUpstream, resolveChatCompletionsUrl } from '../services/upstream.js';
 
 export async function handleChat(req, res) {
   const started = Date.now();
@@ -15,6 +15,7 @@ export async function handleChat(req, res) {
     if (!apiKey) throw new Error('API key is required.');
 
     const targetUrl = resolveChatCompletionsUrl(body.chatBaseUrl || body.baseUrl);
+    await assertAllowedUpstreamUrl(targetUrl);
     const payload = buildChatPayload(body);
 
     logger.info('chat.completion.request', {
@@ -36,7 +37,7 @@ export async function handleChat(req, res) {
       logger.error('chat.completion.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
-      return sendJson(res, status, { error: errMsg, details: data });
+      return sendJson(res, status, { error: errMsg });
     }
 
     logger.info('chat.completion.success', {

@@ -7,12 +7,124 @@ import {
   DEFAULT_MODEL,
   OPTIONAL_PASSTHROUGH_KEYS
 } from '../shared/constants.js';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
+const BLOCKED_IPV4_CIDRS = [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.0.2.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['198.51.100.0', 24],
+  ['203.0.113.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+  ['255.255.255.255', 32]
+];
+
+function normalizeHostname(hostname) {
+  return String(hostname || '')
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+}
+
+function ipv4ToInt(ip) {
+  const parts = String(ip).split('.').map((p) => Number(p));
+  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) {
+    return null;
+  }
+  return parts.reduce((acc, part) => ((acc << 8) | part) >>> 0, 0) >>> 0;
+}
+
+function ipv4InCidr(ip, base, bits) {
+  const value = ipv4ToInt(ip);
+  const start = ipv4ToInt(base);
+  if (value === null || start === null) return false;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (value & mask) === (start & mask);
+}
+
+function isBlockedIpv4(ip) {
+  return BLOCKED_IPV4_CIDRS.some(([base, bits]) => ipv4InCidr(ip, base, bits));
+}
+
+function isBlockedIpv6(ip) {
+  const value = normalizeHostname(ip);
+  if (value === '::' || value === '::1') return true;
+  if (value.startsWith('::ffff:')) {
+    const mapped = value.slice('::ffff:'.length);
+    if (isIP(mapped) === 4) return isBlockedIpv4(mapped);
+  }
+  return /^(fc|fd)/.test(value)
+    || /^fe[89ab]/.test(value)
+    || value.startsWith('ff');
+}
+
+function isBlockedAddress(address) {
+  const family = isIP(address);
+  if (family === 4) return isBlockedIpv4(address);
+  if (family === 6) return isBlockedIpv6(address);
+  return false;
+}
+
+export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } = {}) {
+  const parsed = new URL(url);
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'https:') {
+    if (protocol !== 'http:' || process.env.ALLOW_INSECURE_UPSTREAMS !== '1') {
+      throw new Error('Upstream URL must use https.');
+    }
+  }
+
+  const host = normalizeHostname(parsed.hostname);
+  if (!host) throw new Error('Upstream host is required.');
+
+  // Local/private upstreams are useful in isolated development, but should be
+  // explicit opt-in; otherwise user-controlled Base URL becomes SSRF.
+  if (process.env.ALLOW_PRIVATE_UPSTREAMS === '1') return true;
+
+  if (host === 'localhost' || host.endsWith('.localhost')) {
+    throw new Error('Upstream host is not allowed.');
+  }
+
+  if (isBlockedAddress(host)) {
+    throw new Error('Upstream host is not allowed.');
+  }
+
+  if (isIP(host)) return true;
+
+  let records;
+  try {
+    records = await lookupImpl(host, { all: true, verbatim: false });
+  } catch (err) {
+    throw new Error(`Unable to resolve upstream host: ${err.message || String(err)}`);
+  }
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new Error('Unable to resolve upstream host.');
+  }
+  for (const record of records) {
+    if (isBlockedAddress(record.address)) {
+      throw new Error('Upstream host resolves to a private address.');
+    }
+  }
+  return true;
+}
 
 function normalizeBase(baseUrl) {
   const cleaned = String(baseUrl || '').trim().replace(/\/+$/, '');
   if (!cleaned) throw new Error('Base URL is required.');
-  // eslint-disable-next-line no-new
-  new URL(cleaned); // 触发 URL 合法性校验，由调用方兜底成 400。
+  const parsed = new URL(cleaned); // Validate URL shape; callers convert failures to 400 responses.
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Base URL must use http or https.');
+  }
   const hasV1 = cleaned.replace(/\/+$/, '').endsWith('/v1');
   return { base: cleaned, hasV1 };
 }

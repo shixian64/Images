@@ -45,14 +45,25 @@ function assertValidCredentials({ username, email, password }) {
   }
 }
 
+function isValidAdminBootstrapToken(token) {
+  const expected = process.env.ADMIN_BOOTSTRAP_TOKEN;
+  if (!expected || !token) return false;
+  const a = Buffer.from(String(token));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export function sanitizeUser(row) {
   if (!row) return null;
   const { password_hash, password_salt, ...rest } = row;
   return rest;
 }
 
-export function register({ username, email, password }) {
+export function register({ username, email, password, adminBootstrapToken }) {
   assertValidCredentials({ username, email, password });
+  if (adminBootstrapToken && !isValidAdminBootstrapToken(adminBootstrapToken)) {
+    throw new Error('invalid admin bootstrap token');
+  }
   // 查重（username / email 分别查一次，区分错误信息）
   if (users.findByLogin(username)) {
     throw new Error('username already taken');
@@ -61,8 +72,11 @@ export function register({ username, email, password }) {
     throw new Error('email already taken');
   }
   const { hash, salt } = hashPassword(password);
-  // 首位注册用户直接成为 admin
-  const role = users.count() === 0 ? 'admin' : 'user';
+  // 管理员必须通过部署时设置的 ADMIN_BOOTSTRAP_TOKEN 显式初始化；
+  // 避免空库状态下任意首位注册者直接变成 admin。
+  const role = users.countAdmins() === 0 && isValidAdminBootstrapToken(adminBootstrapToken)
+    ? 'admin'
+    : 'user';
   const row = users.create({
     username,
     email,

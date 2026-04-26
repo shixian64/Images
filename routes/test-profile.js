@@ -4,7 +4,7 @@
 import { readJsonBody, sendJson } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
-import { resolveModelsUrl } from '../services/upstream.js';
+import { assertAllowedUpstreamUrl, resolveModelsUrl } from '../services/upstream.js';
 
 export async function handleTestProfile(req, res) {
   const started = Date.now();
@@ -14,6 +14,7 @@ export async function handleTestProfile(req, res) {
     const apiKey = String(body.apiKey || '').trim();
     if (!apiKey) throw new Error('API key is required.');
     const targetUrl = resolveModelsUrl(body.baseUrl);
+    await assertAllowedUpstreamUrl(targetUrl);
     const kind = body.kind === 'chat' ? 'chat' : 'image';
 
     logger.info('profile.test.request', {
@@ -35,7 +36,7 @@ export async function handleTestProfile(req, res) {
     if (!response.ok) {
       const error = data?.error?.message || data?.message || `Request failed with ${response.status}`;
       logger.warn('profile.test.failed', { status: response.status, durationMs, kind, error });
-      return sendJson(res, response.status, { ok: false, error, details: data });
+      return sendJson(res, response.status, { ok: false, error });
     }
 
     const models = Array.isArray(data?.data) ? data.data.map((item) => item.id).filter(Boolean) : [];

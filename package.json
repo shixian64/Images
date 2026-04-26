@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-sqlite server.js",
-    "test": "node --experimental-sqlite --test --test-isolation=process \"test/**/*.test.js\""
+    "test": "node --experimental-sqlite --test \"test/**/*.test.js\""
   },
   "engines": {
     "node": ">=22.5.0"

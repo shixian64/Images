@@ -12,9 +12,12 @@ let prevCwd;
 let auth;
 let users;
 let db;
+let prevBootstrapToken;
 
 before(async () => {
   prevCwd = process.cwd();
+  prevBootstrapToken = process.env.ADMIN_BOOTSTRAP_TOKEN;
+  process.env.ADMIN_BOOTSTRAP_TOKEN = 'bootstrap-secret';
   workDir = mkdtempSync(join(tmpdir(), 'image-studio-auth-'));
   process.chdir(workDir);
 
@@ -26,16 +29,31 @@ before(async () => {
 
 after(() => {
   process.chdir(prevCwd);
+  if (prevBootstrapToken === undefined) delete process.env.ADMIN_BOOTSTRAP_TOKEN;
+  else process.env.ADMIN_BOOTSTRAP_TOKEN = prevBootstrapToken;
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
-test('first user is admin, second user is regular', () => {
+test('first registration is not admin unless bootstrap token matches', () => {
   const u1 = auth.register({ username: 'alice', email: 'alice@x.com', password: 'longenough1' });
-  assert.equal(u1.role, 'admin');
+  assert.equal(u1.role, 'user');
   assert.equal(u1.status, 'active');
-  // 不应回传 password 字段
+  // password fields must not be returned
   assert.equal(u1.password_hash, undefined);
   assert.equal(u1.password_salt, undefined);
+
+  assert.throws(
+    () => auth.register({ username: 'mallory', email: 'mallory@x.com', password: 'longenough1', adminBootstrapToken: 'wrong' }),
+    /invalid admin bootstrap token/
+  );
+
+  const root = auth.register({
+    username: 'root',
+    email: 'root@x.com',
+    password: 'longenough1',
+    adminBootstrapToken: 'bootstrap-secret'
+  });
+  assert.equal(root.role, 'admin');
 
   const u2 = auth.register({ username: 'bob', email: 'bob@x.com', password: 'longenough1' });
   assert.equal(u2.role, 'user');
@@ -74,28 +92,35 @@ test('login fails uniformly on wrong password / unknown user / disabled', () => 
 });
 
 test('admin cannot demote/disable last active admin', () => {
-  // 当前只有 alice 是 admin
-  const alice = db.users.findByLogin('alice');
+  // root is the only admin at this point
+  const root = db.users.findByLogin('root');
   const bob = db.users.findByLogin('bob');
 
-  // 让 bob 也成 admin，使总数为 2
+  // Promote bob so there are two admins
   db.users.updateRole(bob.id, 'admin');
 
-  // bob 把 alice 降级 → 此时还有 bob 这个 admin → 允许
-  const demoted = users.patchUser(bob.id, alice.id, { role: 'user' });
+  // bob can demote root while bob remains admin
+  const demoted = users.patchUser(bob.id, root.id, { role: 'user' });
   assert.equal(demoted.role, 'user');
 
-  // 现在只有 bob 一个 admin。alice (现在是 user) 不能改自己…用 bob 自己改自己也不允许（self-modify forbidden）
   assert.throws(() => users.patchUser(bob.id, bob.id, { role: 'user' }), /self-modify forbidden/);
 
-  // 给个临时 actor (再造一个 admin 然后让他降 bob 试试就会失败 —— 这里直接构造场景)
-  // 把 alice 升回 admin → 现在 alice、bob 都是 admin
-  db.users.updateRole(alice.id, 'admin');
-  // bob 用 alice 把 bob 降级 → 此时降完只剩 alice 一个 admin → 允许（因为 countAdmins>1 的判断在降级前）
-  const r = users.patchUser(alice.id, bob.id, { role: 'user' });
+  // Restore root; now root and bob are both admins
+  db.users.updateRole(root.id, 'admin');
+  // root can demote bob because the pre-change admin count is still > 1
+  const r = users.patchUser(root.id, bob.id, { role: 'user' });
   assert.equal(r.role, 'user');
-  // 再来一遍：alice 是唯一 admin，把 alice 降级（用 bob 当 actor）→ countAdmins == 1 → 拒
-  assert.throws(() => users.patchUser(bob.id, alice.id, { role: 'user' }), /last active admin/);
+  // root is now the only admin, so demoting root must be rejected
+  assert.throws(() => users.patchUser(bob.id, root.id, { role: 'user' }), /last active admin/);
+});
+
+test('getUserDetail does not expose raw session ids', () => {
+  const root = db.users.findByLogin('root');
+  const { sessionId } = auth.login({ login: 'root', password: 'longenough1', ua: 'jest-detail', ip: '127.0.0.1' });
+  const detail = users.getUserDetail(root.id);
+  assert.ok(detail.sessions.length >= 1);
+  assert.equal(Object.hasOwn(detail.sessions[0], 'id'), false);
+  auth.destroySession(sessionId);
 });
 
 test('changePassword fails on wrong old password, invalidates after change', () => {
