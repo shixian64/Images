@@ -266,12 +266,12 @@ async function openUsageDrawer() {
       <div class="user-detail">
         <section class="user-detail-block">
           <h3>今日</h3>
-          ${progressBar(today.calls || 0, q.daily_limit, '生成调用次数')}
+          ${progressBar(today.calls || 0, q.daily_limit, '额度调用次数')}
           <p class="hint">失败 ${today.fails || 0} 次 · 入库 ${today.images || 0} 张</p>
         </section>
         <section class="user-detail-block">
           <h3>本月</h3>
-          ${progressBar(month.calls || 0, q.monthly_limit, '生成调用次数')}
+          ${progressBar(month.calls || 0, q.monthly_limit, '额度调用次数')}
           <p class="hint">失败 ${month.fails || 0} 次 · 入库 ${month.images || 0} 张</p>
         </section>
         <section class="user-detail-block">
@@ -279,7 +279,7 @@ async function openUsageDrawer() {
           ${storageBar(storage.bytes || 0, q.storage_limit_mb)}
           <p class="hint">本地图库共 ${storage.images || 0} 张</p>
         </section>
-        <p class="hint">额度由管理员维护。如需提升上限，请联系管理员。</p>
+        <p class="hint">额度由管理员维护；生图与提示词优化都会占用次数。如需提升上限，请联系管理员。</p>
       </div>
     `;
     drawer.update({ body: html });

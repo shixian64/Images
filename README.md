@@ -149,8 +149,8 @@ GET /healthz
 | `MAX_JSON_BODY_BYTES` | `1048576` | 单个 JSON 请求体最大字节数，超过返回 `413`，避免大 body 占满内存。 |
 | `MAX_IMAGES_PER_REQUEST` | `1` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
 | `GLOBAL_CONCURRENT_GENERATIONS` | `4` | 全站同时生图任务上限；小机器建议 3-5。 |
-| `DEFAULT_DAILY_LIMIT` | `10` | 普通用户默认每日生成上限；管理员可在额度管理覆盖。 |
-| `DEFAULT_MONTHLY_LIMIT` | `200` | 普通用户默认每月生成上限；留空/`null` 表示不限。 |
+| `DEFAULT_DAILY_LIMIT` | `10` | 普通用户默认每日额度调用上限；生图与提示词优化共享次数，管理员可在额度管理覆盖。 |
+| `DEFAULT_MONTHLY_LIMIT` | `200` | 普通用户默认每月额度调用上限；生图与提示词优化共享次数，留空/`null` 表示不限。 |
 | `DEFAULT_STORAGE_LIMIT_MB` | `500` | 普通用户默认本地图库存储上限；留空/`null` 表示不限。 |
 | `DEFAULT_CONCURRENT_LIMIT` | `1` | 普通用户默认单用户并发生图上限。 |
 | `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
@@ -178,7 +178,7 @@ GET /healthz
 - `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
 - 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
 - `/api/generate` 和 `/api/generate/stream` 增加 `GLOBAL_CONCURRENT_GENERATIONS` 全站并发槽位，保护 2C/4G 小机器。
-- `/api/chat` 增加每用户/IP 限频、全站并发槽位、输入长度与输出 token 上限，避免系统默认 Chat Key 被无限代理消耗。
+- `/api/chat` 增加每用户/IP 限频、全站并发槽位、输入长度、输出 token 上限，并按 1 次/请求占用同一套生图额度，避免系统默认 Chat Key 被无限代理消耗。
 - 上游请求使用已校验 DNS 结果发起连接，生产严格模式下避免校验后重新解析导致 DNS rebinding/TOCTOU。
 - Docker compose 默认限制内存、CPU、PID，启用只读根文件系统，并仅把 `/app/generated` 作为持久化写入点。
 - 服务支持 `SIGTERM` / `SIGINT` 优雅关闭，便于 Docker 更新或停止容器。

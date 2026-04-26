@@ -8,6 +8,11 @@ import { assertAllowedUpstreamUrl, buildChatPayload, callUpstream, resolveChatCo
 import { getSystemEndpoint } from '../services/interface-defaults.js';
 import { hit as rateLimitHit } from '../services/rate-limit.js';
 import { clientIp } from '../utils/request.js';
+import {
+  assertCanGenerate,
+  recordFailure,
+  recordSuccess
+} from '../services/quota.js';
 
 const DEFAULT_CHAT_RATE_LIMIT_MAX_PER_MINUTE = 20;
 const DEFAULT_CHAT_GLOBAL_CONCURRENT_REQUESTS = 4;
@@ -16,6 +21,7 @@ const DEFAULT_CHAT_MAX_INPUT_CHARS = 12_000;
 const DEFAULT_CHAT_MAX_COMPLETION_TOKENS = 1_200;
 const DEFAULT_CHAT_COMPLETION_TOKEN_CEILING = 2_000;
 const DEFAULT_CHAT_COMPLETION_TIMEOUT_MS = 180_000;
+const CHAT_QUOTA_COST = 1;
 
 let activeChatRequests = 0;
 
@@ -186,6 +192,29 @@ function resolveChatRequest(body = {}) {
   };
 }
 
+function checkChatQuota(userInfo, { model } = {}) {
+  if (!userInfo?.id || userInfo.role === 'admin') return { ok: true, cost: CHAT_QUOTA_COST };
+  const check = assertCanGenerate(userInfo.id, { n: CHAT_QUOTA_COST });
+  if (!check.ok) {
+    logger.warn('chat.completion.quota_exceeded', {
+      userId: userInfo.id,
+      code: check.code,
+      model
+    });
+  }
+  return { ...check, cost: CHAT_QUOTA_COST };
+}
+
+function recordChatQuotaSuccess(userInfo) {
+  if (!userInfo?.id) return;
+  recordSuccess(userInfo.id, { calls: CHAT_QUOTA_COST, images: 0, bytes: 0 });
+}
+
+function recordChatQuotaFailure(userInfo) {
+  if (!userInfo?.id) return;
+  recordFailure(userInfo.id, { calls: CHAT_QUOTA_COST });
+}
+
 export async function handleChat(req, res) {
   const started = Date.now();
   if (!req.session?.user) {
@@ -197,6 +226,19 @@ export async function handleChat(req, res) {
     body = await readJsonBody(req);
     body = prepareChatRequestBody(body);
     if (!checkChatRateLimit(req, res)) return;
+
+    const requestConfig = resolveChatRequest(body);
+    const { apiKey, targetUrl, bodyForPayload, usingSystemDefault } = requestConfig;
+    await assertAllowedUpstreamUrl(targetUrl);
+    const payload = buildChatPayload(bodyForPayload);
+
+    // 提示词优化走 /api/chat，同样占用“生图次数”额度：普通用户按 1 次检查，
+    // 管理员延续生图接口语义（不拦截，但仍记录用量便于审计）。
+    const quotaCheck = checkChatQuota(req.session.user, { model: payload.model });
+    if (!quotaCheck.ok) {
+      return sendJson(res, 429, { error: quotaCheck.message, code: quotaCheck.code });
+    }
+
     const slot = tryAcquireChatSlot();
     if (!slot.ok) {
       logger.warn('chat.completion.queue_full', {
@@ -207,11 +249,6 @@ export async function handleChat(req, res) {
       return sendJson(res, 429, { error: slot.message, code: 'chat_concurrent_limit_exceeded' });
     }
     releaseChatSlot = slot.release;
-
-    const requestConfig = resolveChatRequest(body);
-    const { apiKey, targetUrl, bodyForPayload, usingSystemDefault } = requestConfig;
-    await assertAllowedUpstreamUrl(targetUrl);
-    const payload = buildChatPayload(bodyForPayload);
 
     logger.info('chat.completion.request', {
       targetUrl,
@@ -235,12 +272,14 @@ export async function handleChat(req, res) {
       logger.error('chat.completion.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
+      recordChatQuotaFailure(req.session.user);
       return sendJson(res, status, { error: errMsg });
     }
 
     logger.info('chat.completion.success', {
       status, durationMs, model: payload.model
     });
+    recordChatQuotaSuccess(req.session.user);
     return sendJson(res, 200, data);
   } catch (error) {
     logger.warn('chat.completion.rejected', {

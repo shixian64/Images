@@ -1,0 +1,126 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+
+const ENV_KEYS = [
+  'ALLOW_INSECURE_UPSTREAMS',
+  'ALLOW_PRIVATE_UPSTREAMS',
+  'DEFAULT_DAILY_LIMIT',
+  'DEFAULT_MONTHLY_LIMIT',
+  'DEFAULT_STORAGE_LIMIT_MB',
+  'DEFAULT_CONCURRENT_LIMIT',
+  'SIGNUP_IP_DAILY_LIMIT',
+  'SIGNUP_IP_MONTHLY_LIMIT',
+  'CHAT_RATE_LIMIT_MAX_PER_MINUTE',
+  'CHAT_GLOBAL_CONCURRENT_REQUESTS',
+  'CHAT_COMPLETION_TIMEOUT_MS'
+];
+
+function jsonReq(body, user, { ip = '198.51.100.77' } = {}) {
+  const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+  req.method = 'POST';
+  req.headers = { 'user-agent': 'node-test' };
+  req.socket = { remoteAddress: ip };
+  req.session = { user };
+  return req;
+}
+
+function captureRes() {
+  return {
+    statusCode: null,
+    headers: {},
+    body: '',
+    setHeader(key, value) {
+      this.headers[String(key).toLowerCase()] = value;
+    },
+    writeHead(status, headers = {}) {
+      this.statusCode = status;
+      this.headers = { ...this.headers, ...headers };
+    },
+    end(chunk = '') {
+      this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    }
+  };
+}
+
+async function callChat(handleChat, body, user) {
+  const req = jsonReq(body, user);
+  const res = captureRes();
+  await handleChat(req, res);
+  return {
+    statusCode: res.statusCode,
+    body: JSON.parse(res.body || '{}')
+  };
+}
+
+test('prompt optimization chat requests share the image generation quota count', async (t) => {
+  const prevCwd = process.cwd();
+  const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+  const workDir = mkdtempSync(join(tmpdir(), 'image-studio-chat-quota-'));
+  process.chdir(workDir);
+
+  for (const key of ENV_KEYS) delete process.env[key];
+  Object.assign(process.env, {
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '1',
+    DEFAULT_CONCURRENT_LIMIT: '1',
+    CHAT_RATE_LIMIT_MAX_PER_MINUTE: 'disabled',
+    CHAT_GLOBAL_CONCURRENT_REQUESTS: 'disabled',
+    CHAT_COMPLETION_TIMEOUT_MS: '5000'
+  });
+
+  let upstreamHits = 0;
+  const upstream = http.createServer(async (req, res) => {
+    upstreamHits += 1;
+    assert.equal(req.url, '/v1/chat/completions');
+    for await (const _chunk of req) {
+      // drain body
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: '优化后提示词' } }] }));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+
+  t.after(async () => {
+    await new Promise((resolve) => upstream.close(resolve));
+    process.chdir(prevCwd);
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try { rmSync(workDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const db = await import('../services/db.js');
+  const auth = await import('../services/auth.js');
+  const quota = await import('../services/quota.js');
+  const { handleChat } = await import('../routes/chat.js');
+  db.migrate();
+
+  const user = auth.register({
+    username: 'chat_quota_user',
+    email: 'chat_quota_user@example.com',
+    password: 'longenough1'
+  });
+  const { port } = upstream.address();
+  const body = {
+    chatBaseUrl: `http://127.0.0.1:${port}`,
+    chatApiKey: 'sk-test',
+    model: 'gpt-test',
+    messages: [{ role: 'user', content: '请优化提示词' }]
+  };
+
+  const first = await callChat(handleChat, body, user);
+  assert.equal(first.statusCode, 200);
+  assert.equal(quota.usageSnapshot(user.id).today.calls, 1);
+
+  const second = await callChat(handleChat, body, user);
+  assert.equal(second.statusCode, 429);
+  assert.equal(second.body.code, 'daily_limit_exceeded');
+  assert.equal(upstreamHits, 1);
+});
