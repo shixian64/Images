@@ -4,6 +4,7 @@
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch, logout, setCurrentUser } from './auth.js';
 import * as drawer from './drawer.js';
+import { switchTab } from './nav.js';
 
 let menuMounted = false;
 let profileDialog = null;
@@ -30,6 +31,10 @@ function renderMenu() {
       <button role="menuitem" data-action="profile" type="button">个人资料</button>
       <button role="menuitem" data-action="password" type="button">修改密码</button>
       <button role="menuitem" data-action="usage" type="button">我的用量</button>
+      ${currentUser.role === 'admin' ? `
+        <div class="user-menu-divider" role="separator"></div>
+        <button role="menuitem" data-action="admin" type="button">管理后台</button>
+      ` : ''}
       <button role="menuitem" data-action="logout" type="button">退出登录</button>
     </div>
   `;
@@ -308,6 +313,7 @@ export function mountProfileMenu(user) {
       if (action === 'profile') openProfileDialog();
       else if (action === 'password') openPasswordDialog();
       else if (action === 'usage') openUsageDrawer();
+      else if (action === 'admin') switchTab('usersPanel');
       else if (action === 'logout') logout();
       return;
     }

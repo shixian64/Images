@@ -24,6 +24,9 @@ setCurrentUser(me);
 
 mountTheme();
 mountProfileMenu(me);
+if (me.role === 'admin') {
+  document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = false; });
+}
 mountNav();
 mountProfilesPanel();
 mountGalleryPanel();
@@ -45,5 +48,4 @@ mountLogsPanel({
 
 if (me.role === 'admin') {
   mountUsersPanel();
-  document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = false; });
 }

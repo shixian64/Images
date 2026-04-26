@@ -7,6 +7,8 @@ const TAB_IDS = ['studioPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'l
 
 export function switchTab(tabId) {
   if (!TAB_IDS.includes(tabId)) tabId = 'studioPanel';
+  const targetPanel = $(tabId);
+  if (!targetPanel || targetPanel.hidden) tabId = 'studioPanel';
   $$('.tab-button').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
   $$('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
   writeString(KEYS.activeTab, tabId);

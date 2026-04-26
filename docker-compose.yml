@@ -15,14 +15,21 @@ services:
       ADMIN_BOOTSTRAP_TOKEN: "${ADMIN_BOOTSTRAP_TOKEN:-}"
 
       # Node/V8 heap 上限。注意 Buffer、SQLite、native 内存不受该值完全约束。
-      NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=384}"
+      NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=512}"
 
       # 基础资源保护参数
       MAX_JSON_BODY_BYTES: "${MAX_JSON_BODY_BYTES:-1048576}"
-      MAX_IMAGES_PER_REQUEST: "${MAX_IMAGES_PER_REQUEST:-4}"
+      MAX_IMAGES_PER_REQUEST: "${MAX_IMAGES_PER_REQUEST:-1}"
+      GLOBAL_CONCURRENT_GENERATIONS: "${GLOBAL_CONCURRENT_GENERATIONS:-4}"
       IMAGE_GENERATION_TIMEOUT_MS: "${IMAGE_GENERATION_TIMEOUT_MS:-600000}"
       GENERATE_STREAM_HEARTBEAT_MS: "${GENERATE_STREAM_HEARTBEAT_MS:-15000}"
       SHUTDOWN_TIMEOUT_MS: "${SHUTDOWN_TIMEOUT_MS:-10000}"
+
+      # 小团队默认额度；管理员可在“管理后台 → 额度管理”里覆盖。
+      DEFAULT_DAILY_LIMIT: "${DEFAULT_DAILY_LIMIT:-10}"
+      DEFAULT_MONTHLY_LIMIT: "${DEFAULT_MONTHLY_LIMIT:-200}"
+      DEFAULT_STORAGE_LIMIT_MB: "${DEFAULT_STORAGE_LIMIT_MB:-500}"
+      DEFAULT_CONCURRENT_LIMIT: "${DEFAULT_CONCURRENT_LIMIT:-1}"
 
       # 默认仅允许 HTTPS + 公网地址上游；隔离开发环境确需内网上游时再显式打开。
       ALLOW_INSECURE_UPSTREAMS: "${ALLOW_INSECURE_UPSTREAMS:-0}"
@@ -36,8 +43,8 @@ services:
       - image-studio-generated:/app/generated
 
     # Docker Compose 本地资源限制；Swarm/K8s 请换用对应平台的 resources 配置。
-    mem_limit: "${CONTAINER_MEMORY_LIMIT:-512m}"
-    cpus: "${CONTAINER_CPUS:-1.0}"
+    mem_limit: "${CONTAINER_MEMORY_LIMIT:-768m}"
+    cpus: "${CONTAINER_CPUS:-1.25}"
     pids_limit: 128
 
     read_only: true

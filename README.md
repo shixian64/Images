@@ -123,11 +123,16 @@ GET /healthz
 | --- | --- | --- |
 | `HOST_PORT` | `8787` | 宿主机暴露端口，容器内固定监听 `8787`。 |
 | `ADMIN_BOOTSTRAP_TOKEN` | 空 | 首个管理员注册令牌；生产环境请设置成长随机值。 |
-| `CONTAINER_MEMORY_LIMIT` | `512m` | Docker 容器内存上限。 |
-| `CONTAINER_CPUS` | `1.0` | Docker 容器 CPU 上限。当前服务是 Node 单进程，通常 1 核够用。 |
-| `NODE_OPTIONS` | `--max-old-space-size=384` | V8 heap 上限；应低于容器内存，给 `Buffer`、SQLite、native 内存留余量。 |
+| `CONTAINER_MEMORY_LIMIT` | `768m` | Docker 容器内存上限。默认按 2C/4G 机器承载 10-20 人小团队保守配置。 |
+| `CONTAINER_CPUS` | `1.25` | Docker 容器 CPU 上限。当前服务是 Node 单进程，通常 1 核左右够用。 |
+| `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限；应低于容器内存，给 `Buffer`、SQLite、native 内存留余量。 |
 | `MAX_JSON_BODY_BYTES` | `1048576` | 单个 JSON 请求体最大字节数，超过返回 `413`，避免大 body 占满内存。 |
-| `MAX_IMAGES_PER_REQUEST` | `4` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
+| `MAX_IMAGES_PER_REQUEST` | `1` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
+| `GLOBAL_CONCURRENT_GENERATIONS` | `4` | 全站同时生图任务上限；小机器建议 3-5。 |
+| `DEFAULT_DAILY_LIMIT` | `10` | 普通用户默认每日生成上限；管理员可在额度管理覆盖。 |
+| `DEFAULT_MONTHLY_LIMIT` | `200` | 普通用户默认每月生成上限；留空/`null` 表示不限。 |
+| `DEFAULT_STORAGE_LIMIT_MB` | `500` | 普通用户默认本地图库存储上限；留空/`null` 表示不限。 |
+| `DEFAULT_CONCURRENT_LIMIT` | `1` | 普通用户默认单用户并发生图上限。 |
 | `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
 | `GENERATE_STREAM_HEARTBEAT_MS` | `15000` | SSE 生图接口心跳间隔，单位毫秒。 |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Docker 停止时的优雅关闭等待时间，单位毫秒。 |
@@ -141,5 +146,6 @@ GET /healthz
 - 静态文件和图库文件改为流式发送，避免大图下载时整文件进入内存。
 - `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
 - 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
+- `/api/generate` 和 `/api/generate/stream` 增加 `GLOBAL_CONCURRENT_GENERATIONS` 全站并发槽位，保护 2C/4G 小机器。
 - Docker compose 默认限制内存、CPU、PID，启用只读根文件系统，并仅把 `/app/generated` 作为持久化写入点。
 - 服务支持 `SIGTERM` / `SIGINT` 优雅关闭，便于 Docker 更新或停止容器。

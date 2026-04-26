@@ -10,6 +10,7 @@ import { saveGeneratedImages } from '../services/gallery-store.js';
 import {
   assertCanGenerate,
   tryAcquireConcurrentSlot,
+  tryAcquireGlobalGenerationSlot,
   recordSuccess,
   recordFailure
 } from '../services/quota.js';
@@ -40,31 +41,44 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
   }
 
   let releaseQuotaSlot = null;
-
-  // 配额拦截：管理员豁免，其他用户按 daily/monthly/storage/concurrent 检查。
-  if (userInfo.role !== 'admin') {
-    const check = assertCanGenerate(userInfo.id, { n: payload.n || 1 });
-    if (!check.ok) {
-      logger.warn('image.generate.quota_exceeded', {
-        userId: userInfo.id,
-        code: check.code,
-        model: payload.model
-      });
-      return { status: 429, body: { error: check.message, code: check.code } };
-    }
-    const slot = tryAcquireConcurrentSlot(userInfo.id);
-    if (!slot.ok) {
-      logger.warn('image.generate.quota_exceeded', {
-        userId: userInfo.id,
-        code: slot.code,
-        model: payload.model
-      });
-      return { status: 429, body: { error: slot.message, code: slot.code } };
-    }
-    releaseQuotaSlot = slot.release;
-  }
-
+  let releaseGlobalSlot = null;
   try {
+    // 配额拦截：管理员豁免用户级额度；全局并发槽位仍对所有人有效，用来保护小机器。
+    if (userInfo.role !== 'admin') {
+      const check = assertCanGenerate(userInfo.id, { n: payload.n || 1 });
+      if (!check.ok) {
+        logger.warn('image.generate.quota_exceeded', {
+          userId: userInfo.id,
+          code: check.code,
+          model: payload.model
+        });
+        return { status: 429, body: { error: check.message, code: check.code } };
+      }
+      const slot = tryAcquireConcurrentSlot(userInfo.id);
+      if (!slot.ok) {
+        logger.warn('image.generate.quota_exceeded', {
+          userId: userInfo.id,
+          code: slot.code,
+          model: payload.model
+        });
+        return { status: 429, body: { error: slot.message, code: slot.code } };
+      }
+      releaseQuotaSlot = slot.release;
+    }
+
+    const globalSlot = tryAcquireGlobalGenerationSlot();
+    if (!globalSlot.ok) {
+      logger.warn('image.generate.quota_exceeded', {
+        userId: userInfo.id,
+        code: globalSlot.code,
+        active: globalSlot.active,
+        limit: globalSlot.limit,
+        model: payload.model
+      });
+      return { status: 429, body: { error: globalSlot.message, code: globalSlot.code } };
+    }
+    releaseGlobalSlot = globalSlot.release;
+
     logger.info('image.generate.request', {
       targetUrl,
       model: payload.model,
@@ -143,6 +157,7 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
     return { status: 200, body: { ...data, saved } };
   } finally {
     releaseQuotaSlot?.();
+    releaseGlobalSlot?.();
   }
 }
 

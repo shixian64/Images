@@ -14,6 +14,32 @@ export const FALLBACK_DEFAULTS = Object.freeze({
 });
 
 const activeGenerations = new Map();
+let activeGlobalGenerations = 0;
+
+function envLimit(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback ?? null;
+  const text = String(raw).trim().toLowerCase();
+  if (text === '' || text === 'null' || text === 'none' || text === 'unlimited') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback ?? null;
+  return Math.floor(n);
+}
+
+function envFallbackDefaults() {
+  return {
+    daily_limit: envLimit('DEFAULT_DAILY_LIMIT', FALLBACK_DEFAULTS.daily_limit),
+    monthly_limit: envLimit('DEFAULT_MONTHLY_LIMIT', FALLBACK_DEFAULTS.monthly_limit),
+    storage_limit_mb: envLimit('DEFAULT_STORAGE_LIMIT_MB', FALLBACK_DEFAULTS.storage_limit_mb),
+    concurrent_limit: envLimit('DEFAULT_CONCURRENT_LIMIT', FALLBACK_DEFAULTS.concurrent_limit)
+  };
+}
+
+export function getGlobalConcurrentLimit() {
+  const limit = envLimit('GLOBAL_CONCURRENT_GENERATIONS', null);
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return null;
+  return Number(limit);
+}
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -34,7 +60,7 @@ function monthEnd(day) {
 // 读取系统默认（覆盖 FALLBACK_DEFAULTS 中提供过的字段）。
 export function getDefaults() {
   const stored = systemSettings.get(DEFAULT_KEY) || {};
-  return { ...FALLBACK_DEFAULTS, ...stored };
+  return { ...envFallbackDefaults(), ...stored };
 }
 
 export function setDefaults(patch, updatedBy) {
@@ -164,6 +190,41 @@ export function tryAcquireConcurrentSlot(userId) {
       const current = activeGenerations.get(userId) || 0;
       if (current <= 1) activeGenerations.delete(userId);
       else activeGenerations.set(userId, current - 1);
+    }
+  };
+}
+
+export function tryAcquireGlobalGenerationSlot() {
+  const limit = getGlobalConcurrentLimit();
+  if (!limit) {
+    return {
+      ok: true,
+      active: activeGlobalGenerations,
+      limit: null,
+      release: () => {}
+    };
+  }
+
+  if (activeGlobalGenerations >= limit) {
+    return {
+      ok: false,
+      code: 'global_concurrent_limit_exceeded',
+      message: `当前生成队列已满（${activeGlobalGenerations}/${limit}），请稍后再试。`,
+      active: activeGlobalGenerations,
+      limit
+    };
+  }
+
+  activeGlobalGenerations += 1;
+  let released = false;
+  return {
+    ok: true,
+    active: activeGlobalGenerations,
+    limit,
+    release: () => {
+      if (released) return;
+      released = true;
+      activeGlobalGenerations = Math.max(0, activeGlobalGenerations - 1);
     }
   };
 }

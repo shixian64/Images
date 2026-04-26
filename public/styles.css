@@ -1228,6 +1228,11 @@ body.preview-open { overflow: hidden; }
   font: inherit;
 }
 .user-menu-dropdown button:hover { background: var(--surface-2); }
+.user-menu-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--border);
+}
 
 /* 管理菜单 */
 .management-tabs {
