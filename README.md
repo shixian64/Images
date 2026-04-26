@@ -131,6 +131,8 @@ docker compose up -d --build
 http://localhost:8787
 ```
 
+`.env.example` 默认 `NODE_ENV=development` 以支持上述 HTTP 直连；如果放到 HTTPS 反向代理后面，请把 `NODE_ENV=production`。
+
 健康检查：
 
 ```text

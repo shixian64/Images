@@ -79,13 +79,14 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
   if (!Number.isInteger(payload.n) || payload.n < 1 || payload.n > MAX_IMAGES_PER_REQUEST) {
     throw new Error(`n must be an integer between 1 and ${MAX_IMAGES_PER_REQUEST}.`);
   }
+  const requestedImages = Math.max(1, Number(payload.n) || 1);
 
   let releaseQuotaSlot = null;
   let releaseGlobalSlot = null;
   try {
     // 配额拦截：管理员豁免用户级额度；全局并发槽位仍对所有人有效，用来保护小机器。
     if (userInfo.role !== 'admin') {
-      const check = assertCanGenerate(userInfo.id, { n: payload.n || 1 });
+      const check = assertCanGenerate(userInfo.id, { n: requestedImages });
       if (!check.ok) {
         logger.warn('image.generate.quota_exceeded', {
           userId: userInfo.id,
@@ -145,7 +146,7 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
       logger.error('image.generate.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
-      recordFailure(userInfo.id);
+      recordFailure(userInfo.id, { calls: requestedImages });
       return { status, body: { error: errMsg } };
     }
 
@@ -180,10 +181,10 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
       });
     }
 
-    // 用量记账：成功调用计 1 次 + 实际入库的图数 / 字节数
+    // 用量记账：多图请求按请求张数消耗额度，同时记录实际返回/入库图数与字节数。
     const savedBytes = saved.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
     recordSuccess(userInfo.id, {
-      calls: 1,
+      calls: requestedImages,
       images: saved.length || imageItems.length || 0,
       bytes: savedBytes
     });

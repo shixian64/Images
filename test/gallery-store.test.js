@@ -89,6 +89,31 @@ test('saveGeneratedImages rejects URL downloads over byte limit', async () => {
   });
 });
 
+test('saveGeneratedImages applies timeout while reading URL image body', async () => {
+  await withEnv({ IMAGE_DOWNLOAD_TIMEOUT_MS: '25' }, async () => {
+    let canceled = false;
+    const result = await gallery.saveGeneratedImages(
+      [{ url: 'https://example.com/slow.png' }],
+      { prompt: 'x', outputFormat: 'png' },
+      {
+        userId: user.id,
+        fetchImpl: async () => new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(PNG_BYTES);
+          },
+          cancel() {
+            canceled = true;
+          }
+        }), { headers: { 'content-type': 'image/png' } })
+      }
+    );
+
+    assert.equal(result.saved.length, 0);
+    assert.match(result.items[0].save_error, /timed out/);
+    assert.equal(canceled, true);
+  });
+});
+
 test('saveGeneratedImages rejects b64_json images over byte limit', async () => {
   await withEnv({ MAX_IMAGE_DOWNLOAD_BYTES: '4' }, async () => {
     const result = await gallery.saveGeneratedImages(

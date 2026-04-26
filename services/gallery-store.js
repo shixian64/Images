@@ -154,13 +154,23 @@ function assertContentLengthWithinLimit(response, maxBytes) {
   }
 }
 
-async function readResponseBufferLimited(response, maxBytes) {
+function downloadAbortError() {
+  return new DOMException('This operation was aborted.', 'AbortError');
+}
+
+function throwIfDownloadAborted(signal) {
+  if (signal?.aborted) throw downloadAbortError();
+}
+
+async function readResponseBufferLimited(response, maxBytes, { signal } = {}) {
+  throwIfDownloadAborted(signal);
   assertContentLengthWithinLimit(response, maxBytes);
 
   // Node/Undici Response.body 是 Web ReadableStream；测试替身可能没有 body，
   // 因此保留 arrayBuffer 兜底，但仍在读完后做一次大小校验。
   if (!response.body?.getReader) {
     const buffer = Buffer.from(await response.arrayBuffer());
+    throwIfDownloadAborted(signal);
     if (buffer.length > maxBytes) {
       throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
     }
@@ -170,9 +180,18 @@ async function readResponseBufferLimited(response, maxBytes) {
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
+  const onAbort = () => {
+    try { reader.cancel?.(downloadAbortError()); } catch { /* ignore */ }
+  };
   try {
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
     while (true) {
+      throwIfDownloadAborted(signal);
       const { done, value } = await reader.read();
+      throwIfDownloadAborted(signal);
       if (done) break;
       const chunk = Buffer.from(value);
       total += chunk.length;
@@ -183,6 +202,7 @@ async function readResponseBufferLimited(response, maxBytes) {
       chunks.push(chunk);
     }
   } finally {
+    signal?.removeEventListener?.('abort', onAbort);
     reader.releaseLock?.();
   }
   return Buffer.concat(chunks, total);
@@ -195,27 +215,26 @@ async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } =
   const maxBytes = maxImageDownloadBytes();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  let response;
   try {
-    response = await guardedFetch(targetUrl, {
+    const response = await guardedFetch(targetUrl, {
       method: 'GET',
       headers: { accept: 'image/png,image/jpeg,image/webp,image/gif,application/octet-stream;q=0.8' },
       redirect: 'manual',
       signal: controller.signal
     }, { fetchImpl });
+
+    if (!response.ok) throw new Error(`download failed with ${response.status}`);
+    assertResponseLooksLikeImage(response);
+    const contentType = response.headers?.get?.('content-type') || '';
+    const buffer = await readResponseBufferLimited(response, maxBytes, { signal: controller.signal });
+    const detected = detectImageType(buffer, { contentType, fallbackFormat, requireMagic: true });
+    return { ...detected, buffer, sourceType: 'url' };
   } catch (err) {
     if (err?.name === 'AbortError') throw new Error('image download timed out');
     throw err;
   } finally {
     clearTimeout(timeoutId);
   }
-
-  if (!response.ok) throw new Error(`download failed with ${response.status}`);
-  assertResponseLooksLikeImage(response);
-  const contentType = response.headers?.get?.('content-type') || '';
-  const buffer = await readResponseBufferLimited(response, maxBytes);
-  const detected = detectImageType(buffer, { contentType, fallbackFormat, requireMagic: true });
-  return { ...detected, buffer, sourceType: 'url' };
 }
 
 async function assetFromItem(item, { fetchImpl = fetch, fallbackFormat = 'png' } = {}) {

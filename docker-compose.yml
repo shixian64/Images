@@ -60,8 +60,8 @@ services:
       ALLOW_PRIVATE_UPSTREAMS: "${ALLOW_PRIVATE_UPSTREAMS:-0}"
       TRUST_PROXY: "${TRUST_PROXY:-0}"
 
-      # 默认 production 会给 session cookie 加 Secure；仅直接 HTTP 调试时改为 development。
-      NODE_ENV: "${NODE_ENV:-production}"
+      # 默认支持 README 中的 http://localhost:8787 直连；放到 HTTPS 反代后再设为 production 以给 cookie 加 Secure。
+      NODE_ENV: "${NODE_ENV:-development}"
 
     volumes:
       # SQLite 数据库、WAL、生成图片都在这里；必须持久化。

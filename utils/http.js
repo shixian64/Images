@@ -1,7 +1,10 @@
 // 极小的 HTTP 辅助层。未来替换成 Fastify / Next.js Route Handler 时只需改这里。
 
 export function sendJson(res, status, payload) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store'
+  });
   res.end(JSON.stringify(payload));
 }
 
