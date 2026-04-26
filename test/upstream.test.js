@@ -60,6 +60,25 @@ test('assertAllowedUpstreamUrl 允许解析到公网地址的 HTTPS 上游', asy
   }));
 });
 
+test('assertAllowedUpstreamUrl returns a lookup pinned to vetted DNS records', async () => {
+  await withEnv({ NODE_ENV: 'production', ALLOW_PRIVATE_UPSTREAMS: '0' }, async () => {
+    const policy = await assertAllowedUpstreamUrl('https://gateway.example.com/v1/models', {
+      lookupImpl: async () => [
+        { address: '93.184.216.34', family: 4 },
+        { address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 }
+      ]
+    });
+    assert.equal(typeof policy.lookup, 'function');
+    const first = await new Promise((resolve, reject) => {
+      policy.lookup('gateway.example.com', {}, (err, address, family) => {
+        if (err) reject(err);
+        else resolve({ address, family });
+      });
+    });
+    assert.deepEqual(first, { address: '93.184.216.34', family: 4 });
+  });
+});
+
 test('assertAllowedUpstreamUrl 默认拒绝 HTTP 上游', async () => {
   await assert.rejects(() => assertAllowedUpstreamUrl('http://gateway.example.com/v1/models', {
     lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }]

@@ -158,6 +158,13 @@ GET /healthz
 | `MAX_IMAGE_DOWNLOAD_BYTES` | `26214400` | 上游返回 URL 图片时，服务端最多下载 25 MiB，超过拒绝保存。 |
 | `GENERATE_STREAM_HEARTBEAT_MS` | `15000` | SSE 生图接口心跳间隔，单位毫秒。 |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Docker 停止时的优雅关闭等待时间，单位毫秒。 |
+| `CHAT_RATE_LIMIT_MAX_PER_MINUTE` | `20` | `/api/chat` 每用户与每 IP 每分钟请求上限；`0`/`disabled` 可关闭。 |
+| `CHAT_GLOBAL_CONCURRENT_REQUESTS` | `4` | 全站同时对话/提示词优化请求上限。 |
+| `CHAT_MAX_MESSAGES` | `12` | 单次对话请求最大 messages 条数。 |
+| `CHAT_MAX_INPUT_CHARS` | `12000` | 单次对话请求输入文本字符上限。 |
+| `CHAT_DEFAULT_MAX_COMPLETION_TOKENS` | `1200` | 未显式传 token 上限时自动补的默认输出上限。 |
+| `CHAT_MAX_COMPLETION_TOKENS` | `2000` | 对话请求输出 token 上限封顶。 |
+| `CHAT_COMPLETION_TIMEOUT_MS` | `180000` | 上游对话请求超时，单位毫秒。 |
 | `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。生产环境保持 `0`。 |
 | `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost/私网/metadata 等上游。生产环境保持 `0`。 |
 | `TRUST_PROXY` | `0` | 是否信任 `X-Forwarded-For` / `X-Real-IP`。仅在可信反向代理会清洗这些头时设为 `1`。 |
@@ -171,5 +178,7 @@ GET /healthz
 - `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
 - 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
 - `/api/generate` 和 `/api/generate/stream` 增加 `GLOBAL_CONCURRENT_GENERATIONS` 全站并发槽位，保护 2C/4G 小机器。
+- `/api/chat` 增加每用户/IP 限频、全站并发槽位、输入长度与输出 token 上限，避免系统默认 Chat Key 被无限代理消耗。
+- 上游请求使用已校验 DNS 结果发起连接，生产严格模式下避免校验后重新解析导致 DNS rebinding/TOCTOU。
 - Docker compose 默认限制内存、CPU、PID，启用只读根文件系统，并仅把 `/app/generated` 作为持久化写入点。
 - 服务支持 `SIGTERM` / `SIGINT` 优雅关闭，便于 Docker 更新或停止容器。

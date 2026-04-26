@@ -4,7 +4,7 @@
 import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
-import { assertAllowedUpstreamUrl, resolveModelsUrl } from '../services/upstream.js';
+import { guardedFetch, resolveModelsUrl } from '../services/upstream.js';
 
 export async function handleTestProfile(req, res) {
   const started = Date.now();
@@ -14,7 +14,6 @@ export async function handleTestProfile(req, res) {
     const apiKey = String(body.apiKey || '').trim();
     if (!apiKey) throw new Error('API key is required.');
     const targetUrl = resolveModelsUrl(body.baseUrl);
-    await assertAllowedUpstreamUrl(targetUrl);
     const kind = body.kind === 'chat' ? 'chat' : 'image';
 
     logger.info('profile.test.request', {
@@ -24,7 +23,7 @@ export async function handleTestProfile(req, res) {
       apiKey: maskApiKey(apiKey)
     });
 
-    const response = await fetch(targetUrl, {
+    const response = await guardedFetch(targetUrl, {
       method: 'GET',
       headers: { 'authorization': `Bearer ${apiKey}`, 'accept': 'application/json' },
       redirect: 'manual'

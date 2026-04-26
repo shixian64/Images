@@ -12,7 +12,7 @@ import {
   publicInterfaceConfig,
   setGlobalInterfaceConfig
 } from '../services/interface-defaults.js';
-import { assertAllowedUpstreamUrl, resolveModelsUrl } from '../services/upstream.js';
+import { guardedFetch, resolveModelsUrl } from '../services/upstream.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 
@@ -99,7 +99,6 @@ async function handleAdminTest(req, res) {
   try {
     const endpoint = getSystemEndpoint(kind);
     const targetUrl = resolveModelsUrl(endpoint.baseUrl);
-    await assertAllowedUpstreamUrl(targetUrl);
 
     logger.info('interface.default.test.request', {
       kind,
@@ -107,7 +106,7 @@ async function handleAdminTest(req, res) {
       apiKey: maskApiKey(endpoint.apiKey)
     });
 
-    const response = await fetch(targetUrl, {
+    const response = await guardedFetch(targetUrl, {
       method: 'GET',
       headers: { authorization: `Bearer ${endpoint.apiKey}`, accept: 'application/json' },
       redirect: 'manual'
@@ -199,4 +198,3 @@ export async function handleInterfacesRoute(req, res, pathname) {
 }
 
 export default handleInterfacesRoute;
-

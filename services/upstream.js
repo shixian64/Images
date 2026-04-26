@@ -8,7 +8,10 @@ import {
   OPTIONAL_PASSTHROUGH_KEYS
 } from '../shared/constants.js';
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+import { Readable } from 'node:stream';
 
 const BLOCKED_IPV4_CIDRS = [
   ['0.0.0.0', 8],
@@ -122,6 +125,34 @@ function isBlockedAddress(address) {
   return false;
 }
 
+function normalizeLookupRecords(records) {
+  return (Array.isArray(records) ? records : [])
+    .map((record) => ({
+      address: String(record?.address || '').trim(),
+      family: Number(record?.family) || isIP(record?.address)
+    }))
+    .filter((record) => record.address && (record.family === 4 || record.family === 6));
+}
+
+function pinnedLookup(records) {
+  const clean = normalizeLookupRecords(records);
+  return function lookup(_hostname, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    if (!clean.length) {
+      callback(new Error('No vetted upstream address is available.'));
+      return;
+    }
+    if (options?.all) {
+      callback(null, clean.map((record) => ({ ...record })));
+      return;
+    }
+    callback(null, clean[0].address, clean[0].family);
+  };
+}
+
 export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } = {}) {
   const parsed = new URL(url);
   const protocol = parsed.protocol.toLowerCase();
@@ -129,6 +160,9 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
     if (protocol !== 'http:' || process.env.ALLOW_INSECURE_UPSTREAMS !== '1') {
       throw new Error('Upstream URL must use https.');
     }
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Upstream URL must not include credentials.');
   }
 
   const host = normalizeHostname(parsed.hostname);
@@ -140,7 +174,9 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
   // with ALLOW_PRIVATE_UPSTREAMS=0.
   const allowPrivateUpstreams = process.env.ALLOW_PRIVATE_UPSTREAMS === '1'
     || (process.env.NODE_ENV !== 'production' && process.env.ALLOW_PRIVATE_UPSTREAMS !== '0');
-  if (allowPrivateUpstreams) return true;
+  if (allowPrivateUpstreams) {
+    return { ok: true, parsed, host, records: null, lookup: null, privateUpstreamsAllowed: true };
+  }
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
     throw new Error('Upstream host is not allowed.');
@@ -150,7 +186,10 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
     throw new Error('Upstream host is not allowed.');
   }
 
-  if (isIP(host)) return true;
+  if (isIP(host)) {
+    const record = { address: host, family: isIP(host) };
+    return { ok: true, parsed, host, records: [record], lookup: pinnedLookup([record]) };
+  }
 
   let records;
   try {
@@ -158,6 +197,7 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
   } catch (err) {
     throw new Error(`Unable to resolve upstream host: ${err.message || String(err)}`);
   }
+  records = normalizeLookupRecords(records);
   if (!Array.isArray(records) || records.length === 0) {
     throw new Error('Unable to resolve upstream host.');
   }
@@ -166,7 +206,113 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
       throw new Error('Upstream host resolves to a private address.');
     }
   }
-  return true;
+  return { ok: true, parsed, host, records, lookup: pinnedLookup(records) };
+}
+
+function normalizeHeaders(headers = {}) {
+  const out = {};
+  const source = headers instanceof Headers
+    ? Array.from(headers.entries())
+    : Array.isArray(headers)
+      ? headers
+      : Object.entries(headers || {});
+  for (const [key, value] of source) {
+    if (value === undefined || value === null) continue;
+    const lower = String(key).toLowerCase();
+    if (lower === 'host' || lower === 'connection' || lower === 'content-length') continue;
+    out[key] = Array.isArray(value) ? value.join(', ') : String(value);
+  }
+  return out;
+}
+
+function headersFromIncoming(raw = {}) {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(raw || {})) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) headers.append(key, String(item));
+    } else {
+      headers.set(key, String(value));
+    }
+  }
+  return headers;
+}
+
+function abortError() {
+  return new DOMException('This operation was aborted.', 'AbortError');
+}
+
+function fetchWithPinnedDns(policy, options = {}) {
+  const parsed = policy.parsed || new URL(policy.url || '');
+  const requestImpl = parsed.protocol === 'http:' ? httpRequest : httpsRequest;
+  const method = String(options.method || 'GET').toUpperCase();
+  const headers = normalizeHeaders(options.headers || {});
+  const body = options.body;
+  const bodyBuffer = body === undefined || body === null
+    ? null
+    : Buffer.isBuffer(body)
+      ? body
+      : body instanceof Uint8Array
+        ? Buffer.from(body)
+        : Buffer.from(String(body));
+  if (bodyBuffer && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-length')) {
+    headers['content-length'] = String(bodyBuffer.length);
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const req = requestImpl({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || undefined,
+      path: `${parsed.pathname || '/'}${parsed.search || ''}`,
+      method,
+      headers,
+      lookup: policy.lookup || undefined,
+      servername: parsed.hostname
+    }, (incoming) => {
+      settled = true;
+      const status = incoming.statusCode || 0;
+      const responseHeaders = headersFromIncoming(incoming.headers);
+      const bodyStream = status === 204 || status === 304 ? null : Readable.toWeb(incoming);
+      resolve(new Response(bodyStream, {
+        status,
+        statusText: incoming.statusMessage || '',
+        headers: responseHeaders
+      }));
+    });
+
+    const onAbort = () => {
+      req.destroy(abortError());
+    };
+    req.on('error', (err) => {
+      options.signal?.removeEventListener?.('abort', onAbort);
+      if (!settled) reject(err);
+    });
+    req.on('close', () => {
+      options.signal?.removeEventListener?.('abort', onAbort);
+    });
+    if (options.signal) {
+      if (options.signal.aborted) {
+        req.destroy(abortError());
+      } else {
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+    if (bodyBuffer) req.write(bodyBuffer);
+    req.end();
+  });
+}
+
+export async function guardedFetch(url, options = {}, { lookupImpl = dnsLookup, fetchImpl = null } = {}) {
+  // Unit tests pass explicit fetchImpl stubs; production code should use the
+  // pinned transport below so the socket connects to the already-vetted DNS
+  // answer instead of re-resolving after the SSRF check.
+  if (fetchImpl && fetchImpl !== fetch) {
+    return fetchImpl(url, options);
+  }
+  const policy = await assertAllowedUpstreamUrl(url, { lookupImpl });
+  return fetchWithPinnedDns(policy, options);
 }
 
 function normalizeBase(baseUrl) {
@@ -278,7 +424,7 @@ export async function callUpstream({
   }
   let response;
   try {
-    response = await fetchImpl(targetUrl, {
+    response = await guardedFetch(targetUrl, {
       method: 'POST',
       headers: {
         'authorization': `Bearer ${apiKey}`,
@@ -288,7 +434,7 @@ export async function callUpstream({
       body: JSON.stringify(payload),
       redirect: 'manual',
       signal: controller.signal
-    });
+    }, { fetchImpl });
   } catch (err) {
     if (err.name === 'AbortError') {
       return {

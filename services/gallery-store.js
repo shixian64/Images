@@ -7,7 +7,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 import { images as imagesTable, dbPaths } from './db.js';
-import { assertAllowedUpstreamUrl } from './upstream.js';
+import { guardedFetch } from './upstream.js';
 import {
   userImageDir,
   userImageRel,
@@ -172,7 +172,6 @@ async function readResponseBufferLimited(response, maxBytes) {
 
 async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } = {}) {
   const targetUrl = String(url || '').trim();
-  await assertAllowedUpstreamUrl(targetUrl);
 
   const timeoutMs = imageDownloadTimeoutMs();
   const maxBytes = maxImageDownloadBytes();
@@ -180,12 +179,12 @@ async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } =
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetchImpl(targetUrl, {
+    response = await guardedFetch(targetUrl, {
       method: 'GET',
       headers: { accept: 'image/png,image/jpeg,image/webp,image/gif,application/octet-stream;q=0.8' },
       redirect: 'manual',
       signal: controller.signal
-    });
+    }, { fetchImpl });
   } catch (err) {
     if (err?.name === 'AbortError') throw new Error('image download timed out');
     throw err;
