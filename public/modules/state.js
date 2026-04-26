@@ -7,6 +7,7 @@ const KEYS = Object.freeze({
   legacyProfiles: 'image-key-manager.profiles.v2',
   legacyProfilesV1: 'image-key-manager.profiles.v1',
   activeProfile: 'image-key-manager.active',
+  interfaceMode: 'image-key-manager.interfaceMode.v1',
   activeTab: 'image-key-manager.activeTab',
   logs: 'image-key-manager.logs.v1',
   promptBuilderDraft: 'image-key-manager.promptBuilderDraft.v1',

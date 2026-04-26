@@ -626,6 +626,95 @@ body.preview-open { overflow: hidden; }
   padding: 16px;
 }
 
+.config-grid .span-all { grid-column: 1 / -1; }
+
+.system-default-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.4fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.system-default-panel h3 { margin: 2px 0 4px; font-size: 16px; }
+.system-default-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+}
+.system-default-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.system-default-title .chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.system-default-title .chip.ok { color: var(--success); background: var(--success-soft); }
+.system-default-title .chip.err { color: var(--danger); background: var(--danger-soft); }
+.system-default-title .chip.info { color: var(--brand); background: var(--brand-soft); }
+.system-default-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 6px 10px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.system-default-grid code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.system-default-grid strong { font-weight: 600; color: var(--text); }
+.system-default-grid em { font-style: normal; color: var(--text-faint); }
+.system-default-actions {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.switch-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.switch-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+}
+.profile-form.is-muted {
+  opacity: 0.62;
+}
+.profile-form.is-muted::before {
+  content: "当前使用系统默认接口；开启上方“覆盖系统默认”后可编辑个人接口。";
+  display: block;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-btn);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+@media (max-width: 1040px) {
+  .system-default-panel { grid-template-columns: 1fr; }
+  .system-default-actions { flex-direction: row; flex-wrap: wrap; }
+}
+
 .profile-list {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: 6px;
@@ -1294,6 +1383,7 @@ body.preview-open { overflow: hidden; }
   color: var(--danger);
   background: var(--danger-soft);
 }
+.management-summary .chip.ok,
 .users-table .chip.ok {
   color: var(--success);
   background: var(--success-soft);
@@ -1561,6 +1651,20 @@ body.drawer-open { overflow: hidden; }
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+.admin-interface-form {
+  max-width: 860px;
+}
+.switch-field {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--surface-2);
+}
+.switch-field > span {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 .users-actions-cell {
   display: flex;

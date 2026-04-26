@@ -19,6 +19,11 @@ const ENDPOINT_META = Object.freeze({
   chat: { label: '对话', prefix: 'chat', defaultModel: DEFAULT_CHAT_MODEL }
 });
 
+const INTERFACE_MODE = Object.freeze({
+  system: 'system',
+  custom: 'custom'
+});
+
 function createId() {
   return (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -135,12 +140,71 @@ function defaultProfile(overrides = {}) {
   });
 }
 
+function exampleProfile() {
+  return defaultProfile({
+    name: '示例接口（个人覆盖）',
+    status: 'draft',
+    image: defaultEndpoint('image'),
+    chat: defaultEndpoint('chat')
+  });
+}
+
+function normalizeSystemDefault(raw = {}) {
+  const enabled = raw.enabled !== false;
+  const image = raw.image && typeof raw.image === 'object' ? raw.image : {};
+  const chat = raw.chat && typeof raw.chat === 'object' ? raw.chat : {};
+  const profile = normalize({
+    id: 'system-default',
+    name: raw.name || '系统默认接口',
+    status: enabled ? 'active' : 'paused',
+    image: defaultEndpoint('image', {
+      baseUrl: image.baseUrl || DEFAULT_BASE_URL,
+      apiKey: '',
+      hasApiKey: image.hasApiKey === undefined ? null : Boolean(image.hasApiKey),
+      maskedApiKey: image.maskedApiKey || '',
+      defaultModel: image.defaultModel || DEFAULT_IMAGE_MODEL,
+      testStatus: image.testStatus || 'unknown',
+      testLatencyMs: image.testLatencyMs ?? null,
+      testedAt: image.testedAt || null,
+      testError: image.testError || ''
+    }),
+    chat: defaultEndpoint('chat', {
+      baseUrl: chat.baseUrl || DEFAULT_BASE_URL,
+      apiKey: '',
+      hasApiKey: chat.hasApiKey === undefined ? null : Boolean(chat.hasApiKey),
+      maskedApiKey: chat.maskedApiKey || '',
+      defaultModel: chat.defaultModel || DEFAULT_CHAT_MODEL,
+      testStatus: chat.testStatus || 'unknown',
+      testLatencyMs: chat.testLatencyMs ?? null,
+      testedAt: chat.testedAt || null,
+      testError: chat.testError || ''
+    })
+  });
+  return {
+    ...profile,
+    isSystemDefault: true,
+    enabled,
+    ready: Boolean(raw.ready),
+    updatedAt: raw.updatedAt || null,
+    updatedBy: raw.updatedBy || null
+  };
+}
+
+function fallbackSystemDefault() {
+  return normalizeSystemDefault({
+    enabled: true,
+    name: '系统默认接口',
+    image: { baseUrl: DEFAULT_BASE_URL, defaultModel: DEFAULT_IMAGE_MODEL, hasApiKey: null },
+    chat: { baseUrl: DEFAULT_BASE_URL, defaultModel: DEFAULT_CHAT_MODEL, hasApiKey: null }
+  });
+}
+
 function loadProfiles() {
   // why：legacy 历史数据跨用户共享是历史包袱，只做新用户的空态回退；新数据按 userId 隔离存储。
   const raw = readJsonScoped(KEYS.profiles, null)
     || readJsonScoped(KEYS.legacyProfiles, null)
     || readJsonScoped(KEYS.legacyProfilesV1, null);
-  if (!Array.isArray(raw) || !raw.length) return [defaultProfile()];
+  if (!Array.isArray(raw) || !raw.length) return [exampleProfile()];
   return raw.map((item) => normalize(withoutPersistedSecrets(item)));
 }
 
@@ -149,12 +213,18 @@ function loadProfiles() {
 let profiles = [defaultProfile()];
 let activeId = profiles[0].id;
 let profilesInitialized = false;
+let interfaceMode = INTERFACE_MODE.system;
+let systemDefault = fallbackSystemDefault();
+let systemDefaultLoaded = false;
 
 function initProfilesIfNeeded() {
   if (profilesInitialized) return;
   profilesInitialized = true;
   profiles = loadProfiles();
   activeId = readStringScoped(KEYS.activeProfile, '') || profiles[0].id;
+  interfaceMode = readStringScoped(KEYS.interfaceMode, INTERFACE_MODE.system) === INTERFACE_MODE.custom
+    ? INTERFACE_MODE.custom
+    : INTERFACE_MODE.system;
   if (!profiles.some((p) => p.id === activeId)) activeId = profiles[0].id;
   persistStoredProfiles();
 }
@@ -173,6 +243,22 @@ export function getActiveProfile() {
 
 export function getProfiles() { return profiles.slice(); }
 
+export function getInterfaceMode() {
+  return interfaceMode;
+}
+
+export function usesSystemDefault() {
+  return interfaceMode !== INTERFACE_MODE.custom;
+}
+
+export function getSystemDefaultProfile() {
+  return systemDefault || fallbackSystemDefault();
+}
+
+export function getEffectiveProfile() {
+  return usesSystemDefault() ? getSystemDefaultProfile() : getActiveProfile();
+}
+
 function getEndpoint(profile, kind) {
   return profile?.[kind] || defaultEndpoint(kind);
 }
@@ -185,6 +271,26 @@ export function getChatConfig(profile = getActiveProfile()) {
   return getEndpoint(profile, 'chat');
 }
 
+async function refreshSystemDefault({ silent = false } = {}) {
+  try {
+    const resp = await apiFetch('/api/interfaces/default', { headers: { accept: 'application/json' } });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    systemDefault = normalizeSystemDefault(data.default || {});
+    systemDefaultLoaded = true;
+    renderAll();
+    if (!silent) setStatus('系统默认接口已刷新', 'ok', 1400);
+  } catch (err) {
+    systemDefaultLoaded = true;
+    if (!silent) setStatus(`刷新系统默认失败：${err?.message || err}`, 'err', 2200);
+    renderAll();
+  }
+}
+
+export function refreshSystemDefaultProfile(options) {
+  return refreshSystemDefault(options);
+}
+
 function persistStoredProfiles() {
   writeJsonScoped(KEYS.profiles, profiles.map(stripProfileSecrets));
   removeKeyScoped(KEYS.legacyProfiles);
@@ -195,10 +301,57 @@ function persist() {
   profiles = profiles.map(normalize);
   persistStoredProfiles();
   writeStringScoped(KEYS.activeProfile, activeId);
+  writeStringScoped(KEYS.interfaceMode, interfaceMode);
   emit();
 }
 
 // ---- 渲染 ----
+
+function keyStatus(endpoint) {
+  if (endpoint?.hasApiKey === true) return '已配置';
+  if (endpoint?.hasApiKey === false) return '未配置';
+  return '读取中';
+}
+
+function renderSystemDefaultCard() {
+  const card = $('systemDefaultCard');
+  const checkbox = $('overrideSystemDefault');
+  if (checkbox) checkbox.checked = !usesSystemDefault();
+  if (!card) return;
+
+  const sys = getSystemDefaultProfile();
+  const image = getImageConfig(sys);
+  const chat = getChatConfig(sys);
+  const statusChip = sys.status === 'active'
+    ? '<span class="chip ok">已启用</span>'
+    : '<span class="chip err">已停用</span>';
+  const loadingChip = systemDefaultLoaded ? '' : '<span class="chip">读取中…</span>';
+  card.innerHTML = `
+    <div class="system-default-title">
+      <strong>${escapeHtml(sys.name || '系统默认接口')}</strong>
+      ${statusChip}
+      ${loadingChip}
+      <span class="chip info">${usesSystemDefault() ? '当前生效' : '个人覆盖中'}</span>
+    </div>
+    <div class="system-default-grid">
+      <span>生图</span><code>${escapeHtml(image.baseUrl || '-')}</code><strong>${escapeHtml(image.defaultModel || '-')}</strong><em>${keyStatus(image)}</em>
+      <span>对话</span><code>${escapeHtml(chat.baseUrl || '-')}</code><strong>${escapeHtml(chat.defaultModel || '-')}</strong><em>${keyStatus(chat)}</em>
+    </div>
+  `;
+}
+
+function renderProfileMode() {
+  const custom = !usesSystemDefault();
+  const form = $('profileForm');
+  form?.classList.toggle('is-muted', !custom);
+  form?.querySelectorAll('input, select, textarea, button').forEach((el) => {
+    el.disabled = !custom;
+  });
+  for (const id of ['newProfile']) {
+    const el = $(id);
+    if (el) el.disabled = !custom;
+  }
+}
 
 function renderList() {
   $('profileList').innerHTML = profiles.map((p) => {
@@ -221,17 +374,19 @@ function renderList() {
 
 function renderSummary() {
   const activeCount = profiles.filter((p) => p.status === 'active').length;
-  const p = getActiveProfile();
+  const p = getEffectiveProfile();
   const image = getImageConfig(p);
   const chat = getChatConfig(p);
+  const systemMode = usesSystemDefault();
   $('profileSummary').innerHTML = `
-    <div><span>接口总数</span><strong>${profiles.length}</strong></div>
+    <div><span>生效模式</span><strong>${systemMode ? '系统默认' : '个人覆盖'}</strong></div>
+    <div><span>个人接口数</span><strong>${profiles.length}</strong></div>
     <div><span>启用接口</span><strong>${activeCount}</strong></div>
     <div><span>当前接口</span><strong>${escapeHtml(p?.name || '未命名')}</strong></div>
     <div><span>生图模型</span><strong>${escapeHtml(image.defaultModel || '-')}</strong></div>
     <div><span>对话模型</span><strong>${escapeHtml(chat.defaultModel || '-')}</strong></div>
-    <div><span>生图密钥</span><strong>${escapeHtml(maskKey(image.apiKey))}</strong></div>
-    <div><span>对话密钥</span><strong>${escapeHtml(maskKey(chat.apiKey))}</strong></div>
+    <div><span>生图密钥</span><strong>${escapeHtml(systemMode ? keyStatus(image) : maskKey(image.apiKey))}</strong></div>
+    <div><span>对话密钥</span><strong>${escapeHtml(systemMode ? keyStatus(chat) : maskKey(chat.apiKey))}</strong></div>
   `;
 }
 
@@ -315,10 +470,12 @@ function renderAll() {
     activeId = profiles[0].id;
   }
   if (!profiles.some((p) => p.id === activeId)) activeId = profiles[0].id;
+  renderSystemDefaultCard();
   renderList();
   fillForm();
   renderSummary();
   renderTestResult();
+  renderProfileMode();
   emit();
 }
 
@@ -368,6 +525,17 @@ function remove() {
   renderAll();
   if (removed) addLog('warn', 'profile.deleted', { name: removed.name });
   setStatus('配置已删除', 'ok', 1600);
+}
+
+function setInterfaceMode(nextMode) {
+  interfaceMode = nextMode === INTERFACE_MODE.custom ? INTERFACE_MODE.custom : INTERFACE_MODE.system;
+  writeStringScoped(KEYS.interfaceMode, interfaceMode);
+  renderAll();
+  setStatus(
+    usesSystemDefault() ? '已切换为使用系统默认接口' : '已启用个人接口覆盖',
+    'ok',
+    1600
+  );
 }
 
 function upsertProfile(next) {
@@ -465,8 +633,14 @@ export function mountProfilesPanel() {
   $('saveProfile').addEventListener('click', save);
   $('newProfile').addEventListener('click', createDraft);
   $('deleteProfile').addEventListener('click', remove);
+  $('overrideSystemDefault')?.addEventListener('change', (ev) => {
+    setInterfaceMode(ev.target.checked ? INTERFACE_MODE.custom : INTERFACE_MODE.system);
+  });
+  $('refreshSystemDefault')?.addEventListener('click', () => refreshSystemDefault());
   $('testProfile')?.addEventListener('click', testAllConnections);
   $('testImageProfile')?.addEventListener('click', () => testConnection('image'));
   $('testChatProfile')?.addEventListener('click', () => testConnection('chat'));
+  window.addEventListener('system-default-interface-updated', () => refreshSystemDefault({ silent: true }));
   renderAll();
+  refreshSystemDefault({ silent: true });
 }

@@ -1,0 +1,202 @@
+// 接口管理路由：
+//   /api/interfaces/default                 —— 当前用户读取系统默认接口摘要
+//   /api/admin/interfaces/default           —— 管理员读取/保存全局默认接口
+//   /api/admin/interfaces/default/test      —— 管理员测试已保存的全局默认接口
+
+import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
+import { requireAdmin } from '../middleware/guard.js';
+import { record as auditRecord } from '../services/audit.js';
+import {
+  getGlobalInterfaceConfig,
+  getSystemEndpoint,
+  publicInterfaceConfig,
+  setGlobalInterfaceConfig
+} from '../services/interface-defaults.js';
+import { assertAllowedUpstreamUrl, resolveModelsUrl } from '../services/upstream.js';
+import { logger } from '../utils/logger.js';
+import { maskApiKey } from '../utils/mask.js';
+
+const VALID_KINDS = new Set(['image', 'chat']);
+
+function kindLabel(kind) {
+  return kind === 'chat' ? '对话' : '生图';
+}
+
+function statusFromError(message) {
+  if (String(message).startsWith('invalid ')) return 400;
+  if (String(message).includes('缺少 API Key')) return 400;
+  if (String(message).includes('已停用')) return 409;
+  return 400;
+}
+
+function publicPayload() {
+  return { default: getGlobalInterfaceConfig({ publicView: true }) };
+}
+
+async function handlePublicDefault(req, res) {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  sendJson(res, 200, publicPayload());
+}
+
+async function handleAdminDefault(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  if (req.method === 'GET') {
+    sendJson(res, 200, publicPayload());
+    return;
+  }
+
+  if (req.method === 'PUT') {
+    let body = {};
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
+      return;
+    }
+    try {
+      const next = setGlobalInterfaceConfig(body || {}, req.session.user.id);
+      auditRecord(req, 'interface.default_update', { type: 'system', id: 'interfaces.default' }, {
+        enabled: next.enabled,
+        name: next.name,
+        imageBaseUrl: next.image.baseUrl,
+        imageModel: next.image.defaultModel,
+        imageHasKey: Boolean(next.image.apiKey),
+        chatBaseUrl: next.chat.baseUrl,
+        chatModel: next.chat.defaultModel,
+        chatHasKey: Boolean(next.chat.apiKey)
+      });
+      sendJson(res, 200, { default: publicInterfaceConfig(next) });
+    } catch (err) {
+      sendJson(res, statusFromError(err.message), { error: err.message || String(err) });
+    }
+    return;
+  }
+
+  sendJson(res, 405, { error: 'method not allowed' });
+}
+
+async function handleAdminTest(req, res) {
+  if (!requireAdmin(req, res)) return;
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  let body = {};
+  try { body = await readJsonBody(req); } catch (err) {
+    if (bodyErrorStatus(err) === 413) {
+      sendJson(res, 413, { error: err.message });
+      return;
+    }
+    body = {};
+  }
+
+  const kind = VALID_KINDS.has(body?.kind) ? body.kind : 'image';
+  const started = Date.now();
+
+  try {
+    const endpoint = getSystemEndpoint(kind);
+    const targetUrl = resolveModelsUrl(endpoint.baseUrl);
+    await assertAllowedUpstreamUrl(targetUrl);
+
+    logger.info('interface.default.test.request', {
+      kind,
+      targetUrl,
+      apiKey: maskApiKey(endpoint.apiKey)
+    });
+
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${endpoint.apiKey}`, accept: 'application/json' },
+      redirect: 'manual'
+    });
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    const durationMs = Date.now() - started;
+
+    if (!response.ok) {
+      const error = data?.error?.message || data?.message || `Request failed with ${response.status}`;
+      const next = setGlobalInterfaceConfig({
+        [kind]: {
+          testStatus: 'err',
+          testLatencyMs: null,
+          testedAt: new Date().toISOString(),
+          testError: error
+        }
+      }, req.session.user.id);
+      logger.warn('interface.default.test.failed', { kind, status: response.status, durationMs, error });
+      auditRecord(req, 'interface.default_test_failed', { type: 'system', id: 'interfaces.default' }, {
+        kind,
+        status: response.status,
+        error
+      });
+      sendJson(res, response.status, {
+        ok: false,
+        error,
+        default: publicInterfaceConfig(next)
+      });
+      return;
+    }
+
+    const models = Array.isArray(data?.data) ? data.data.map((item) => item.id).filter(Boolean) : [];
+    const next = setGlobalInterfaceConfig({
+      [kind]: {
+        testStatus: 'ok',
+        testLatencyMs: durationMs,
+        testedAt: new Date().toISOString(),
+        testError: ''
+      }
+    }, req.session.user.id);
+    logger.info('interface.default.test.success', { kind, durationMs, modelCount: models.length });
+    auditRecord(req, 'interface.default_test_ok', { type: 'system', id: 'interfaces.default' }, {
+      kind,
+      durationMs,
+      modelCount: models.length
+    });
+    sendJson(res, 200, {
+      ok: true,
+      kind,
+      label: kindLabel(kind),
+      durationMs,
+      modelCount: models.length,
+      models: models.slice(0, 50),
+      default: publicInterfaceConfig(next)
+    });
+  } catch (err) {
+    const durationMs = Date.now() - started;
+    const error = err.message || String(err);
+    const next = setGlobalInterfaceConfig({
+      [kind]: {
+        testStatus: 'err',
+        testLatencyMs: null,
+        testedAt: new Date().toISOString(),
+        testError: error
+      }
+    }, req.session.user.id);
+    logger.warn('interface.default.test.rejected', { kind, durationMs, error });
+    sendJson(res, statusFromError(error), {
+      ok: false,
+      error,
+      default: publicInterfaceConfig(next)
+    });
+  }
+}
+
+export async function handleInterfacesRoute(req, res, pathname) {
+  if (pathname === '/api/interfaces/default') {
+    return handlePublicDefault(req, res);
+  }
+  if (pathname === '/api/admin/interfaces/default') {
+    return handleAdminDefault(req, res);
+  }
+  if (pathname === '/api/admin/interfaces/default/test') {
+    return handleAdminTest(req, res);
+  }
+  sendJson(res, 404, { error: 'not found' });
+}
+
+export default handleInterfacesRoute;
+

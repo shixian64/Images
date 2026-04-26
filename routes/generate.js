@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
 import { saveGeneratedImages } from '../services/gallery-store.js';
+import { getSystemEndpoint } from '../services/interface-defaults.js';
 import {
   assertCanGenerate,
   tryAcquireConcurrentSlot,
@@ -19,6 +20,36 @@ const DEFAULT_IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_GENERATION_TIMEOUT_MS 
 const STREAM_HEARTBEAT_MS = Number(process.env.GENERATE_STREAM_HEARTBEAT_MS || 15 * 1000);
 const MAX_IMAGES_PER_REQUEST = Math.max(1, Number(process.env.MAX_IMAGES_PER_REQUEST || 4));
 
+function shouldUseSystemDefault(body = {}) {
+  return body.useSystemDefault === true || body.interfaceMode === 'system';
+}
+
+function resolveImageRequest(body = {}) {
+  if (shouldUseSystemDefault(body)) {
+    const endpoint = getSystemEndpoint('image');
+    return {
+      apiKey: endpoint.apiKey,
+      targetUrl: resolveApiUrl(endpoint.baseUrl),
+      profileName: endpoint.name || '系统默认接口',
+      bodyForPayload: {
+        ...body,
+        model: body.model || body.imageDefaultModel || endpoint.defaultModel
+      },
+      usingSystemDefault: true
+    };
+  }
+
+  const apiKey = String(body.imageApiKey || body.apiKey || '').trim();
+  if (!apiKey) throw new Error('API key is required.');
+  return {
+    apiKey,
+    targetUrl: resolveApiUrl(body.imageBaseUrl || body.baseUrl),
+    profileName: body.name,
+    bodyForPayload: body,
+    usingSystemDefault: false
+  };
+}
+
 function writeSse(res, event, data = {}) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -30,12 +61,10 @@ function writeSseComment(res, message) {
 
 async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
   const started = Date.now();
-  const apiKey = String(body.imageApiKey || body.apiKey || '').trim();
-  if (!apiKey) throw new Error('API key is required.');
-
-  const targetUrl = resolveApiUrl(body.imageBaseUrl || body.baseUrl);
+  const requestConfig = resolveImageRequest(body);
+  const { apiKey, targetUrl, bodyForPayload, usingSystemDefault } = requestConfig;
   await assertAllowedUpstreamUrl(targetUrl);
-  const payload = buildImagePayload(body);
+  const payload = buildImagePayload(bodyForPayload);
   if (!Number.isInteger(payload.n) || payload.n < 1 || payload.n > MAX_IMAGES_PER_REQUEST) {
     throw new Error(`n must be an integer between 1 and ${MAX_IMAGES_PER_REQUEST}.`);
   }
@@ -82,7 +111,8 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
     logger.info('image.generate.request', {
       targetUrl,
       model: payload.model,
-      profileName: body.name,
+      profileName: requestConfig.profileName,
+      usingSystemDefault,
       apiKey: maskApiKey(apiKey)
     });
     onProgress?.({
@@ -122,10 +152,10 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
         {
           prompt: payload.prompt,
           model: payload.model,
-          size: body.size || '',
-          quality: body.quality || '',
-          outputFormat: body.output_format || '',
-          profileName: body.name || ''
+          size: bodyForPayload.size || body.size || '',
+          quality: bodyForPayload.quality || body.quality || '',
+          outputFormat: bodyForPayload.output_format || body.output_format || '',
+          profileName: requestConfig.profileName || body.name || ''
         },
         { userId: userInfo.id }
       );

@@ -286,6 +286,22 @@
     <!-- ============================================================ -->
     <section id="configPanel" class="tab-panel" aria-labelledby="configHeading">
       <section class="panel config-grid">
+        <div class="system-default-panel span-all">
+          <div>
+            <p class="eyebrow">系统默认接口</p>
+            <h3>默认使用管理员配置的全局接口</h3>
+            <p class="hint">配置菜单下方默认展示示例接口；只有开启“覆盖系统默认”后，个人接口才会用于生成。</p>
+          </div>
+          <div id="systemDefaultCard" class="system-default-card" aria-live="polite"></div>
+          <div class="system-default-actions">
+            <label class="switch-row">
+              <input id="overrideSystemDefault" type="checkbox" />
+              <span>覆盖系统默认，使用我的接口配置</span>
+            </label>
+            <button id="refreshSystemDefault" class="ghost small" type="button">刷新系统默认</button>
+          </div>
+        </div>
+
         <aside class="profile-list-panel">
           <header class="panel-head">
             <div>
@@ -418,6 +434,15 @@
           >额度管理</button>
           <button
             class="management-tab"
+            id="managementTabInterfaces"
+            type="button"
+            role="tab"
+            aria-controls="interfaceManagement"
+            aria-selected="false"
+            data-management-tab="interfaceManagement"
+          >接口管理</button>
+          <button
+            class="management-tab"
             id="managementTabGallery"
             type="button"
             role="tab"
@@ -484,6 +509,75 @@
           </div>
 
           <div id="quotaTableWrap"></div>
+        </section>
+
+        <section id="interfaceManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabInterfaces" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">接口管理</p>
+              <h2>全局默认接口</h2>
+              <p class="hint">普通用户未开启个人覆盖时，会使用这里保存的默认接口；密钥只保存在服务端，不回显给前端。</p>
+            </div>
+            <div class="management-actions">
+              <button class="ghost small" id="globalInterfaceRefresh" type="button">刷新</button>
+              <button class="primary small" id="globalInterfaceSave" type="button">保存默认接口</button>
+            </div>
+          </header>
+
+          <div id="globalInterfaceSummary" class="management-summary" aria-live="polite"></div>
+
+          <form class="profile-form admin-interface-form" id="globalInterfaceForm" autocomplete="off" onsubmit="return false;">
+            <div class="form-grid">
+              <div class="field span-2 switch-field">
+                <span>启用系统默认接口</span>
+                <label class="switch-row">
+                  <input id="globalInterfaceEnabled" type="checkbox" />
+                  <span>启用后，未覆盖的用户可直接使用全局默认接口</span>
+                </label>
+              </div>
+              <label class="field span-2"><span>默认接口名称</span>
+                <input id="globalInterfaceName" placeholder="示例接口" />
+              </label>
+
+              <div class="config-section span-2">
+                <h3>生图默认接口</h3>
+                <p class="hint">用于 <code>/v1/images/generations</code>；API Key 留空表示保留已保存密钥。</p>
+              </div>
+              <label class="field span-2"><span>生图 Base URL</span>
+                <input id="globalImageBaseUrl" placeholder="https://api.openai.com" />
+              </label>
+              <label class="field span-2"><span>生图 API Key</span>
+                <input id="globalImageApiKey" type="password" placeholder="未配置；或留空保留现有密钥" autocomplete="off" />
+              </label>
+              <label class="field"><span>生图默认模型</span>
+                <input id="globalImageDefaultModel" placeholder="gpt-image-2" />
+              </label>
+              <label class="field"><span>生图连通性</span>
+                <div class="test-result" id="globalImageTestResult" data-state="idle">未测试</div>
+              </label>
+
+              <div class="config-section span-2">
+                <h3>对话默认接口</h3>
+                <p class="hint">用于 <code>/v1/chat/completions</code>；Prompt Assist 等能力可复用。</p>
+              </div>
+              <label class="field span-2"><span>对话 Base URL</span>
+                <input id="globalChatBaseUrl" placeholder="https://api.openai.com" />
+              </label>
+              <label class="field span-2"><span>对话 API Key</span>
+                <input id="globalChatApiKey" type="password" placeholder="未配置；或留空保留现有密钥" autocomplete="off" />
+              </label>
+              <label class="field"><span>对话默认模型</span>
+                <input id="globalChatDefaultModel" placeholder="gpt-4.1-mini" />
+              </label>
+              <label class="field"><span>对话连通性</span>
+                <div class="test-result" id="globalChatTestResult" data-state="idle">未测试</div>
+              </label>
+            </div>
+            <div class="row wrap-row action-row">
+              <button id="globalTestImage" class="ghost" type="button">测试生图</button>
+              <button id="globalTestChat" class="ghost" type="button">测试对话</button>
+            </div>
+          </form>
         </section>
 
         <section id="galleryManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabGallery" hidden>

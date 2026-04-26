@@ -7,7 +7,7 @@ import {
   DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
   estimateDurationMs
 } from '../../shared/constants.js';
-import { getActiveProfile, getImageConfig, onProfilesChanged } from './profiles.js';
+import { getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 import { apiFetch } from './auth.js';
@@ -51,13 +51,14 @@ function updatePromptCount() {
 }
 
 function updateActiveChip() {
-  const p = getActiveProfile();
+  const p = getEffectiveProfile();
   const image = getImageConfig(p);
-  $('activeConfigName').textContent = p ? `${p.name || '未命名'} · 生图 ${image.baseUrl || ''}` : '-';
+  const prefix = usesSystemDefault() ? '系统默认' : '个人覆盖';
+  $('activeConfigName').textContent = p ? `${prefix}：${p.name || '未命名'} · 生图 ${image.baseUrl || ''}` : '-';
   const dot = document.querySelector('#activeProfileChip .dot');
   if (dot) dot.dataset.status = image?.testStatus === 'ok' ? 'ok'
     : image?.testStatus === 'err' ? 'err'
-    : p?.status === 'active' ? 'warn' : 'unknown';
+    : p?.status === 'active' && image?.hasApiKey !== false ? 'warn' : 'unknown';
   // Profile 切换后，把 model 预填成其 default（仅当用户没改过）
   if (image?.defaultModel && $('model').dataset.userEdited !== '1') {
     $('model').value = image.defaultModel;
@@ -273,19 +274,24 @@ async function requestGenerate(payload, controller, started) {
 
 async function generate({ onSavedImages } = {}) {
   showError('');
-  const profile = getActiveProfile();
+  const profile = getEffectiveProfile();
   const image = getImageConfig(profile);
+  const systemMode = usesSystemDefault();
   if (!profile) return showError('请先在"配置"页面创建接口配置。');
-  if (profile.status !== 'active') return showError('当前接口未启用，请在"配置"页面切换为"启用"。');
-  if (!image.apiKey) return showError('当前配置缺少生图 API Key。');
+  if (profile.status !== 'active') return showError(systemMode
+    ? '系统默认接口未启用，请联系管理员或在"配置"页面启用个人覆盖。'
+    : '当前接口未启用，请在"配置"页面切换为"启用"。');
+  if (systemMode && image.hasApiKey === false) {
+    return showError('系统默认生图接口缺少 API Key，请联系管理员或在"配置"页面启用个人覆盖。');
+  }
+  if (!systemMode && !image.apiKey) return showError('当前配置缺少生图 API Key。');
 
   const prompt = $('prompt').value.trim();
   if (!prompt) return showError('请填写提示词。');
 
   const payload = {
     name: profile.name,
-    baseUrl: image.baseUrl,
-    apiKey: image.apiKey,
+    useSystemDefault: systemMode,
     model: $('model').value.trim() || image.defaultModel || DEFAULT_IMAGE_MODEL,
     prompt,
     size: $('size').value,
@@ -293,6 +299,10 @@ async function generate({ onSavedImages } = {}) {
     output_format: $('output_format').value,
     n: Math.max(1, Number($('n').value) || 1)
   };
+  if (!systemMode) {
+    payload.baseUrl = image.baseUrl;
+    payload.apiKey = image.apiKey;
+  }
 
   addPromptHistory(prompt, {
     source: 'studio',
@@ -324,7 +334,8 @@ async function generate({ onSavedImages } = {}) {
     addLog('info', 'image.generate.success', {
       model: payload.model,
       profileName: profile.name,
-      apiKey: image.apiKey,
+      apiKey: systemMode ? 'system-default' : image.apiKey,
+      interfaceMode: systemMode ? 'system' : 'custom',
       durationMs,
       imageCount: items.length,
       size: payload.size,
@@ -341,7 +352,8 @@ async function generate({ onSavedImages } = {}) {
     addLog('error', 'image.generate.failed', {
       model: payload.model,
       profileName: profile.name,
-      apiKey: image.apiKey,
+      apiKey: systemMode ? 'system-default' : image.apiKey,
+      interfaceMode: systemMode ? 'system' : 'custom',
       durationMs,
       error: message,
       prompt
