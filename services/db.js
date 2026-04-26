@@ -6,6 +6,7 @@ import { mkdirSync, existsSync, renameSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
+import { PROMPT_SQUARE_SEEDS, PROMPTSREF_SREF_SOURCE_URL } from './prompt-square-seeds.js';
 
 const DB_DIR = join(process.cwd(), 'generated');
 const DB_PATH = join(DB_DIR, 'app.db');
@@ -26,6 +27,13 @@ function open() {
 function nowIso() {
   return new Date().toISOString();
 }
+
+const PROMPT_SQUARE_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_prompt_square_published ON prompt_square(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_user      ON prompt_square(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_source    ON prompt_square(user_id, source_prompt_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_source_id ON prompt_square(source_prompt_id);
+`;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -123,7 +131,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 CREATE TABLE IF NOT EXISTS prompt_square (
   id                TEXT PRIMARY KEY,
-  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id           TEXT REFERENCES users(id) ON DELETE CASCADE,
   source_prompt_id  TEXT,
   title             TEXT NOT NULL,
   prompt            TEXT NOT NULL,
@@ -135,15 +143,103 @@ CREATE TABLE IF NOT EXISTS prompt_square (
   updated_at        TEXT NOT NULL,
   published_at      TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_prompt_square_published ON prompt_square(published_at DESC);
-CREATE INDEX IF NOT EXISTS idx_prompt_square_user      ON prompt_square(user_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_prompt_square_source    ON prompt_square(user_id, source_prompt_id);
+${PROMPT_SQUARE_INDEXES}
 `;
 
 export function migrate() {
   const db = open();
   db.exec(SCHEMA);
+  migratePromptSquareNullableOwner(db);
+  seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
+}
+
+function migratePromptSquareNullableOwner(db) {
+  const cols = db.prepare('PRAGMA table_info(prompt_square)').all();
+  const userIdCol = cols.find((col) => col.name === 'user_id');
+  if (!userIdCol?.notnull) return;
+
+  logger.info('migration.prompt_square.nullable_owner.start');
+  db.exec('PRAGMA foreign_keys = OFF;');
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS prompt_square_new;
+      CREATE TABLE prompt_square_new (
+        id                TEXT PRIMARY KEY,
+        user_id           TEXT REFERENCES users(id) ON DELETE CASCADE,
+        source_prompt_id  TEXT,
+        title             TEXT NOT NULL,
+        prompt            TEXT NOT NULL,
+        tags              TEXT NOT NULL DEFAULT '[]',
+        source            TEXT NOT NULL DEFAULT 'manual',
+        meta              TEXT NOT NULL DEFAULT '{}',
+        use_count         INTEGER NOT NULL DEFAULT 0,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        published_at      TEXT NOT NULL
+      );
+      INSERT INTO prompt_square_new
+      (id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at)
+      SELECT id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at
+      FROM prompt_square;
+      DROP TABLE prompt_square;
+      ALTER TABLE prompt_square_new RENAME TO prompt_square;
+    `);
+    db.exec(PROMPT_SQUARE_INDEXES);
+    logger.info('migration.prompt_square.nullable_owner.done');
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON;');
+  }
+}
+
+function seedPromptSquareDefaults(db) {
+  const seedKey = 'prompt_square.seed.promptsref_sref_v1';
+  const done = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey);
+  if (done) return;
+
+  const exists = db.prepare('SELECT id FROM prompt_square WHERE source_prompt_id = ? LIMIT 1');
+  const insert = db.prepare(`
+    INSERT INTO prompt_square
+    (id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at)
+    VALUES (?, NULL, ?, ?, ?, ?, 'seed', ?, 0, ?, ?, ?)
+  `);
+  const startedAt = Date.now();
+  let inserted = 0;
+  for (const seed of PROMPT_SQUARE_SEEDS) {
+    const sourcePromptId = `promptsref:sref:${seed.sref}`;
+    if (exists.get(sourcePromptId)) continue;
+    const publishedAt = new Date(startedAt - (seed.rank - 1) * 1000).toISOString();
+    const meta = {
+      seed: true,
+      sourceName: 'Promptsref',
+      sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
+      sourceRank: seed.rank,
+      sourceHot: seed.sourceHot,
+      sref: seed.sref
+    };
+    const res = insert.run(
+      randomUUID(),
+      sourcePromptId,
+      seed.title,
+      seed.prompt,
+      JSON.stringify(seed.tags),
+      JSON.stringify(meta),
+      publishedAt,
+      publishedAt,
+      publishedAt
+    );
+    if (res.changes) inserted += 1;
+  }
+
+  db.prepare(`
+    INSERT OR REPLACE INTO system_settings (key, value, updated_at, updated_by)
+    VALUES (?, ?, ?, NULL)
+  `).run(seedKey, JSON.stringify({
+    sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
+    total: PROMPT_SQUARE_SEEDS.length,
+    inserted
+  }), nowIso());
+  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v1', inserted });
 }
 
 function migrateLegacyGallery(db) {
@@ -556,7 +652,7 @@ export const promptSquare = {
         u.username AS owner_username,
         u.avatar_url AS owner_avatar_url
       FROM prompt_square p
-      JOIN users u ON u.id = p.user_id
+      LEFT JOIN users u ON u.id = p.user_id
       WHERE p.id = ?
     `).get(id) || null;
   },
@@ -568,11 +664,25 @@ export const promptSquare = {
         u.username AS owner_username,
         u.avatar_url AS owner_avatar_url
       FROM prompt_square p
-      JOIN users u ON u.id = p.user_id
+      LEFT JOIN users u ON u.id = p.user_id
       WHERE p.user_id = ? AND p.source_prompt_id = ?
       ORDER BY p.updated_at DESC
       LIMIT 1
     `).get(userId, sourcePromptId) || null;
+  },
+  findBySourcePrompt(sourcePromptId) {
+    if (!sourcePromptId) return null;
+    return open().prepare(`
+      SELECT
+        p.*,
+        u.username AS owner_username,
+        u.avatar_url AS owner_avatar_url
+      FROM prompt_square p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.source_prompt_id = ?
+      ORDER BY p.updated_at DESC
+      LIMIT 1
+    `).get(sourcePromptId) || null;
   },
   list(limit = 200) {
     return open().prepare(`
@@ -581,7 +691,7 @@ export const promptSquare = {
         u.username AS owner_username,
         u.avatar_url AS owner_avatar_url
       FROM prompt_square p
-      JOIN users u ON u.id = p.user_id
+      LEFT JOIN users u ON u.id = p.user_id
       ORDER BY p.published_at DESC
       LIMIT ?
     `).all(limit);
@@ -589,12 +699,14 @@ export const promptSquare = {
   upsert({ userId, sourcePromptId, title, prompt, tagsJson, source, metaJson }) {
     const db = open();
     const now = nowIso();
-    const existing = this.findByUserSourcePrompt(userId, sourcePromptId);
+    const existing = userId
+      ? this.findByUserSourcePrompt(userId, sourcePromptId)
+      : this.findBySourcePrompt(sourcePromptId);
     if (existing) {
       db.prepare(`
         UPDATE prompt_square
         SET title = ?, prompt = ?, tags = ?, source = ?, meta = ?, updated_at = ?, published_at = ?
-        WHERE id = ? AND user_id = ?
+        WHERE id = ?
       `).run(
         title,
         prompt,
@@ -603,8 +715,7 @@ export const promptSquare = {
         metaJson || '{}',
         now,
         now,
-        existing.id,
-        userId
+        existing.id
       );
       return this.findById(existing.id);
     }

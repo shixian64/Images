@@ -15,7 +15,8 @@ const SOURCE_LABEL = {
   builder: '构造器',
   studio: '生成页',
   manual: '手动',
-  square: '广场'
+  square: '广场',
+  seed: '精选'
 };
 
 const BUILDER_FIELDS = [
@@ -291,7 +292,11 @@ export function addPromptHistory(prompt, meta = {}) {
     model: meta.model || '',
     size: meta.size || '',
     quality: meta.quality || '',
-    outputFormat: meta.outputFormat || ''
+    outputFormat: meta.outputFormat || '',
+    sref: meta.sref || '',
+    sourceHot: meta.sourceHot || '',
+    sourceName: meta.sourceName || '',
+    sourceUrl: meta.sourceUrl || ''
   };
 
   if (index >= 0) {
@@ -609,7 +614,10 @@ function filteredSquareItems() {
     });
 
   return items.sort((a, b) => {
-    if (sort === 'useCount:desc') {
+    if (sort === 'sourceHot:desc') {
+      const diff = (Number(b.meta?.sourceHot || b.useCount) || 0) - (Number(a.meta?.sourceHot || a.useCount) || 0);
+      if (diff) return diff;
+    } else if (sort === 'useCount:desc') {
       const diff = (Number(b.useCount) || 0) - (Number(a.useCount) || 0);
       if (diff) return diff;
     } else if (sort === 'mine:first') {
@@ -681,7 +689,13 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
     const tags = item.tags?.length
       ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
       : '<span>未标记</span>';
-    const meta = [item.meta?.model, item.meta?.size, item.meta?.quality].filter(Boolean).join(' · ');
+    const meta = [
+      item.meta?.sref ? `SREF ${item.meta.sref}` : '',
+      item.meta?.sourceHot ? `来源热度 ${item.meta.sourceHot}` : '',
+      item.meta?.model,
+      item.meta?.size,
+      item.meta?.quality
+    ].filter(Boolean).join(' · ');
     const mine = item.owner?.id === getCurrentUserId();
     return `
       <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
@@ -736,7 +750,11 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
           model: item.meta?.model,
           size: item.meta?.size,
           quality: item.meta?.quality,
-          outputFormat: item.meta?.outputFormat
+          outputFormat: item.meta?.outputFormat,
+          sref: item.meta?.sref,
+          sourceHot: item.meta?.sourceHot,
+          sourceName: item.meta?.sourceName,
+          sourceUrl: item.meta?.sourceUrl
         });
         setStatus('已保存到历史提示词', 'ok', 1400);
       } else if (action === 'unpublish-square') {

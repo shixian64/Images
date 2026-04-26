@@ -1058,6 +1058,7 @@ body.preview-open { overflow: hidden; }
 .prompt-source[data-source="builder"] { color: var(--brand); background: var(--brand-soft); }
 .prompt-source[data-source="studio"] { color: var(--success); background: var(--success-soft); }
 .prompt-source[data-source="square"] { color: var(--brand); background: var(--brand-soft); }
+.prompt-source[data-source="seed"] { color: var(--warning); background: var(--warning-soft); }
 .prompt-pin { color: var(--warning); background: var(--warning-soft); }
 .prompt-public { color: var(--success); background: var(--success-soft); }
 .prompt-history-main p {

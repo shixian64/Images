@@ -81,11 +81,11 @@ function mapSquareRow(row, viewerId) {
     updatedAt: row.updated_at,
     publishedAt: row.published_at,
     owner: {
-      id: row.user_id,
-      username: row.owner_username || 'unknown',
+      id: row.user_id || 'system',
+      username: row.owner_username || '系统精选',
       avatarUrl: row.owner_avatar_url || ''
     },
-    isMine: row.user_id === viewerId
+    isMine: Boolean(row.user_id && row.user_id === viewerId)
   };
 }
 
