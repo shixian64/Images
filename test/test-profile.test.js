@@ -90,3 +90,39 @@ test('handleTestProfile times out stalled probes', async (t) => {
   assert.equal(res.statusCode, 504);
   assert.match(JSON.parse(res.body).error, /timed out/);
 });
+
+test('handleTestProfile caps upstream response body size', async (t) => {
+  const prevEnv = {
+    ALLOW_INSECURE_UPSTREAMS: process.env.ALLOW_INSECURE_UPSTREAMS,
+    ALLOW_PRIVATE_UPSTREAMS: process.env.ALLOW_PRIVATE_UPSTREAMS,
+    MAX_UPSTREAM_RESPONSE_BYTES: process.env.MAX_UPSTREAM_RESPONSE_BYTES
+  };
+  process.env.ALLOW_INSECURE_UPSTREAMS = '1';
+  process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
+  process.env.MAX_UPSTREAM_RESPONSE_BYTES = '8';
+
+  const server = http.createServer((_req, res) => {
+    const body = '0123456789';
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body)
+    });
+    res.end(body);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const { port } = server.address();
+  const req = jsonReq({ baseUrl: `http://127.0.0.1:${port}`, apiKey: 'sk-test' });
+  const res = captureRes();
+  await handleTestProfile(req, res);
+
+  assert.equal(res.statusCode, 502);
+  assert.match(JSON.parse(res.body).error, /too large/);
+});

@@ -456,11 +456,21 @@ function assertContentLengthWithinLimit(response, limitBytes) {
   }
 }
 
-async function readResponseTextLimited(response, limitBytes = getMaxUpstreamResponseBytes()) {
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
+export async function readResponseTextLimited(
+  response,
+  limitBytes = getMaxUpstreamResponseBytes(),
+  { signal } = {}
+) {
+  throwIfAborted(signal);
   assertContentLengthWithinLimit(response, limitBytes);
 
   if (!response.body?.getReader) {
     const buffer = Buffer.from(await response.arrayBuffer());
+    throwIfAborted(signal);
     if (buffer.length > limitBytes) {
       throw upstreamHttpError(502, `Upstream response too large (max ${limitBytes} bytes).`);
     }
@@ -470,9 +480,18 @@ async function readResponseTextLimited(response, limitBytes = getMaxUpstreamResp
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
+  const onAbort = () => {
+    try { reader.cancel?.(abortError()); } catch { /* ignore */ }
+  };
   try {
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
     while (true) {
+      throwIfAborted(signal);
       const { done, value } = await reader.read();
+      throwIfAborted(signal);
       if (done) break;
       const chunk = Buffer.from(value);
       total += chunk.length;
@@ -483,6 +502,7 @@ async function readResponseTextLimited(response, limitBytes = getMaxUpstreamResp
       chunks.push(chunk);
     }
   } finally {
+    signal?.removeEventListener?.('abort', onAbort);
     reader.releaseLock?.();
   }
   return Buffer.concat(chunks, total).toString('utf8');
@@ -510,9 +530,8 @@ export async function callUpstream({
     if (signal.aborted) abortFromCaller();
     else signal.addEventListener('abort', abortFromCaller, { once: true });
   }
-  let response;
   try {
-    response = await guardedFetch(targetUrl, {
+    const response = await guardedFetch(targetUrl, {
       method: 'POST',
       headers: {
         'authorization': `Bearer ${apiKey}`,
@@ -523,8 +542,14 @@ export async function callUpstream({
       redirect: 'manual',
       signal: controller.signal
     }, { fetchImpl });
+    const text = await readResponseTextLimited(response, getMaxUpstreamResponseBytes(), {
+      signal: controller.signal
+    });
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { ok: response.ok, status: response.status, data, durationMs: Date.now() - started };
   } catch (err) {
-    if (err.name === 'AbortError') {
+    if (err?.name === 'AbortError') {
       return {
         ok: false,
         status: timedOut ? 504 : 499,
@@ -537,8 +562,4 @@ export async function callUpstream({
     clearTimeout(timeoutId);
     signal?.removeEventListener?.('abort', abortFromCaller);
   }
-  const text = await readResponseTextLimited(response);
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  return { ok: response.ok, status: response.status, data, durationMs: Date.now() - started };
 }

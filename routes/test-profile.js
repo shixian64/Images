@@ -4,7 +4,7 @@
 import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
-import { guardedFetch, resolveModelsUrl } from '../services/upstream.js';
+import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
 
 const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
 
@@ -54,7 +54,7 @@ export async function handleTestProfile(req, res) {
         redirect: 'manual',
         signal: controller.signal
       });
-      text = await response.text();
+      text = await readResponseTextLimited(response, undefined, { signal: controller.signal });
     } catch (err) {
       if (err?.name === 'AbortError') throw httpError(504, 'Profile test timed out.');
       throw err;

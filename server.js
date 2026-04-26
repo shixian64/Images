@@ -6,7 +6,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 
 import { handleChat } from './routes/chat.js';
-import { handleGenerate, handleGenerateStream } from './routes/generate.js';
+import { handleGenerate, handleGenerateConfig, handleGenerateStream } from './routes/generate.js';
 import { handleGallery } from './routes/gallery.js';
 import { handleTestProfile } from './routes/test-profile.js';
 import { handleAuthRoute } from './routes/auth.js';
@@ -74,6 +74,7 @@ async function handleRequest(req, res) {
     if (pathname.startsWith('/api/prompt-square')) {
       return handlePromptSquareRoute(req, res, pathname, url);
     }
+    if (req.method === 'GET' && pathname === '/api/generate/config') return handleGenerateConfig(req, res);
     if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
     if (req.method === 'POST' && pathname === '/api/generate') return handleGenerate(req, res);
     if (req.method === 'POST' && pathname === '/api/chat') return handleChat(req, res);

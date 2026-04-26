@@ -39,6 +39,26 @@ function populateOptions() {
   renderSelect('output_format', OUTPUT_FORMATS);
 }
 
+async function refreshGenerationConfig() {
+  const nInput = $('n');
+  if (!nInput) return;
+  const fallbackMax = Math.max(1, Number(nInput.max) || 1);
+  try {
+    const resp = await apiFetch('/api/generate/config', { headers: { accept: 'application/json' } });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    const max = Math.max(1, Math.floor(Number(data.maxImagesPerRequest) || fallbackMax));
+    nInput.max = String(max);
+    nInput.title = `单次最多 ${max} 张`;
+    if ((Number(nInput.value) || 1) > max) nInput.value = String(max);
+    updateEstimate();
+  } catch {
+    nInput.max = String(fallbackMax);
+    if ((Number(nInput.value) || 1) > fallbackMax) nInput.value = String(fallbackMax);
+    updateEstimate();
+  }
+}
+
 function formatEstimate(ms) {
   if (ms < 1000) return `预估耗时 <1s`;
   const secs = Math.round(ms / 1000);
@@ -47,7 +67,8 @@ function formatEstimate(ms) {
 
 function updateEstimate() {
   const ms = estimateDurationMs($('size').value, $('quality').value);
-  const n = Math.max(1, Number($('n').value) || 1);
+  const maxN = Math.max(1, Number($('n').max) || 1);
+  const n = Math.min(maxN, Math.max(1, Number($('n').value) || 1));
   $('estimate').textContent = formatEstimate(ms * n);
 }
 
@@ -582,7 +603,10 @@ async function generate({ onSavedImages } = {}) {
     size: $('size').value,
     quality: $('quality').value,
     output_format: $('output_format').value,
-    n: Math.max(1, Number($('n').value) || 1)
+    n: Math.min(
+      Math.max(1, Number($('n').max) || 1),
+      Math.max(1, Number($('n').value) || 1)
+    )
   };
   if (!systemMode) {
     payload.baseUrl = image.baseUrl;
@@ -669,6 +693,7 @@ export function loadPromptFromLog(prompt) {
 
 export function mountStudioPanel({ onSavedImages } = {}) {
   populateOptions();
+  refreshGenerationConfig();
 
   // 恢复 Prompt 草稿
   const draft = readStringScoped(KEYS.promptDraft, '');

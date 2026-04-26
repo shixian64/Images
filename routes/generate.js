@@ -20,6 +20,17 @@ const DEFAULT_IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_GENERATION_TIMEOUT_MS 
 const STREAM_HEARTBEAT_MS = Number(process.env.GENERATE_STREAM_HEARTBEAT_MS || 15 * 1000);
 const MAX_IMAGES_PER_REQUEST = Math.max(1, Number(process.env.MAX_IMAGES_PER_REQUEST || 4));
 
+export function getMaxImagesPerRequest() {
+  return MAX_IMAGES_PER_REQUEST;
+}
+
+export function handleGenerateConfig(req, res) {
+  if (!req.session?.user) {
+    return sendJson(res, 401, { error: 'unauthorized' });
+  }
+  return sendJson(res, 200, { maxImagesPerRequest: getMaxImagesPerRequest() });
+}
+
 function shouldUseSystemDefault(body = {}) {
   return body.useSystemDefault === true || body.interfaceMode === 'system';
 }

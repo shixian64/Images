@@ -141,6 +141,30 @@ test('callUpstream rejects upstream responses over byte limit', async () => {
   });
 });
 
+test('callUpstream applies timeout while reading response body', async () => {
+  let canceled = false;
+  const encoder = new TextEncoder();
+  const result = await callUpstream({
+    targetUrl: 'https://gateway.example.com/v1/chat/completions',
+    apiKey: 'sk-test',
+    payload: { model: 'x', messages: [{ role: 'user', content: 'hi' }] },
+    timeoutMs: 25,
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"partial":'));
+      },
+      cancel() {
+        canceled = true;
+      }
+    }), { status: 200 })
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 504);
+  assert.match(result.data?.error?.message, /timed out/);
+  assert.equal(canceled, true);
+});
+
 // --- resolveModelsUrl ---
 
 test('resolveModelsUrl 指向 /v1/models', () => {

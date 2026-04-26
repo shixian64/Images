@@ -2,7 +2,6 @@
 
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../shared/constants.js';
 import { systemSettings } from './db.js';
-import { maskApiKey } from '../utils/mask.js';
 
 const SETTINGS_KEY = 'interfaces.default';
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -89,11 +88,11 @@ function normalizeConfig(value = {}, previous = null) {
 }
 
 function publicEndpoint(endpoint) {
+  const { apiKey, maskedApiKey, ...rest } = endpoint || {};
   return {
-    ...endpoint,
+    ...rest,
     apiKey: '',
-    hasApiKey: Boolean(endpoint.apiKey),
-    maskedApiKey: maskApiKey(endpoint.apiKey)
+    hasApiKey: Boolean(apiKey)
   };
 }
 

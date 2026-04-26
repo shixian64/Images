@@ -12,7 +12,7 @@ import {
   publicInterfaceConfig,
   setGlobalInterfaceConfig
 } from '../services/interface-defaults.js';
-import { guardedFetch, resolveModelsUrl } from '../services/upstream.js';
+import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 
@@ -137,7 +137,7 @@ async function handleAdminTest(req, res) {
         redirect: 'manual',
         signal: controller.signal
       });
-      text = await response.text();
+      text = await readResponseTextLimited(response, undefined, { signal: controller.signal });
     } catch (err) {
       if (err?.name === 'AbortError') throw httpError(504, 'Profile test timed out.');
       throw err;
