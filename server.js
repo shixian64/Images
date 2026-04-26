@@ -15,6 +15,7 @@ import { handleProfileRoute } from './routes/profile.js';
 import { handleAdminGalleryRoute } from './routes/admin-gallery.js';
 import { handleQuotaRoute } from './routes/quota.js';
 import { handleInterfacesRoute } from './routes/interfaces.js';
+import { handlePromptSquareRoute } from './routes/prompt-square.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
@@ -69,6 +70,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname.startsWith('/api/interfaces') || pathname.startsWith('/api/admin/interfaces')) {
       return handleInterfacesRoute(req, res, pathname);
+    }
+    if (pathname.startsWith('/api/prompt-square')) {
+      return handlePromptSquareRoute(req, res, pathname, url);
     }
     if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
     if (req.method === 'POST' && pathname === '/api/generate') return handleGenerate(req, res);

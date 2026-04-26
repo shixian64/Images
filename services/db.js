@@ -120,6 +120,24 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_at TEXT NOT NULL,
   updated_by TEXT
 );
+
+CREATE TABLE IF NOT EXISTS prompt_square (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_prompt_id  TEXT,
+  title             TEXT NOT NULL,
+  prompt            TEXT NOT NULL,
+  tags              TEXT NOT NULL DEFAULT '[]',
+  source            TEXT NOT NULL DEFAULT 'manual',
+  meta              TEXT NOT NULL DEFAULT '{}',
+  use_count         INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  published_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_published ON prompt_square(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_user      ON prompt_square(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_square_source    ON prompt_square(user_id, source_prompt_id);
 `;
 
 export function migrate() {
@@ -525,6 +543,98 @@ export const systemSettings = {
         'INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)'
       ).run(key, json, nowIso(), updatedBy || null);
     }
+  }
+};
+
+// ---- prompt_square ----
+
+export const promptSquare = {
+  findById(id) {
+    return open().prepare(`
+      SELECT
+        p.*,
+        u.username AS owner_username,
+        u.avatar_url AS owner_avatar_url
+      FROM prompt_square p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.id = ?
+    `).get(id) || null;
+  },
+  findByUserSourcePrompt(userId, sourcePromptId) {
+    if (!sourcePromptId) return null;
+    return open().prepare(`
+      SELECT
+        p.*,
+        u.username AS owner_username,
+        u.avatar_url AS owner_avatar_url
+      FROM prompt_square p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.user_id = ? AND p.source_prompt_id = ?
+      ORDER BY p.updated_at DESC
+      LIMIT 1
+    `).get(userId, sourcePromptId) || null;
+  },
+  list(limit = 200) {
+    return open().prepare(`
+      SELECT
+        p.*,
+        u.username AS owner_username,
+        u.avatar_url AS owner_avatar_url
+      FROM prompt_square p
+      JOIN users u ON u.id = p.user_id
+      ORDER BY p.published_at DESC
+      LIMIT ?
+    `).all(limit);
+  },
+  upsert({ userId, sourcePromptId, title, prompt, tagsJson, source, metaJson }) {
+    const db = open();
+    const now = nowIso();
+    const existing = this.findByUserSourcePrompt(userId, sourcePromptId);
+    if (existing) {
+      db.prepare(`
+        UPDATE prompt_square
+        SET title = ?, prompt = ?, tags = ?, source = ?, meta = ?, updated_at = ?, published_at = ?
+        WHERE id = ? AND user_id = ?
+      `).run(
+        title,
+        prompt,
+        tagsJson || '[]',
+        source || 'manual',
+        metaJson || '{}',
+        now,
+        now,
+        existing.id,
+        userId
+      );
+      return this.findById(existing.id);
+    }
+
+    const id = randomUUID();
+    db.prepare(`
+      INSERT INTO prompt_square
+      (id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).run(
+      id,
+      userId,
+      sourcePromptId || null,
+      title,
+      prompt,
+      tagsJson || '[]',
+      source || 'manual',
+      metaJson || '{}',
+      now,
+      now,
+      now
+    );
+    return this.findById(id);
+  },
+  deleteById(id) {
+    return open().prepare('DELETE FROM prompt_square WHERE id = ?').run(id).changes;
+  },
+  bumpUseCount(id) {
+    open().prepare('UPDATE prompt_square SET use_count = use_count + 1 WHERE id = ?').run(id);
+    return this.findById(id);
   }
 };
 

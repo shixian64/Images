@@ -1004,6 +1004,7 @@ body.preview-open { overflow: hidden; }
 }
 .prompt-history-summary .chip.info { color: var(--brand); }
 .prompt-history-summary .chip.pin { color: var(--warning); }
+.prompt-history-summary .chip.public { color: var(--success); }
 
 .prompt-history-list {
   display: flex;
@@ -1046,7 +1047,8 @@ body.preview-open { overflow: hidden; }
   letter-spacing: -0.05px;
 }
 .prompt-source,
-.prompt-pin {
+.prompt-pin,
+.prompt-public {
   padding: 2px 7px;
   border-radius: 999px;
   font-size: 11px;
@@ -1055,7 +1057,9 @@ body.preview-open { overflow: hidden; }
 }
 .prompt-source[data-source="builder"] { color: var(--brand); background: var(--brand-soft); }
 .prompt-source[data-source="studio"] { color: var(--success); background: var(--success-soft); }
+.prompt-source[data-source="square"] { color: var(--brand); background: var(--brand-soft); }
 .prompt-pin { color: var(--warning); background: var(--warning-soft); }
+.prompt-public { color: var(--success); background: var(--success-soft); }
 .prompt-history-main p {
   margin: 8px 0 10px;
   color: var(--text-muted);
@@ -1097,6 +1101,118 @@ body.preview-open { overflow: hidden; }
 .prompt-history-buttons button {
   padding: 5px 9px;
   font-size: 12px;
+}
+
+.prompt-square-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 18px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand-soft) 70%, transparent), transparent 38%),
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 88%, transparent), var(--surface));
+}
+.prompt-square-hero h3 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+}
+.prompt-square-periods {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.prompt-square-period,
+.prompt-square-tag {
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.prompt-square-period:hover,
+.prompt-square-tag:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.prompt-square-period.active,
+.prompt-square-tag.active {
+  border-color: transparent;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.prompt-square-toolbar {
+  margin-bottom: 10px;
+}
+.prompt-square-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.prompt-square-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 72vh;
+  overflow: auto;
+}
+.prompt-square-list[data-empty="true"] { display: block; }
+.prompt-square-card {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 170px auto;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.prompt-square-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+.prompt-square-card.is-mine {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  background:
+    linear-gradient(90deg, var(--success-soft), transparent 150px),
+    var(--surface);
+}
+.prompt-square-rank {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--brand);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.prompt-square-main p {
+  margin: 8px 0 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prompt-square-side {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============================================================
@@ -1225,6 +1341,10 @@ body.preview-open { overflow: hidden; }
   .prompt-history-toolbar { align-items: stretch; flex-direction: column; }
   .prompt-history-item { grid-template-columns: 1fr; }
   .prompt-history-buttons { justify-content: flex-start; }
+  .prompt-square-hero { align-items: flex-start; flex-direction: column; }
+  .prompt-square-periods { justify-content: flex-start; }
+  .prompt-square-card { grid-template-columns: 1fr; }
+  .prompt-square-rank { width: auto; height: 34px; justify-content: flex-start; padding: 0 12px; }
   .log-item { grid-template-columns: 60px 1fr; }
   .log-item .log-level { grid-row: 1; grid-column: 1; }
   .log-item .log-ts    { grid-row: 1; grid-column: 2; }

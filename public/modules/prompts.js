@@ -7,13 +7,15 @@ import {
   readJsonScoped, writeJsonScoped,
   readStringScoped, writeStringScoped
 } from './state.js';
+import { apiFetch, getCurrentUserId } from './auth.js';
 
 const MAX_PROMPT_HISTORY = 160;
 
 const SOURCE_LABEL = {
   builder: '构造器',
   studio: '生成页',
-  manual: '手动'
+  manual: '手动',
+  square: '广场'
 };
 
 const BUILDER_FIELDS = [
@@ -38,6 +40,10 @@ function ensureHistoryLoaded() {
   history = normalizeHistory(readJsonScoped(KEYS.promptHistory, []));
 }
 const listeners = new Set();
+let squareItems = [];
+let squareLoaded = false;
+let squareLoading = false;
+let squareUsePromptHandler = null;
 
 function emitHistoryChanged() {
   for (const fn of listeners) fn();
@@ -67,6 +73,9 @@ function normalizeHistory(value) {
       lastUsedAt: item.lastUsedAt || '',
       useCount: Number(item.useCount || 0),
       pinned: Boolean(item.pinned),
+      isPublic: Boolean(item.isPublic || item.public),
+      squareId: item.squareId || '',
+      publishedAt: item.publishedAt || '',
       parts: item.parts || null,
       meta: item.meta || {}
     }));
@@ -311,6 +320,9 @@ export function addPromptHistory(prompt, meta = {}) {
       lastUsedAt: source === 'studio' ? now : '',
       useCount: source === 'studio' ? 1 : 0,
       pinned: false,
+      isPublic: false,
+      squareId: '',
+      publishedAt: '',
       parts: meta.parts || null,
       meta: entryMeta
     });
@@ -363,12 +375,14 @@ function renderHistorySummary(filtered) {
   if (count) count.textContent = String(history.length);
   if (!el) return;
   const pinned = history.filter((item) => item.pinned).length;
+  const published = history.filter((item) => item.isPublic).length;
   const builder = history.filter((item) => item.source === 'builder').length;
   const studio = history.filter((item) => item.source === 'studio').length;
   el.innerHTML = `
     <span class="chip">共 ${history.length} 条 · 显示 ${filtered.length}</span>
     <span class="chip info">构造器 ${builder}</span>
     <span class="chip">生成页 ${studio}</span>
+    <span class="chip public">已公开 ${published}</span>
     <span class="chip pin">固定 ${pinned}</span>
   `;
 }
@@ -399,6 +413,7 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
             <strong>${escapeHtml(item.title)}</strong>
             <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(sourceLabel(item.source))}</span>
             ${item.pinned ? '<span class="prompt-pin">已固定</span>' : ''}
+            ${item.isPublic ? '<span class="prompt-public">已公开</span>' : ''}
           </div>
           <p>${escapeHtml(item.prompt)}</p>
           <div class="prompt-history-tags">${tags}</div>
@@ -412,13 +427,14 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
           <button data-action="use" type="button">使用</button>
           <button data-action="copy" type="button">复制</button>
           <button data-action="load" type="button">载入构造</button>
+          <button data-action="toggle-public" type="button">${item.isPublic ? '取消公开' : '公开到广场'}</button>
           <button data-action="pin" type="button">${item.pinned ? '取消固定' : '固定'}</button>
           <button data-action="delete" class="danger" type="button">删除</button>
         </div>
       </article>`;
   }).join('');
 
-  list.onclick = (ev) => {
+  list.onclick = async (ev) => {
     const btn = ev.target.closest('button[data-action]');
     const itemEl = ev.target.closest('.prompt-history-item');
     if (!btn || !itemEl) return;
@@ -426,28 +442,46 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
     if (!entry) return;
     const action = btn.dataset.action;
 
-    if (action === 'use') {
-      entry.useCount += 1;
-      entry.lastUsedAt = new Date().toISOString();
-      entry.updatedAt = entry.lastUsedAt;
-      saveHistory();
-      onUsePrompt?.(entry.prompt);
-      setStatus('已送到生成页', 'ok', 1400);
-    } else if (action === 'copy') {
-      navigator.clipboard?.writeText(entry.prompt);
-      setStatus('已复制提示词', 'ok', 1400);
-    } else if (action === 'load') {
-      loadEntryToBuilder(entry);
-      switchPromptSubpanel('builder');
-      setStatus('已载入构造器', 'ok', 1400);
-    } else if (action === 'pin') {
-      entry.pinned = !entry.pinned;
-      entry.updatedAt = new Date().toISOString();
-      saveHistory();
-    } else if (action === 'delete') {
-      if (entry.pinned && !confirm('这条提示词已固定，仍然删除？')) return;
-      history = history.filter((item) => item.id !== entry.id);
-      saveHistory();
+    try {
+      btn.disabled = true;
+      if (action === 'use') {
+        entry.useCount += 1;
+        entry.lastUsedAt = new Date().toISOString();
+        entry.updatedAt = entry.lastUsedAt;
+        saveHistory();
+        onUsePrompt?.(entry.prompt);
+        setStatus('已送到生成页', 'ok', 1400);
+      } else if (action === 'copy') {
+        navigator.clipboard?.writeText(entry.prompt);
+        setStatus('已复制提示词', 'ok', 1400);
+      } else if (action === 'load') {
+        loadEntryToBuilder(entry);
+        switchPromptSubpanel('builder');
+        setStatus('已载入构造器', 'ok', 1400);
+      } else if (action === 'toggle-public') {
+        if (entry.isPublic) {
+          if (!confirm('取消公开后，其他用户将无法在提示词广场看到这条提示词。继续？')) return;
+          await unpublishEntryFromSquare(entry);
+        } else {
+          await publishEntryToSquare(entry);
+        }
+      } else if (action === 'pin') {
+        entry.pinned = !entry.pinned;
+        entry.updatedAt = new Date().toISOString();
+        saveHistory();
+      } else if (action === 'delete') {
+        if (entry.pinned && !confirm('这条提示词已固定，仍然删除？')) return;
+        if (entry.isPublic) {
+          if (!confirm('这条提示词已公开，删除历史时会一并从广场取消公开。继续？')) return;
+          await unpublishEntryFromSquare(entry, { silent: true });
+        }
+        history = history.filter((item) => item.id !== entry.id);
+        saveHistory();
+      }
+    } catch (err) {
+      setStatus(`提示词操作失败：${err.message || err}`, 'err', 2200);
+    } finally {
+      btn.disabled = false;
     }
   };
 }
@@ -457,6 +491,319 @@ function renderHistory({ onUsePrompt } = {}) {
   const filtered = filteredHistory();
   renderHistorySummary(filtered);
   renderHistoryList(filtered, { onUsePrompt });
+}
+
+function publicPayloadFromEntry(entry) {
+  return {
+    sourcePromptId: entry.id,
+    title: entry.title || deriveTitle(entry.prompt),
+    prompt: entry.prompt,
+    tags: entry.tags || [],
+    source: entry.source || 'manual',
+    parts: entry.parts || null,
+    meta: entry.meta || {}
+  };
+}
+
+function syncHistoryPublicState(squareItem, isPublic) {
+  if (!squareItem) return false;
+  let changed = false;
+  for (const entry of history) {
+    const matched = (squareItem.sourcePromptId && entry.id === squareItem.sourcePromptId)
+      || (squareItem.id && entry.squareId === squareItem.id);
+    if (!matched) continue;
+    entry.isPublic = Boolean(isPublic);
+    entry.squareId = isPublic ? squareItem.id : '';
+    entry.publishedAt = isPublic ? (squareItem.publishedAt || new Date().toISOString()) : '';
+    changed = true;
+  }
+  return changed;
+}
+
+async function publishEntryToSquare(entry) {
+  const resp = await apiFetch('/api/prompt-square', {
+    method: 'POST',
+    body: publicPayloadFromEntry(entry)
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+  const item = data.item;
+  entry.isPublic = true;
+  entry.squareId = item.id;
+  entry.publishedAt = item.publishedAt || new Date().toISOString();
+  entry.updatedAt = new Date().toISOString();
+  saveHistory();
+  squareLoaded = false;
+  setStatus('已公开到提示词广场', 'ok', 1600);
+  await refreshPromptSquare({ silent: true });
+}
+
+async function unpublishEntryFromSquare(entry, { silent = false } = {}) {
+  if (entry.squareId) {
+    const resp = await apiFetch(`/api/prompt-square/${encodeURIComponent(entry.squareId)}`, {
+      method: 'DELETE'
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok && resp.status !== 404) throw new Error(data?.error || `HTTP ${resp.status}`);
+  }
+  entry.isPublic = false;
+  entry.squareId = '';
+  entry.publishedAt = '';
+  entry.updatedAt = new Date().toISOString();
+  saveHistory();
+  squareLoaded = false;
+  if (!silent) setStatus('已从提示词广场取消公开', 'ok', 1600);
+  await refreshPromptSquare({ silent: true });
+}
+
+async function unpublishSquareItem(item) {
+  if (!confirm('取消公开后，其他用户将无法在提示词广场看到这条提示词。继续？')) return;
+  const resp = await apiFetch(`/api/prompt-square/${encodeURIComponent(item.id)}`, {
+    method: 'DELETE'
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok && resp.status !== 404) throw new Error(data?.error || `HTTP ${resp.status}`);
+  if (syncHistoryPublicState(item, false)) saveHistory();
+  squareLoaded = false;
+  setStatus('已取消公开', 'ok', 1500);
+  await refreshPromptSquare({ silent: true });
+}
+
+function currentSquarePeriod() {
+  return document.querySelector('.prompt-square-period.active')?.dataset.squarePeriod || 'all';
+}
+
+function currentSquareTag() {
+  return document.querySelector('.prompt-square-tag.active')?.dataset.squareTag || 'all';
+}
+
+function inSquarePeriod(item) {
+  const period = currentSquarePeriod();
+  if (period === 'all') return true;
+  const days = period === '24h' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 0;
+  if (!days) return true;
+  const ts = Date.parse(item.publishedAt || item.updatedAt || item.createdAt || '');
+  if (!Number.isFinite(ts)) return false;
+  return Date.now() - ts <= days * 24 * 60 * 60 * 1000;
+}
+
+function filteredSquareItems() {
+  const keyword = ($('promptSquareSearch')?.value || '').trim().toLowerCase();
+  const tag = currentSquareTag();
+  const sort = $('promptSquareSort')?.value || 'publishedAt:desc';
+  const currentUserId = getCurrentUserId();
+
+  const items = squareItems
+    .filter((item) => {
+      if (!inSquarePeriod(item)) return false;
+      if (tag !== 'all' && !item.tags.includes(tag)) return false;
+      if (!keyword) return true;
+      const hay = [
+        item.title,
+        item.prompt,
+        item.tags.join(' '),
+        item.owner?.username || '',
+        sourceLabel(item.source)
+      ].join(' ').toLowerCase();
+      return hay.includes(keyword);
+    });
+
+  return items.sort((a, b) => {
+    if (sort === 'useCount:desc') {
+      const diff = (Number(b.useCount) || 0) - (Number(a.useCount) || 0);
+      if (diff) return diff;
+    } else if (sort === 'mine:first') {
+      const am = a.owner?.id === currentUserId;
+      const bm = b.owner?.id === currentUserId;
+      if (am !== bm) return am ? -1 : 1;
+    }
+    return String(b.publishedAt || b.updatedAt).localeCompare(String(a.publishedAt || a.updatedAt));
+  });
+}
+
+function renderSquareTagCloud() {
+  const cloud = $('promptSquareTagCloud');
+  if (!cloud) return;
+  const previous = currentSquareTag();
+  const tags = Array.from(new Set(squareItems.flatMap((item) => item.tags || [])))
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    .slice(0, 36);
+  const selected = previous !== 'all' && tags.includes(previous) ? previous : 'all';
+  cloud.innerHTML = [
+    `<button class="prompt-square-tag ${selected === 'all' ? 'active' : ''}" type="button" data-square-tag="all">所有风格</button>`,
+    ...tags.map((tag) => (
+      `<button class="prompt-square-tag ${selected === tag ? 'active' : ''}" type="button" data-square-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`
+    ))
+  ].join('');
+}
+
+function renderSquareSummary(filtered) {
+  const el = $('promptSquareSummary');
+  const count = $('promptSquareCount');
+  if (count) count.textContent = String(squareItems.length);
+  if (!el) return;
+  const mine = squareItems.filter((item) => item.owner?.id === getCurrentUserId()).length;
+  const totalUses = squareItems.reduce((sum, item) => sum + (Number(item.useCount) || 0), 0);
+  el.innerHTML = `
+    <span class="chip">广场共 ${squareItems.length} 条 · 当前显示 ${filtered.length}</span>
+    <span class="chip info">我的公开 ${mine}</span>
+    <span class="chip">累计使用 ${totalUses}</span>
+    <span class="chip pin">风格标签 / 热度排序</span>
+  `;
+}
+
+function renderSquareList(filtered, { onUsePrompt } = {}) {
+  const list = $('promptSquareList');
+  if (!list) return;
+
+  if (squareLoading && !squareLoaded) {
+    list.dataset.empty = 'true';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⌁</div>
+        <p>正在加载提示词广场…</p>
+      </div>`;
+    return;
+  }
+
+  if (!filtered.length) {
+    list.dataset.empty = 'true';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">✦</div>
+        <p>还没有匹配的公开提示词。可以先去“历史提示词管理”公开一条。</p>
+      </div>`;
+    return;
+  }
+
+  list.dataset.empty = 'false';
+  list.innerHTML = filtered.map((item, index) => {
+    const tags = item.tags?.length
+      ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
+      : '<span>未标记</span>';
+    const meta = [item.meta?.model, item.meta?.size, item.meta?.quality].filter(Boolean).join(' · ');
+    const mine = item.owner?.id === getCurrentUserId();
+    return `
+      <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
+        <div class="prompt-square-rank">#${index + 1}</div>
+        <div class="prompt-square-main">
+          <div class="prompt-history-titleline">
+            <strong>${escapeHtml(item.title)}</strong>
+            <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(sourceLabel(item.source))}</span>
+            ${mine ? '<span class="prompt-public">我的公开</span>' : ''}
+          </div>
+          <p>${escapeHtml(item.prompt)}</p>
+          <div class="prompt-history-tags">${tags}</div>
+        </div>
+        <div class="prompt-square-side">
+          <span>作者 ${escapeHtml(item.owner?.username || 'unknown')}</span>
+          <span>发布 ${escapeHtml(formatTime(item.publishedAt))}</span>
+          <span>使用 ${Number(item.useCount) || 0} 次</span>
+          ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
+        </div>
+        <div class="prompt-history-buttons">
+          <button data-action="use-square" type="button">使用</button>
+          <button data-action="copy-square" type="button">复制</button>
+          <button data-action="save-square" type="button">保存到历史</button>
+          ${mine ? '<button data-action="unpublish-square" class="danger" type="button">取消公开</button>' : ''}
+        </div>
+      </article>`;
+  }).join('');
+
+  list.onclick = async (ev) => {
+    const btn = ev.target.closest('button[data-action]');
+    const itemEl = ev.target.closest('.prompt-square-card');
+    if (!btn || !itemEl) return;
+    const item = squareItems.find((it) => it.id === itemEl.dataset.id);
+    if (!item) return;
+    const action = btn.dataset.action;
+
+    try {
+      btn.disabled = true;
+      if (action === 'use-square') {
+        await recordSquareUse(item);
+        onUsePrompt?.(item.prompt);
+        setStatus('已从广场送到生成页', 'ok', 1400);
+      } else if (action === 'copy-square') {
+        navigator.clipboard?.writeText(item.prompt);
+        setStatus('已复制广场提示词', 'ok', 1400);
+      } else if (action === 'save-square') {
+        addPromptHistory(item.prompt, {
+          source: 'square',
+          title: item.title,
+          tags: item.tags,
+          parts: item.parts,
+          model: item.meta?.model,
+          size: item.meta?.size,
+          quality: item.meta?.quality,
+          outputFormat: item.meta?.outputFormat
+        });
+        setStatus('已保存到历史提示词', 'ok', 1400);
+      } else if (action === 'unpublish-square') {
+        await unpublishSquareItem(item);
+      }
+    } catch (err) {
+      setStatus(`广场操作失败：${err.message || err}`, 'err', 2200);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
+function renderPromptSquare({ onUsePrompt = squareUsePromptHandler } = {}) {
+  renderSquareTagCloud();
+  const filtered = filteredSquareItems();
+  renderSquareSummary(filtered);
+  renderSquareList(filtered, { onUsePrompt });
+}
+
+async function refreshPromptSquare({ silent = false, onUsePrompt = squareUsePromptHandler } = {}) {
+  if (!$('promptSquarePanel') || squareLoading) return;
+  squareLoading = true;
+  if (!silent) {
+    setStatus('正在刷新提示词广场…', 'ready', 1200);
+  }
+  renderPromptSquare({ onUsePrompt });
+  try {
+    const resp = await apiFetch('/api/prompt-square?limit=500', {
+      headers: { accept: 'application/json' }
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    squareItems = Array.isArray(data.items) ? data.items : [];
+    squareLoaded = true;
+    renderPromptSquare({ onUsePrompt });
+    if (!silent) setStatus('提示词广场已刷新', 'ok', 1200);
+  } catch (err) {
+    const list = $('promptSquareList');
+    if (list) {
+      list.dataset.empty = 'true';
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">!</div>
+          <p>提示词广场加载失败：${escapeHtml(err.message || String(err))}</p>
+        </div>`;
+    }
+    setStatus('提示词广场加载失败', 'err', 1800);
+  } finally {
+    squareLoading = false;
+  }
+}
+
+async function recordSquareUse(item) {
+  try {
+    const resp = await apiFetch(`/api/prompt-square/${encodeURIComponent(item.id)}/use`, {
+      method: 'POST'
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.item) {
+      const index = squareItems.findIndex((it) => it.id === item.id);
+      if (index >= 0) squareItems[index] = data.item;
+      renderPromptSquare({ onUsePrompt: squareUsePromptHandler });
+    }
+  } catch {
+    // 使用计数失败不阻断“送到生成页”主流程。
+  }
 }
 
 function loadEntryToBuilder(entry) {
@@ -498,7 +845,7 @@ function clearUnpinnedHistory() {
 }
 
 function switchPromptSubpanel(tab) {
-  const target = tab === 'history' ? 'history' : 'builder';
+  const target = tab === 'history' || tab === 'square' ? tab : 'builder';
   $$('.prompt-tab').forEach((btn) => {
     const active = btn.dataset.promptTab === target;
     btn.classList.toggle('active', active);
@@ -506,12 +853,17 @@ function switchPromptSubpanel(tab) {
   });
   $('promptBuilderPanel')?.classList.toggle('active', target === 'builder');
   $('promptHistoryPanel')?.classList.toggle('active', target === 'history');
+  $('promptSquarePanel')?.classList.toggle('active', target === 'square');
   writeStringScoped(KEYS.promptManagerTab, target);
+  if (target === 'square' && !squareLoaded) {
+    refreshPromptSquare({ silent: true, onUsePrompt: squareUsePromptHandler });
+  }
 }
 
 export function mountPromptPanel({ onUsePrompt } = {}) {
   if (!$('promptPanel')) return;
 
+  squareUsePromptHandler = onUsePrompt || null;
   ensureHistoryLoaded();
   loadBuilderDraft();
   hydrateHistoryFromLogs();
@@ -552,6 +904,23 @@ export function mountPromptPanel({ onUsePrompt } = {}) {
     $(id)?.addEventListener('input', () => renderHistory({ onUsePrompt }));
     $(id)?.addEventListener('change', () => renderHistory({ onUsePrompt }));
   }
+  for (const id of ['promptSquareSearch', 'promptSquareSort']) {
+    $(id)?.addEventListener('input', () => renderPromptSquare({ onUsePrompt }));
+    $(id)?.addEventListener('change', () => renderPromptSquare({ onUsePrompt }));
+  }
+  $$('.prompt-square-period').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $$('.prompt-square-period').forEach((it) => it.classList.toggle('active', it === btn));
+      renderPromptSquare({ onUsePrompt });
+    });
+  });
+  $('promptSquareTagCloud')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.prompt-square-tag');
+    if (!btn) return;
+    $$('.prompt-square-tag').forEach((it) => it.classList.toggle('active', it === btn));
+    renderPromptSquare({ onUsePrompt });
+  });
+  $('promptSquareRefresh')?.addEventListener('click', () => refreshPromptSquare({ onUsePrompt }));
   $('promptExportHistory')?.addEventListener('click', exportPromptHistory);
   $('promptClearHistory')?.addEventListener('click', clearUnpinnedHistory);
 

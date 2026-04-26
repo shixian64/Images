@@ -130,6 +130,9 @@
             <button class="prompt-tab" data-prompt-tab="history" role="tab" aria-selected="false">
               历史提示词管理 <span id="promptHistoryCount" class="soft-count">0</span>
             </button>
+            <button class="prompt-tab" data-prompt-tab="square" role="tab" aria-selected="false">
+              提示词广场 <span id="promptSquareCount" class="soft-count">0</span>
+            </button>
           </div>
         </header>
 
@@ -236,6 +239,7 @@
                   <option value="builder">构造器</option>
                   <option value="studio">生成页</option>
                   <option value="manual">手动</option>
+                  <option value="square">广场</option>
                 </select>
               </label>
             </div>
@@ -250,6 +254,51 @@
             <div class="empty-state">
               <div class="empty-icon" aria-hidden="true">✦</div>
               <p>还没有历史提示词。先在构造面板保存，或在生成页完成一次生成。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="prompt-subpanel" id="promptSquarePanel" role="tabpanel">
+          <section class="prompt-square-hero" aria-labelledby="promptSquareHeading">
+            <div>
+              <p class="eyebrow">Prompt Square</p>
+              <h3 id="promptSquareHeading">提示词广场</h3>
+              <p class="hint">按时间范围、风格标签和使用热度浏览用户公开提示词，可一键送到生成页或保存到历史。</p>
+            </div>
+            <div class="prompt-square-periods" role="tablist" aria-label="广场时间范围">
+              <button class="prompt-square-period active" type="button" data-square-period="all">全部时间</button>
+              <button class="prompt-square-period" type="button" data-square-period="24h">最近 24 小时</button>
+              <button class="prompt-square-period" type="button" data-square-period="7d">最近 7 天</button>
+              <button class="prompt-square-period" type="button" data-square-period="30d">最近一个月</button>
+            </div>
+          </section>
+
+          <div class="prompt-history-toolbar prompt-square-toolbar">
+            <div class="prompt-history-filters">
+              <label class="inline-label">搜索
+                <input id="promptSquareSearch" placeholder="标题 / 内容 / 标签 / 作者" />
+              </label>
+              <label class="inline-label">排序
+                <select id="promptSquareSort">
+                  <option value="publishedAt:desc">最新发布</option>
+                  <option value="useCount:desc">使用最多</option>
+                  <option value="mine:first">我的公开优先</option>
+                </select>
+              </label>
+            </div>
+            <div class="prompt-history-actions">
+              <button id="promptSquareRefresh" class="ghost" type="button">刷新广场</button>
+            </div>
+          </div>
+
+          <div class="prompt-square-tag-cloud" id="promptSquareTagCloud" aria-label="按风格浏览">
+            <button class="prompt-square-tag active" type="button" data-square-tag="all">所有风格</button>
+          </div>
+          <div class="prompt-history-summary" id="promptSquareSummary" aria-live="polite"></div>
+          <div id="promptSquareList" class="prompt-square-list" data-empty="true">
+            <div class="empty-state">
+              <div class="empty-icon" aria-hidden="true">✦</div>
+              <p>广场还没有公开提示词。请在“历史提示词管理”中选择“公开到广场”。</p>
             </div>
           </div>
         </div>
