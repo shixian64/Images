@@ -29,7 +29,7 @@ export function getUserDetail(userId) {
     ip: s.ip
   }));
   return {
-    user: sanitizeUser(row),
+    user: sanitizeUser(row, { includeSecurity: true }),
     stats: {
       imageCount: Number(stats.count) || 0,
       imageBytes: Number(stats.bytes) || 0,

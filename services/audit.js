@@ -3,12 +3,7 @@
 
 import { auditLogs } from './db.js';
 import { logger } from '../utils/logger.js';
-
-function clientIp(req) {
-  const fwd = req.headers?.['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-  return req?.socket?.remoteAddress || 'unknown';
-}
+import { clientIp, userAgent } from '../utils/request.js';
 
 export function record(req, action, target = {}, meta = null) {
   try {
@@ -20,7 +15,7 @@ export function record(req, action, target = {}, meta = null) {
       targetType: target.type || null,
       targetId: target.id || null,
       ip: clientIp(req),
-      userAgent: req?.headers?.['user-agent'] || '',
+      userAgent: userAgent(req),
       meta
     });
   } catch (err) {

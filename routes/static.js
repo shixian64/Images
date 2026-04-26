@@ -35,6 +35,11 @@ function send404(res) {
   res.end('Not found');
 }
 
+function send400(res) {
+  res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('Bad request');
+}
+
 // 判断 filePath 规范化后是否仍在 root 内（防穿越）。
 function isInside(filePath, root) {
   const normalizedFile = normalize(filePath);
@@ -121,7 +126,14 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
 
   return async function serveStatic(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const pathname = decodeURIComponent(url.pathname);
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      // Bad percent-encoding (for example "/%E0%A4%A") must not escape the
+      // request handler and crash the process.
+      return send400(res);
+    }
     const resolved = resolveFile(pathname, req.session);
 
     if (resolved.forbidden) return send403(res);

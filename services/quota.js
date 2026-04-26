@@ -1,7 +1,7 @@
 // 额度服务：默认配额、用户覆盖、生成入口拦截、用量记录与汇总。
 // TAG: hmt---
 
-import { userQuotas, usageDaily, systemSettings, images as imagesTable } from './db.js';
+import { users, userQuotas, usageDaily, systemSettings, images as imagesTable } from './db.js';
 
 const DEFAULT_KEY = 'quota.defaults';
 
@@ -39,6 +39,13 @@ export function getGlobalConcurrentLimit() {
   const limit = envLimit('GLOBAL_CONCURRENT_GENERATIONS', null);
   if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return null;
   return Number(limit);
+}
+
+export function getSignupIpQuotaLimits() {
+  return {
+    daily_limit: envLimit('SIGNUP_IP_DAILY_LIMIT', null),
+    monthly_limit: envLimit('SIGNUP_IP_MONTHLY_LIMIT', null)
+  };
 }
 
 function todayUtc() {
@@ -140,6 +147,31 @@ export function assertCanGenerate(userId, { n = 1 } = {}) {
       message: `本月额度已用完（${usage.month.calls}/${quota.monthly_limit}）`
     };
   }
+  const user = users.findById(userId);
+  const signupIpLimits = getSignupIpQuotaLimits();
+  if (user?.role !== 'admin' && user?.signup_ip) {
+    const pooled = usageBySignupIpSnapshot(user.signup_ip);
+    if (
+      signupIpLimits.daily_limit &&
+      pooled.today.calls + callsRequested > signupIpLimits.daily_limit
+    ) {
+      return {
+        ok: false,
+        code: 'signup_ip_daily_limit_exceeded',
+        message: `该注册来源今日额度已用完（${pooled.today.calls}/${signupIpLimits.daily_limit}）`
+      };
+    }
+    if (
+      signupIpLimits.monthly_limit &&
+      pooled.month.calls + callsRequested > signupIpLimits.monthly_limit
+    ) {
+      return {
+        ok: false,
+        code: 'signup_ip_monthly_limit_exceeded',
+        message: `该注册来源本月额度已用完（${pooled.month.calls}/${signupIpLimits.monthly_limit}）`
+      };
+    }
+  }
   if (quota.storage_limit_mb) {
     const limitBytes = Number(quota.storage_limit_mb) * 1024 * 1024;
     if (usage.storage.bytes >= limitBytes) {
@@ -191,6 +223,22 @@ export function tryAcquireConcurrentSlot(userId) {
       if (current <= 1) activeGenerations.delete(userId);
       else activeGenerations.set(userId, current - 1);
     }
+  };
+}
+
+export function usageBySignupIpSnapshot(signupIp) {
+  if (!signupIp) {
+    return {
+      today: { calls: 0, images: 0, bytes: 0, fails: 0 },
+      month: { calls: 0, images: 0, bytes: 0, fails: 0 }
+    };
+  }
+  const today = todayUtc();
+  const todaySum = usageDaily.sumBySignupIp(signupIp, today, today);
+  const month = usageDaily.sumBySignupIp(signupIp, monthStart(today), monthEnd(today));
+  return {
+    today: todaySum,
+    month
   };
 }
 

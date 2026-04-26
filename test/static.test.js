@@ -165,3 +165,8 @@ test('path traversal attempt is rejected', async () => {
   // resolve 后会跳出 generated/users/<uid>/images，应被 403
   assert.ok(res.statusCode === 403 || res.statusCode === 404);
 });
+
+test('malformed percent-encoding returns 400 instead of throwing', async () => {
+  const res = await call('/%E0%A4%A', null);
+  assert.equal(res.statusCode, 400);
+});

@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS users (
   role            TEXT NOT NULL DEFAULT 'user',
   status          TEXT NOT NULL DEFAULT 'active',
   avatar_url      TEXT,
+  signup_ip       TEXT,
+  signup_user_agent TEXT,
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   last_login_at   TEXT
@@ -149,9 +151,22 @@ ${PROMPT_SQUARE_INDEXES}
 export function migrate() {
   const db = open();
   db.exec(SCHEMA);
+  migrateUserAbuseColumns(db);
   migratePromptSquareNullableOwner(db);
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
+}
+
+function addColumnIfMissing(db, table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (cols.some((col) => col.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
+}
+
+function migrateUserAbuseColumns(db) {
+  addColumnIfMissing(db, 'users', 'signup_ip', 'signup_ip TEXT');
+  addColumnIfMissing(db, 'users', 'signup_user_agent', 'signup_user_agent TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_users_signup_ip ON users(signup_ip);');
 }
 
 function migratePromptSquareNullableOwner(db) {
@@ -324,14 +339,15 @@ export const users = {
   count() {
     return open().prepare('SELECT COUNT(*) AS n FROM users').get().n;
   },
-  create({ username, email, passwordHash, passwordSalt, role = 'user' }) {
+  create({ username, email, passwordHash, passwordSalt, role = 'user', signupIp = null, signupUserAgent = null }) {
     const db = open();
     const id = randomUUID();
     const now = nowIso();
     db.prepare(`
-      INSERT INTO users (id, username, email, password_hash, password_salt, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
-    `).run(id, username, email, passwordHash, passwordSalt, role, now, now);
+      INSERT INTO users
+      (id, username, email, password_hash, password_salt, role, status, signup_ip, signup_user_agent, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+    `).run(id, username, email, passwordHash, passwordSalt, role, signupIp || null, signupUserAgent || null, now, now);
     return this.findById(id);
   },
   findById(id) {
@@ -344,7 +360,7 @@ export const users = {
   },
   list() {
     return open().prepare(`
-      SELECT id, username, email, role, status, avatar_url, created_at, updated_at, last_login_at
+      SELECT id, username, email, role, status, avatar_url, signup_ip, signup_user_agent, created_at, updated_at, last_login_at
       FROM users
       ORDER BY created_at ASC
     `).all();
@@ -623,6 +639,24 @@ export const usageDaily = {
       FROM usage_daily
       WHERE user_id = ? AND day >= ? AND day <= ?
     `).get(userId, fromDay, toDay);
+    return {
+      calls: Number(row?.calls) || 0,
+      images: Number(row?.images) || 0,
+      bytes: Number(row?.bytes) || 0,
+      fails: Number(row?.fails) || 0
+    };
+  },
+  sumBySignupIp(signupIp, fromDay, toDay) {
+    const row = open().prepare(`
+      SELECT
+        COALESCE(SUM(d.call_count), 0)  AS calls,
+        COALESCE(SUM(d.image_count), 0) AS images,
+        COALESCE(SUM(d.bytes), 0)       AS bytes,
+        COALESCE(SUM(d.fail_count), 0)  AS fails
+      FROM usage_daily d
+      JOIN users u ON u.id = d.user_id
+      WHERE u.signup_ip = ? AND d.day >= ? AND d.day <= ?
+    `).get(signupIp, fromDay, toDay);
     return {
       calls: Number(row?.calls) || 0,
       images: Number(row?.images) || 0,

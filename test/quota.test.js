@@ -18,7 +18,9 @@ const QUOTA_ENV_KEYS = [
   'DEFAULT_MONTHLY_LIMIT',
   'DEFAULT_STORAGE_LIMIT_MB',
   'DEFAULT_CONCURRENT_LIMIT',
-  'GLOBAL_CONCURRENT_GENERATIONS'
+  'GLOBAL_CONCURRENT_GENERATIONS',
+  'SIGNUP_IP_DAILY_LIMIT',
+  'SIGNUP_IP_MONTHLY_LIMIT'
 ];
 
 before(async () => {
@@ -112,6 +114,29 @@ test('daily default blocks the eleventh generation call', () => {
     const check = quota.assertCanGenerate(user.id, { n: 1 });
     assert.equal(check.ok, false);
     assert.equal(check.code, 'daily_limit_exceeded');
+  });
+});
+
+test('signup IP pool blocks quota farming across new accounts', () => {
+  return withQuotaEnv({ SIGNUP_IP_DAILY_LIMIT: '2' }, () => {
+    seq += 1;
+    const first = auth.register({
+      username: `pool_user_${seq}_a`,
+      email: `pool_user_${seq}_a@example.com`,
+      password: 'longenough1',
+      signupIp: '203.0.113.10'
+    });
+    const second = auth.register({
+      username: `pool_user_${seq}_b`,
+      email: `pool_user_${seq}_b@example.com`,
+      password: 'longenough1',
+      signupIp: '203.0.113.10'
+    });
+
+    quota.recordSuccess(first.id, { calls: 2, images: 2 });
+    const check = quota.assertCanGenerate(second.id, { n: 1 });
+    assert.equal(check.ok, false);
+    assert.equal(check.code, 'signup_ip_daily_limit_exceeded');
   });
 });
 

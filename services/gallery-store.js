@@ -7,6 +7,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 import { images as imagesTable, dbPaths } from './db.js';
+import { assertAllowedUpstreamUrl } from './upstream.js';
 import {
   userImageDir,
   userImageRel,
@@ -16,6 +17,8 @@ import {
 } from './path-guard.js';
 
 const GALLERY_ROOT = guardPaths.generatedRoot;
+const DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
+const DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 
 const MIME_BY_EXT = {
   png: 'image/png',
@@ -44,30 +47,53 @@ function normalizeMimeType(contentType) {
   return String(contentType || '').split(';')[0].trim().toLowerCase();
 }
 
+function positiveIntFromEnv(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function maxImageDownloadBytes() {
+  return positiveIntFromEnv('MAX_IMAGE_DOWNLOAD_BYTES', DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES);
+}
+
+function imageDownloadTimeoutMs() {
+  return positiveIntFromEnv('IMAGE_DOWNLOAD_TIMEOUT_MS', DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS);
+}
+
+function imageTypeFromMagic(buffer) {
+  if (!buffer?.length) return null;
+  if (buffer.length >= 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return { ext: 'png', mimeType: 'image/png' };
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { ext: 'jpg', mimeType: 'image/jpeg' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return { ext: 'webp', mimeType: 'image/webp' };
+  }
+  if (buffer.length >= 6 && buffer.toString('ascii', 0, 3) === 'GIF') {
+    return { ext: 'gif', mimeType: 'image/gif' };
+  }
+  return null;
+}
+
 // 按 magic bytes / content-type 推断扩展名和 MIME。
-function detectImageType(buffer, { contentType = '', fallbackFormat = 'png' } = {}) {
+function detectImageType(buffer, { contentType = '', fallbackFormat = 'png', requireMagic = false } = {}) {
+  const byMagic = imageTypeFromMagic(buffer);
+  if (byMagic) return byMagic;
+
+  if (requireMagic) {
+    throw new Error('downloaded asset is not a supported image');
+  }
+
   const mime = normalizeMimeType(contentType);
   if (EXT_BY_MIME[mime]) {
     const ext = EXT_BY_MIME[mime];
     return { ext, mimeType: MIME_BY_EXT[ext] || mime };
-  }
-
-  if (buffer?.length >= 12) {
-    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
-      return { ext: 'png', mimeType: 'image/png' };
-    }
-    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-      return { ext: 'jpg', mimeType: 'image/jpeg' };
-    }
-    if (
-      buffer.toString('ascii', 0, 4) === 'RIFF' &&
-      buffer.toString('ascii', 8, 12) === 'WEBP'
-    ) {
-      return { ext: 'webp', mimeType: 'image/webp' };
-    }
-    if (buffer.toString('ascii', 0, 3) === 'GIF') {
-      return { ext: 'gif', mimeType: 'image/gif' };
-    }
   }
 
   const ext = normalizeFormat(fallbackFormat);
@@ -95,12 +121,83 @@ function toPublicUrl(relPath) {
   return `/gallery-files/${String(relPath).split(/[\\/]+/).filter(Boolean).map(encodeURIComponent).join('/')}`;
 }
 
+function assertResponseLooksLikeImage(response) {
+  const mime = normalizeMimeType(response.headers?.get?.('content-type') || '');
+  if (!mime || mime === 'application/octet-stream') return;
+  if (!EXT_BY_MIME[mime]) throw new Error(`downloaded asset content-type is not allowed: ${mime}`);
+}
+
+function assertContentLengthWithinLimit(response, maxBytes) {
+  const raw = response.headers?.get?.('content-length');
+  if (!raw) return;
+  const length = Number(raw);
+  if (Number.isFinite(length) && length > maxBytes) {
+    throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
+  }
+}
+
+async function readResponseBufferLimited(response, maxBytes) {
+  assertContentLengthWithinLimit(response, maxBytes);
+
+  // Node/Undici Response.body 是 Web ReadableStream；测试替身可能没有 body，
+  // 因此保留 arrayBuffer 兜底，但仍在读完后做一次大小校验。
+  if (!response.body?.getReader) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) {
+      throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
+    }
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.length;
+      if (total > maxBytes) {
+        await reader.cancel?.();
+        throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, total);
+}
+
 async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } = {}) {
-  const response = await fetchImpl(url);
+  const targetUrl = String(url || '').trim();
+  await assertAllowedUpstreamUrl(targetUrl);
+
+  const timeoutMs = imageDownloadTimeoutMs();
+  const maxBytes = maxImageDownloadBytes();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(targetUrl, {
+      method: 'GET',
+      headers: { accept: 'image/png,image/jpeg,image/webp,image/gif,application/octet-stream;q=0.8' },
+      redirect: 'manual',
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') throw new Error('image download timed out');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
   if (!response.ok) throw new Error(`download failed with ${response.status}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
+  assertResponseLooksLikeImage(response);
   const contentType = response.headers?.get?.('content-type') || '';
-  const detected = detectImageType(buffer, { contentType, fallbackFormat });
+  const buffer = await readResponseBufferLimited(response, maxBytes);
+  const detected = detectImageType(buffer, { contentType, fallbackFormat, requireMagic: true });
   return { ...detected, buffer, sourceType: 'url' };
 }
 

@@ -33,7 +33,7 @@ const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
 // 启动前先建表 + 处理 legacy gallery.json 迁移
 migrate();
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   // 任何请求都先尝试附会话；未登录场景下 req.session = null
   attachSession(req, res);
 
@@ -92,6 +92,21 @@ const server = http.createServer(async (req, res) => {
   }
   res.writeHead(405, { allow: 'GET, POST' });
   res.end('Method not allowed');
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((err) => {
+    logger.error('server.request_unhandled', {
+      method: req.method,
+      url: req.url,
+      error: err?.message || String(err)
+    });
+    if (res.headersSent) {
+      res.destroy?.();
+      return;
+    }
+    sendJson(res, 500, { error: 'internal server error' });
+  });
 });
 
 // 每小时清一次过期 session

@@ -8,22 +8,17 @@ import {
   register as authRegister,
   login as authLogin,
   createSession,
-  destroySession
+  destroySession,
+  isValidAdminBootstrapToken
 } from '../services/auth.js';
+import {
+  assertRegistrationAllowed,
+  checkRegistrationRateLimit,
+  registrationSettingsSnapshot,
+  RegistrationRejectedError
+} from '../services/registration-guard.js';
 import { logger } from '../utils/logger.js';
-
-// 取客户端 ip，优先尊重反向代理的 x-forwarded-for 首段
-function clientIp(req) {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) {
-    return fwd.split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || 'unknown';
-}
-
-function userAgent(req) {
-  return req.headers['user-agent'] || '';
-}
+import { clientIp, userAgent } from '../utils/request.js';
 
 function rateLimit(res, key, max, windowMs) {
   const r = rateLimitHit(key, max, windowMs);
@@ -35,7 +30,12 @@ function rateLimit(res, key, max, windowMs) {
 
 async function handleRegister(req, res) {
   const ip = clientIp(req);
-  if (!rateLimit(res, `reg:${ip}`, 3, 600_000)) return;
+  const limit = checkRegistrationRateLimit({ ip });
+  if (!limit.ok) {
+    res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
+    sendJson(res, 429, { error: limit.message, code: limit.code });
+    return;
+  }
 
   let body;
   try {
@@ -46,14 +46,34 @@ async function handleRegister(req, res) {
   }
   const { username, email, password, adminBootstrapToken } = body || {};
   try {
-    const user = authRegister({ username, email, password, adminBootstrapToken });
+    const adminBootstrapOk = isValidAdminBootstrapToken(adminBootstrapToken);
+    if (adminBootstrapToken && !adminBootstrapOk) {
+      throw new Error('invalid admin bootstrap token');
+    }
+    const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: adminBootstrapOk });
+    const user = authRegister({
+      username,
+      email,
+      password,
+      adminBootstrapToken,
+      signupIp: ip,
+      signupUserAgent: userAgent(req)
+    });
     // 注册成功自动登录：创建一条 session，下发 cookie
     const sid = createSession({ userId: user.id, ua: userAgent(req), ip });
     setSessionCookie(res, sid);
-    logger.info('auth.register', { userId: user.id, role: user.role });
+    logger.info('auth.register', {
+      userId: user.id,
+      role: user.role,
+      ip,
+      inviteRequired: registrationPolicy.inviteRequired
+    });
     sendJson(res, 200, { user });
   } catch (err) {
-    sendJson(res, 400, { error: err.message });
+    const status = err instanceof RegistrationRejectedError ? err.status : 400;
+    const payload = { error: err.message };
+    if (err.code) payload.code = err.code;
+    sendJson(res, status, payload);
   }
 }
 
@@ -114,6 +134,14 @@ export async function handleAuthRoute(req, res, pathname) {
   }
   if (pathname === '/api/auth/logout' && method === 'POST') {
     return handleLogout(req, res);
+  }
+  if (pathname === '/api/auth/registration-policy' && method === 'GET') {
+    const settings = registrationSettingsSnapshot();
+    return sendJson(res, 200, {
+      mode: settings.mode,
+      inviteRequired: settings.inviteRequired,
+      inviteConfigured: settings.inviteConfigured
+    });
   }
   if (pathname === '/api/auth/me' && method === 'GET') {
     return handleMe(req, res);

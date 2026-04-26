@@ -8,12 +8,7 @@ import { updateProfile, changePassword } from '../services/users.js';
 import { createSession, sanitizeUser } from '../services/auth.js';
 import { setSessionCookie } from '../utils/cookies.js';
 import { logger } from '../utils/logger.js';
-
-function clientIp(req) {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-  return req.socket?.remoteAddress || 'unknown';
-}
+import { clientIp } from '../utils/request.js';
 
 function handleGet(req, res) {
   // 保险起见以 id 再查一次，避免 session 里的快照过期

@@ -45,7 +45,7 @@ function assertValidCredentials({ username, email, password }) {
   }
 }
 
-function isValidAdminBootstrapToken(token) {
+export function isValidAdminBootstrapToken(token) {
   const expected = process.env.ADMIN_BOOTSTRAP_TOKEN;
   if (!expected || !token) return false;
   const a = Buffer.from(String(token));
@@ -53,13 +53,17 @@ function isValidAdminBootstrapToken(token) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function sanitizeUser(row) {
+export function sanitizeUser(row, { includeSecurity = false } = {}) {
   if (!row) return null;
   const { password_hash, password_salt, ...rest } = row;
+  if (!includeSecurity) {
+    delete rest.signup_ip;
+    delete rest.signup_user_agent;
+  }
   return rest;
 }
 
-export function register({ username, email, password, adminBootstrapToken }) {
+export function register({ username, email, password, adminBootstrapToken, signupIp, signupUserAgent }) {
   assertValidCredentials({ username, email, password });
   if (adminBootstrapToken && !isValidAdminBootstrapToken(adminBootstrapToken)) {
     throw new Error('invalid admin bootstrap token');
@@ -82,7 +86,9 @@ export function register({ username, email, password, adminBootstrapToken }) {
     email,
     passwordHash: hash,
     passwordSalt: salt,
-    role
+    role,
+    signupIp,
+    signupUserAgent
   });
   return sanitizeUser(row);
 }

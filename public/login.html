@@ -90,6 +90,15 @@
       color: var(--danger);
       font-size: 13px;
     }
+    .auth-hp {
+      position: absolute;
+      left: -10000px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body class="auth-body">
@@ -133,6 +142,14 @@
       <label class="field">
         <span>管理员初始化令牌（可留空）</span>
         <input name="adminBootstrapToken" type="password" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>注册邀请码（管理员开启时必填）</span>
+        <input name="registrationCode" type="password" autocomplete="off" />
+      </label>
+      <label class="field auth-hp" aria-hidden="true">
+        <span>Website</span>
+        <input name="website" tabindex="-1" autocomplete="off" />
       </label>
       <button class="primary" type="submit">注册并登录</button>
     </form>
@@ -232,6 +249,8 @@
       const password = String(fd.get('password') || '');
       const confirmPassword = String(fd.get('confirmPassword') || '');
       const adminBootstrapToken = String(fd.get('adminBootstrapToken') || '');
+      const registrationCode = String(fd.get('registrationCode') || '');
+      const website = String(fd.get('website') || '');
 
       // 前端最小校验，服务端会再校验一次。
       if (!/^[a-zA-Z0-9_-]{3,32}$/.test(username)) { showError('用户名格式不正确'); return; }
@@ -242,8 +261,9 @@
       const btn = registerForm.querySelector('button[type="submit"]');
       btn.disabled = true;
       try {
-        const payload = { username, email, password };
+        const payload = { username, email, password, website };
         if (adminBootstrapToken) payload.adminBootstrapToken = adminBootstrapToken;
+        if (registrationCode) payload.registrationCode = registrationCode;
         const resp = await postJson('/api/auth/register', payload);
         await handleResponse(resp);
       } catch (err) {

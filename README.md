@@ -9,9 +9,29 @@ npm start       # node server.js，默认 http://localhost:8787
 npm test        # Node 原生 test runner，零外部依赖
 ```
 
-Node 18+，无第三方依赖（使用内置 `fetch` / `http` / `node:test`）。
+Node 22.5+，启动需带 `--experimental-sqlite`（`npm start` 已配置）；项目无第三方依赖（使用内置 `fetch` / `http` / `node:test` / `node:sqlite`）。
 
 首次初始化管理员需先设置 `ADMIN_BOOTSTRAP_TOKEN`，注册页填入相同令牌后该用户才会成为 admin；未带令牌的首个注册用户也只是普通用户。
+
+## 防注册机刷额度
+
+项目内置了多层注册防刷，适合公网部署时限制“批量注册小号叠加免费额度”：
+
+- `REGISTRATION_IP_MAX_PER_10MIN` / `REGISTRATION_IP_MAX_PER_DAY`：按客户端 IP 限制注册频率，默认 10 分钟 3 个、每天 5 个。
+- `REGISTRATION_MODE=invite` + `REGISTRATION_INVITE_CODE=...`：开启邀请码注册；`closed` 可完全关闭公开注册（首个 admin 仍可用 `ADMIN_BOOTSTRAP_TOKEN` 初始化）。
+- `SIGNUP_IP_DAILY_LIMIT` / `SIGNUP_IP_MONTHLY_LIMIT`：同一个注册 IP 下所有普通账号共享额度池，Docker 示例默认每日 20、每月 400。
+- `REGISTRATION_EMAIL_DOMAIN_ALLOWLIST` / `REGISTRATION_EMAIL_DOMAIN_BLOCKLIST`：按邮箱域名放行或拦截。
+- `TRUST_PROXY=0` 默认不信任可伪造的 `X-Forwarded-For`；只有部署在可信反向代理后面时才设为 `1`。
+
+推荐公网配置：
+
+```env
+REGISTRATION_MODE=invite
+REGISTRATION_INVITE_CODE=change-me-to-a-long-random-code
+REGISTRATION_IP_MAX_PER_DAY=3
+SIGNUP_IP_DAILY_LIMIT=10
+TRUST_PROXY=1   # 仅当反向代理会清洗转发头时开启
+```
 
 ## 当前功能
 
@@ -134,16 +154,20 @@ GET /healthz
 | `DEFAULT_STORAGE_LIMIT_MB` | `500` | 普通用户默认本地图库存储上限；留空/`null` 表示不限。 |
 | `DEFAULT_CONCURRENT_LIMIT` | `1` | 普通用户默认单用户并发生图上限。 |
 | `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
+| `IMAGE_DOWNLOAD_TIMEOUT_MS` | `60000` | 上游返回 URL 图片时，服务端下载该图片的超时。 |
+| `MAX_IMAGE_DOWNLOAD_BYTES` | `26214400` | 上游返回 URL 图片时，服务端最多下载 25 MiB，超过拒绝保存。 |
 | `GENERATE_STREAM_HEARTBEAT_MS` | `15000` | SSE 生图接口心跳间隔，单位毫秒。 |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Docker 停止时的优雅关闭等待时间，单位毫秒。 |
 | `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。生产环境保持 `0`。 |
 | `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost/私网/metadata 等上游。生产环境保持 `0`。 |
+| `TRUST_PROXY` | `0` | 是否信任 `X-Forwarded-For` / `X-Real-IP`。仅在可信反向代理会清洗这些头时设为 `1`。 |
 | `NODE_ENV` | `development` | 直接 HTTP 访问容器时保持 `development`；放在 HTTPS 反向代理后面时可改 `production`。 |
 
 ### 当前基础资源保护
 
 - JSON body 读取增加 `MAX_JSON_BODY_BYTES` 上限。
 - 静态文件和图库文件改为流式发送，避免大图下载时整文件进入内存。
+- 上游返回 URL 图片时会校验 URL 安全边界、下载超时、最大字节数与图片 magic bytes，避免服务端无边界抓取。
 - `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
 - 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
 - `/api/generate` 和 `/api/generate/stream` 增加 `GLOBAL_CONCURRENT_GENERATIONS` 全站并发槽位，保护 2C/4G 小机器。
