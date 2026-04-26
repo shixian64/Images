@@ -16,12 +16,25 @@ import {
   recordFailure
 } from '../services/quota.js';
 
-const DEFAULT_IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_GENERATION_TIMEOUT_MS || 10 * 60 * 1000);
-const STREAM_HEARTBEAT_MS = Number(process.env.GENERATE_STREAM_HEARTBEAT_MS || 15 * 1000);
-const MAX_IMAGES_PER_REQUEST = Math.max(1, Number(process.env.MAX_IMAGES_PER_REQUEST || 4));
+function positiveIntFromEnv(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+const DEFAULT_IMAGE_TIMEOUT_MS = positiveIntFromEnv('IMAGE_GENERATION_TIMEOUT_MS', 10 * 60 * 1000);
+const STREAM_HEARTBEAT_MS = positiveIntFromEnv('GENERATE_STREAM_HEARTBEAT_MS', 15 * 1000);
+const MAX_IMAGES_PER_REQUEST = positiveIntFromEnv('MAX_IMAGES_PER_REQUEST', 4);
 
 export function getMaxImagesPerRequest() {
   return MAX_IMAGES_PER_REQUEST;
+}
+
+export function getImageGenerationTimeoutMs() {
+  return DEFAULT_IMAGE_TIMEOUT_MS;
+}
+
+export function getGenerateStreamHeartbeatMs() {
+  return STREAM_HEARTBEAT_MS;
 }
 
 export function handleGenerateConfig(req, res) {

@@ -34,9 +34,9 @@ function envList(name) {
 }
 
 function getRegistrationMode() {
-  const mode = String(process.env.REGISTRATION_MODE || 'open').trim().toLowerCase();
+  const mode = String(process.env.REGISTRATION_MODE || 'closed').trim().toLowerCase();
   if (mode === 'closed' || mode === 'invite' || mode === 'open') return mode;
-  return 'open';
+  return 'closed';
 }
 
 function inviteCodes() {

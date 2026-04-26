@@ -87,13 +87,19 @@ function normalizeConfig(value = {}, previous = null) {
   };
 }
 
-function publicEndpoint(endpoint) {
-  const { apiKey, maskedApiKey, ...rest } = endpoint || {};
-  return {
+function publicEndpoint(endpoint, { includeTestDetails = false } = {}) {
+  const { apiKey, maskedApiKey, testError, testLatencyMs, testedAt, ...rest } = endpoint || {};
+  const out = {
     ...rest,
     apiKey: '',
     hasApiKey: Boolean(apiKey)
   };
+  if (includeTestDetails) {
+    out.testError = testError || '';
+    out.testLatencyMs = testLatencyMs ?? null;
+    out.testedAt = testedAt || null;
+  }
+  return out;
 }
 
 export function publicInterfaceConfig(config) {
@@ -102,6 +108,16 @@ export function publicInterfaceConfig(config) {
     ...normalized,
     image: publicEndpoint(normalized.image),
     chat: publicEndpoint(normalized.chat),
+    ready: Boolean(normalized.enabled && normalized.image.apiKey && normalized.chat.apiKey)
+  };
+}
+
+export function adminInterfaceConfig(config) {
+  const normalized = normalizeConfig(config);
+  return {
+    ...normalized,
+    image: publicEndpoint(normalized.image, { includeTestDetails: true }),
+    chat: publicEndpoint(normalized.chat, { includeTestDetails: true }),
     ready: Boolean(normalized.enabled && normalized.image.apiKey && normalized.chat.apiKey)
   };
 }

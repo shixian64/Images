@@ -140,6 +140,34 @@ test('signup IP pool blocks quota farming across new accounts', () => {
   });
 });
 
+test('signup IP pool ignores admin usage from the same IP', () => {
+  return withQuotaEnv({ SIGNUP_IP_DAILY_LIMIT: '2' }, () => {
+    seq += 1;
+    const signupIp = '203.0.113.11';
+    const admin = auth.register({
+      username: `pool_admin_${seq}`,
+      email: `pool_admin_${seq}@example.com`,
+      password: 'longenough1',
+      signupIp
+    });
+    db.users.updateRole(admin.id, 'admin');
+    const user = auth.register({
+      username: `pool_user_${seq}_c`,
+      email: `pool_user_${seq}_c@example.com`,
+      password: 'longenough1',
+      signupIp
+    });
+
+    quota.recordSuccess(admin.id, { calls: 2, images: 2 });
+    assert.equal(quota.assertCanGenerate(user.id, { n: 1 }).ok, true);
+
+    quota.recordSuccess(user.id, { calls: 2, images: 2 });
+    const check = quota.assertCanGenerate(user.id, { n: 1 });
+    assert.equal(check.ok, false);
+    assert.equal(check.code, 'signup_ip_daily_limit_exceeded');
+  });
+});
+
 test('concurrent default allows 3 active generations per user', () => {
   return withQuotaEnv({}, () => {
     const user = createNormalUser();

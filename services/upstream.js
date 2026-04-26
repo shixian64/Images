@@ -521,10 +521,14 @@ export async function callUpstream({
   const started = Date.now();
   const controller = new AbortController();
   let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
+  const timeoutValue = Number(timeoutMs);
+  const hasTimeout = Number.isFinite(timeoutValue) && timeoutValue > 0;
+  const timeoutId = hasTimeout
+    ? setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, Math.floor(timeoutValue))
+    : null;
   const abortFromCaller = () => controller.abort();
   if (signal) {
     if (signal.aborted) abortFromCaller();
@@ -559,7 +563,7 @@ export async function callUpstream({
     }
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
     signal?.removeEventListener?.('abort', abortFromCaller);
   }
 }

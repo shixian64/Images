@@ -165,6 +165,24 @@ test('callUpstream applies timeout while reading response body', async () => {
   assert.equal(canceled, true);
 });
 
+test('callUpstream allows timeout to be disabled', async () => {
+  const result = await callUpstream({
+    targetUrl: 'https://gateway.example.com/v1/chat/completions',
+    apiKey: 'sk-test',
+    payload: { model: 'x', messages: [{ role: 'user', content: 'hi' }] },
+    timeoutMs: null,
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.signal.aborted, false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data, { ok: true });
+});
+
 // --- resolveModelsUrl ---
 
 test('resolveModelsUrl 指向 /v1/models', () => {

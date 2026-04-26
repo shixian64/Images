@@ -655,7 +655,7 @@ export const usageDaily = {
         COALESCE(SUM(d.fail_count), 0)  AS fails
       FROM usage_daily d
       JOIN users u ON u.id = d.user_id
-      WHERE u.signup_ip = ? AND d.day >= ? AND d.day <= ?
+      WHERE u.signup_ip = ? AND u.role != 'admin' AND d.day >= ? AND d.day <= ?
     `).get(signupIp, fromDay, toDay);
     return {
       calls: Number(row?.calls) || 0,

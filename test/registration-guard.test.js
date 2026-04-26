@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert';
 import {
   assertRegistrationAllowed,
   checkRegistrationRateLimit,
+  registrationSettingsSnapshot,
   RegistrationRejectedError
 } from '../services/registration-guard.js';
 import { clear as clearRateLimit } from '../services/rate-limit.js';
@@ -57,6 +58,30 @@ test('invite mode rejects missing code and accepts configured code', () => {
       isAdminBootstrap: false
     });
     assert.equal(settings.inviteRequired, true);
+  });
+});
+
+test('registration is closed by default unless explicitly opened', () => {
+  return withEnv({}, () => {
+    assert.equal(registrationSettingsSnapshot().mode, 'closed');
+    assert.throws(
+      () => assertRegistrationAllowed({
+        body: { email: 'a@example.com' },
+        isAdminBootstrap: false
+      }),
+      (err) => err instanceof RegistrationRejectedError &&
+        err.code === 'registration_closed'
+    );
+  });
+});
+
+test('open registration mode must be explicit', () => {
+  return withEnv({ REGISTRATION_MODE: 'open' }, () => {
+    const settings = assertRegistrationAllowed({
+      body: { email: 'a@example.com' },
+      isAdminBootstrap: false
+    });
+    assert.equal(settings.mode, 'open');
   });
 });
 

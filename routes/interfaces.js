@@ -7,9 +7,9 @@ import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
+  adminInterfaceConfig,
   getGlobalInterfaceConfig,
   getSystemEndpoint,
-  publicInterfaceConfig,
   setGlobalInterfaceConfig
 } from '../services/interface-defaults.js';
 import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
@@ -52,6 +52,10 @@ function publicPayload() {
   return { default: getGlobalInterfaceConfig({ publicView: true }) };
 }
 
+function adminPayload(config = getGlobalInterfaceConfig()) {
+  return { default: adminInterfaceConfig(config) };
+}
+
 async function handlePublicDefault(req, res) {
   if (req.method !== 'GET') {
     sendJson(res, 405, { error: 'method not allowed' });
@@ -64,7 +68,7 @@ async function handleAdminDefault(req, res) {
   if (!requireAdmin(req, res)) return;
 
   if (req.method === 'GET') {
-    sendJson(res, 200, publicPayload());
+    sendJson(res, 200, adminPayload());
     return;
   }
 
@@ -86,7 +90,7 @@ async function handleAdminDefault(req, res) {
         chatModel: next.chat.defaultModel,
         chatHasKey: Boolean(next.chat.apiKey)
       });
-      sendJson(res, 200, { default: publicInterfaceConfig(next) });
+      sendJson(res, 200, adminPayload(next));
     } catch (err) {
       sendJson(res, statusFromError(err.message), { error: err.message || String(err) });
     }
@@ -167,7 +171,7 @@ async function handleAdminTest(req, res) {
       sendJson(res, response.status, {
         ok: false,
         error,
-        default: publicInterfaceConfig(next)
+        default: adminInterfaceConfig(next)
       });
       return;
     }
@@ -194,7 +198,7 @@ async function handleAdminTest(req, res) {
       durationMs,
       modelCount: models.length,
       models: models.slice(0, 50),
-      default: publicInterfaceConfig(next)
+      default: adminInterfaceConfig(next)
     });
   } catch (err) {
     const durationMs = Date.now() - started;
@@ -211,7 +215,7 @@ async function handleAdminTest(req, res) {
     sendJson(res, statusFromError(err), {
       ok: false,
       error,
-      default: publicInterfaceConfig(next)
+      default: adminInterfaceConfig(next)
     });
   }
 }

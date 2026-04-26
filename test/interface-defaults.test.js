@@ -1,25 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { publicInterfaceConfig } from '../services/interface-defaults.js';
+import { adminInterfaceConfig, publicInterfaceConfig } from '../services/interface-defaults.js';
 
-test('publicInterfaceConfig exposes only key presence, not masked key fragments', () => {
-  const config = publicInterfaceConfig({
+function sampleConfig() {
+  return {
     enabled: true,
     name: 'default',
     image: {
       baseUrl: 'https://api.example.com',
       apiKey: 'sk-image-secret-123456',
       maskedApiKey: 'sk-i****3456',
-      defaultModel: 'gpt-image-2'
+      defaultModel: 'gpt-image-2',
+      testStatus: 'err',
+      testLatencyMs: 123,
+      testedAt: '2026-04-26T00:00:00.000Z',
+      testError: 'upstream leaked sk-image-secret-123456'
     },
     chat: {
       baseUrl: 'https://api.example.com',
       apiKey: 'sk-chat-secret-123456',
       maskedApiKey: 'sk-c****3456',
-      defaultModel: 'gpt-5.5'
+      defaultModel: 'gpt-5.5',
+      testStatus: 'ok',
+      testLatencyMs: 45,
+      testedAt: '2026-04-26T00:00:01.000Z',
+      testError: ''
     }
-  });
+  };
+}
+
+test('publicInterfaceConfig exposes only key presence, not masked key fragments or probe details', () => {
+  const config = publicInterfaceConfig(sampleConfig());
 
   assert.equal(config.image.apiKey, '');
   assert.equal(config.chat.apiKey, '');
@@ -27,4 +39,18 @@ test('publicInterfaceConfig exposes only key presence, not masked key fragments'
   assert.equal(config.chat.hasApiKey, true);
   assert.equal(Object.hasOwn(config.image, 'maskedApiKey'), false);
   assert.equal(Object.hasOwn(config.chat, 'maskedApiKey'), false);
+  assert.equal(Object.hasOwn(config.image, 'testError'), false);
+  assert.equal(Object.hasOwn(config.image, 'testLatencyMs'), false);
+  assert.equal(Object.hasOwn(config.image, 'testedAt'), false);
+  assert.equal(config.image.testStatus, 'err');
+});
+
+test('adminInterfaceConfig keeps probe details while redacting raw keys', () => {
+  const config = adminInterfaceConfig(sampleConfig());
+
+  assert.equal(config.image.apiKey, '');
+  assert.equal(config.image.hasApiKey, true);
+  assert.equal(config.image.testError, 'upstream leaked sk-image-secret-123456');
+  assert.equal(config.image.testLatencyMs, 123);
+  assert.equal(config.image.testedAt, '2026-04-26T00:00:00.000Z');
 });
