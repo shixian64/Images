@@ -10,6 +10,7 @@ const KEYS = Object.freeze({
   interfaceMode: 'image-key-manager.interfaceMode.v1',
   activeTab: 'image-key-manager.activeTab',
   logs: 'image-key-manager.logs.v1',
+  logErrorSeenAt: 'image-key-manager.logErrorSeenAt.v1',
   promptBuilderDraft: 'image-key-manager.promptBuilderDraft.v1',
   promptDraft: 'image-key-manager.promptDraft',
   promptHistory: 'image-key-manager.promptHistory.v1',

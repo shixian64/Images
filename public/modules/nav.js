@@ -12,6 +12,7 @@ export function switchTab(tabId) {
   $$('.tab-button').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
   $$('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
   writeString(KEYS.activeTab, tabId);
+  document.dispatchEvent(new CustomEvent('app-tab-changed', { detail: { tabId } }));
 }
 
 export function mountNav() {

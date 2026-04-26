@@ -2,7 +2,13 @@
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
 import { $, escapeHtml, maskKey } from './dom.js';
-import { KEYS, readJsonScoped, writeJsonScoped } from './state.js';
+import {
+  KEYS,
+  readJsonScoped,
+  readStringScoped,
+  writeJsonScoped,
+  writeStringScoped
+} from './state.js';
 
 const MAX_LOGS = 300;
 const LEVEL_ORDER = ['debug', 'info', 'warn', 'error'];
@@ -10,10 +16,12 @@ const LEVEL_ORDER = ['debug', 'info', 'warn', 'error'];
 // why：延迟到首次访问/挂载，模块加载期用户尚未就绪；避免误用 guest scope。
 let logs = [];
 let logsLoaded = false;
+let errorSeenAt = '';
 function ensureLogsLoaded() {
   if (logsLoaded) return;
   logsLoaded = true;
   logs = readJsonScoped(KEYS.logs, []);
+  errorSeenAt = readStringScoped(KEYS.logErrorSeenAt, '');
 }
 const listeners = new Set();
 
@@ -60,6 +68,21 @@ export function clearLogs() {
   emit();
 }
 
+function getUnreadErrorCount() {
+  ensureLogsLoaded();
+  return logs.filter((log) => (
+    log.level === 'error' &&
+    (!errorSeenAt || String(log.ts || '') > errorSeenAt)
+  )).length;
+}
+
+function markErrorsSeen() {
+  ensureLogsLoaded();
+  const latestError = logs.find((log) => log.level === 'error');
+  errorSeenAt = latestError?.ts || new Date().toISOString();
+  writeStringScoped(KEYS.logErrorSeenAt, errorSeenAt);
+}
+
 export function exportLogs() {
   ensureLogsLoaded();
   const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
@@ -101,12 +124,15 @@ function renderSummary(filtered, activeLevel = 'all') {
 
   const badge = $('logErrorBadge');
   if (badge) {
-    if (counts.error > 0) {
+    const unreadErrors = getUnreadErrorCount();
+    if (unreadErrors > 0) {
       badge.hidden = false;
-      badge.textContent = String(counts.error);
+      badge.textContent = String(unreadErrors);
+      badge.title = `${unreadErrors} 条新的错误日志`;
     } else {
       badge.textContent = '0';
       badge.hidden = true;
+      badge.removeAttribute('title');
     }
   }
 }
@@ -182,7 +208,15 @@ export function mountLogsPanel({ onReusePrompt } = {}) {
   $('clearLogs').addEventListener('click', () => {
     if (confirm('确认清空所有日志？')) clearLogs();
   });
+  document.addEventListener('app-tab-changed', (ev) => {
+    if (ev.detail?.tabId !== 'logsPanel') return;
+    markErrorsSeen();
+    rerender();
+  });
 
   onLogsChanged(rerender);
+  if ($('logsPanel')?.classList.contains('active')) {
+    markErrorsSeen();
+  }
   rerender();
 }
