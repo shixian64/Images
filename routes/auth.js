@@ -1,7 +1,7 @@
 // /api/auth/* 路由：注册 / 登录 / 退出 / 当前用户。
 // TAG: hmt---
 
-import { sendJson, readJsonBody } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { parseCookies, setSessionCookie, clearSessionCookie, COOKIE_KEY } from '../utils/cookies.js';
 import { hit as rateLimitHit } from '../services/rate-limit.js';
 import {
@@ -40,8 +40,8 @@ async function handleRegister(req, res) {
   let body;
   try {
     body = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const { username, email, password, adminBootstrapToken } = body || {};
@@ -62,8 +62,8 @@ async function handleLogin(req, res) {
   let body;
   try {
     body = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const { login, password } = body || {};

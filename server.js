@@ -38,6 +38,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
 
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/healthz') {
+    return sendJson(res, 200, { ok: true, uptimeSec: Math.round(process.uptime()) });
+  }
+
   // ---- /api/* 路由 ----
   if (pathname.startsWith('/api/')) {
     // 所有非 GET 请求统一走 CSRF（登录/注册即使未登录也要校验同源 + X-Requested-With）
@@ -96,3 +100,28 @@ cleaner.unref?.();
 server.listen(PORT, () => {
   console.log(`Image Studio running at http://localhost:${PORT}`);
 });
+
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info('server.shutdown', { signal });
+  clearInterval(cleaner);
+  const forceExit = setTimeout(() => {
+    logger.error('server.shutdown_timeout', { signal });
+    process.exit(1);
+  }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 10_000));
+  forceExit.unref?.();
+
+  server.close((err) => {
+    if (err) {
+      logger.error('server.shutdown_failed', { signal, error: err.message });
+      process.exit(1);
+    }
+    logger.info('server.shutdown_done', { signal });
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

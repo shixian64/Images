@@ -6,7 +6,8 @@
 // - /gallery-files/images/...（旧迁移路径）通过 images 表查 user_id 做归属校验。
 // 统一用 path.normalize + startsWith 做路径穿越防护。
 
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
 import { images as imagesTable } from '../services/db.js';
@@ -129,12 +130,28 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
     const { filePath } = resolved;
 
     try {
-      const content = await readFile(filePath);
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) return send404(res);
       res.writeHead(200, {
         'content-type': MIME[extname(filePath)] || 'application/octet-stream',
+        'content-length': fileStat.size,
         'cache-control': 'no-cache'
       });
-      res.end(content);
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      if (typeof res.write !== 'function' || typeof res.on !== 'function') {
+        const content = await readFile(filePath);
+        res.end(content);
+        return;
+      }
+      const stream = createReadStream(filePath);
+      stream.on('error', () => {
+        if (!res.headersSent) return send404(res);
+        res.destroy();
+      });
+      stream.pipe(res);
     } catch {
       return send404(res);
     }

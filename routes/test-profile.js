@@ -1,7 +1,7 @@
 // POST /api/test-profile —— 用 GET /v1/models 探活。
 // 对应文档 §4.1 首次上手：添加 Key 后自动探测可用模型。
 
-import { readJsonBody, sendJson } from '../utils/http.js';
+import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, resolveModelsUrl } from '../services/upstream.js';
@@ -56,6 +56,6 @@ export async function handleTestProfile(req, res) {
       baseUrl: body?.baseUrl,
       error: error.message || String(error)
     });
-    return sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    return sendJson(res, bodyErrorStatus(error), { ok: false, error: error.message || String(error) });
   }
 }

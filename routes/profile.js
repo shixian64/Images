@@ -1,7 +1,7 @@
 // /api/profile* 路由：当前用户的资料与密码维护。
 // TAG: hmt---
 
-import { sendJson, readJsonBody } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAuth } from '../middleware/guard.js';
 import { users, sessions } from '../services/db.js';
 import { updateProfile, changePassword } from '../services/users.js';
@@ -29,8 +29,8 @@ async function handlePatch(req, res) {
   let body;
   try {
     body = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const { username, email, avatarUrl } = body || {};
@@ -46,8 +46,8 @@ async function handlePassword(req, res) {
   let body;
   try {
     body = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const { oldPassword, newPassword } = body || {};

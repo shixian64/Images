@@ -1,0 +1,10 @@
+.git
+node_modules
+generated
+*.log
+.env
+.env.*
+!.env.example
+.codex
+Dockerfile
+docker-compose.yml

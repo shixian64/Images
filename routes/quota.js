@@ -6,7 +6,7 @@
 //   /api/admin/quota/users/:id/reset  —— POST { scope: today|month }
 // TAG: hmt---
 
-import { sendJson, readJsonBody } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAuth, requireAdmin } from '../middleware/guard.js';
 import { users as usersTable } from '../services/db.js';
 import {
@@ -40,8 +40,8 @@ async function handleDefaults(req, res) {
   }
   if (req.method === 'PUT') {
     let body = {};
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { error: 'invalid json' });
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
       return;
     }
     try {
@@ -105,8 +105,8 @@ async function handleUserDetail(req, res, id) {
 
   if (method === 'PUT') {
     let body = {};
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { error: 'invalid json' });
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
       return;
     }
     try {
@@ -146,7 +146,13 @@ async function handleUserReset(req, res, id) {
   if (!target) { sendJson(res, 404, { error: 'user not found' }); return; }
 
   let body = {};
-  try { body = await readJsonBody(req); } catch { /* allow empty */ }
+  try { body = await readJsonBody(req); } catch (err) {
+    if (bodyErrorStatus(err) === 413) {
+      sendJson(res, 413, { error: err.message });
+      return;
+    }
+    /* allow empty */
+  }
   const scope = body?.scope === 'month' ? 'month' : 'today';
   resetUsage(id, scope);
   auditRecord(req, 'quota.user_reset_usage', { type: 'user', id }, { scope });

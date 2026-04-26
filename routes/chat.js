@@ -1,7 +1,7 @@
 // POST /api/chat —— 对话模型代理。
 // 前端可传入 chatBaseUrl/chatApiKey，也兼容 baseUrl/apiKey；上游按 OpenAI-compatible /v1/chat/completions 调用。
 
-import { readJsonBody, sendJson } from '../utils/http.js';
+import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, buildChatPayload, callUpstream, resolveChatCompletionsUrl } from '../services/upstream.js';
@@ -51,6 +51,6 @@ export async function handleChat(req, res) {
       baseUrl: body?.chatBaseUrl || body?.baseUrl,
       error: error.message || String(error)
     });
-    return sendJson(res, 400, { error: error.message || String(error) });
+    return sendJson(res, bodyErrorStatus(error), { error: error.message || String(error) });
   }
 }

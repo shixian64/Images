@@ -7,11 +7,13 @@ const DEFAULT_KEY = 'quota.defaults';
 
 // 系统默认值（用户未覆盖时生效）。null = 不限。
 export const FALLBACK_DEFAULTS = Object.freeze({
-  daily_limit: null,
+  daily_limit: 10,
   monthly_limit: null,
   storage_limit_mb: null,
-  concurrent_limit: null
+  concurrent_limit: 3
 });
+
+const activeGenerations = new Map();
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -123,6 +125,47 @@ export function assertCanGenerate(userId, { n = 1 } = {}) {
     }
   }
   return { ok: true };
+}
+
+export function tryAcquireConcurrentSlot(userId) {
+  if (!userId) return { ok: true, active: 0, limit: null, release: () => {} };
+
+  const { concurrent_limit: limitValue } = effectiveQuota(userId);
+  const limit = Number(limitValue);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return {
+      ok: true,
+      active: activeGenerations.get(userId) || 0,
+      limit: null,
+      release: () => {}
+    };
+  }
+
+  const active = activeGenerations.get(userId) || 0;
+  if (active >= limit) {
+    return {
+      ok: false,
+      code: 'concurrent_limit_exceeded',
+      message: `并发生成数已达上限（${active}/${limit}）`,
+      active,
+      limit
+    };
+  }
+
+  activeGenerations.set(userId, active + 1);
+  let released = false;
+  return {
+    ok: true,
+    active: active + 1,
+    limit,
+    release: () => {
+      if (released) return;
+      released = true;
+      const current = activeGenerations.get(userId) || 0;
+      if (current <= 1) activeGenerations.delete(userId);
+      else activeGenerations.set(userId, current - 1);
+    }
+  };
 }
 
 function formatMb(bytes) {

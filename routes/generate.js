@@ -2,19 +2,21 @@
 // 我们负责校验、脱敏记日志、调用上游。
 // /api/generate/stream 会用 SSE heartbeat 先返回字节，避免长图生成时被 CDN/反代空闲超时断开。
 
-import { readJsonBody, sendJson } from '../utils/http.js';
+import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, buildImagePayload, callUpstream, resolveApiUrl } from '../services/upstream.js';
 import { saveGeneratedImages } from '../services/gallery-store.js';
 import {
   assertCanGenerate,
+  tryAcquireConcurrentSlot,
   recordSuccess,
   recordFailure
 } from '../services/quota.js';
 
 const DEFAULT_IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_GENERATION_TIMEOUT_MS || 10 * 60 * 1000);
 const STREAM_HEARTBEAT_MS = Number(process.env.GENERATE_STREAM_HEARTBEAT_MS || 15 * 1000);
+const MAX_IMAGES_PER_REQUEST = Math.max(1, Number(process.env.MAX_IMAGES_PER_REQUEST || 4));
 
 function writeSse(res, event, data = {}) {
   res.write(`event: ${event}\n`);
@@ -33,8 +35,13 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
   const targetUrl = resolveApiUrl(body.imageBaseUrl || body.baseUrl);
   await assertAllowedUpstreamUrl(targetUrl);
   const payload = buildImagePayload(body);
+  if (!Number.isInteger(payload.n) || payload.n < 1 || payload.n > MAX_IMAGES_PER_REQUEST) {
+    throw new Error(`n must be an integer between 1 and ${MAX_IMAGES_PER_REQUEST}.`);
+  }
 
-  // 配额拦截：管理员豁免，其他用户按 daily/monthly/storage 检查。
+  let releaseQuotaSlot = null;
+
+  // 配额拦截：管理员豁免，其他用户按 daily/monthly/storage/concurrent 检查。
   if (userInfo.role !== 'admin') {
     const check = assertCanGenerate(userInfo.id, { n: payload.n || 1 });
     if (!check.ok) {
@@ -45,84 +52,98 @@ async function runImageGeneration(body, userInfo, { signal, onProgress } = {}) {
       });
       return { status: 429, body: { error: check.message, code: check.code } };
     }
+    const slot = tryAcquireConcurrentSlot(userInfo.id);
+    if (!slot.ok) {
+      logger.warn('image.generate.quota_exceeded', {
+        userId: userInfo.id,
+        code: slot.code,
+        model: payload.model
+      });
+      return { status: 429, body: { error: slot.message, code: slot.code } };
+    }
+    releaseQuotaSlot = slot.release;
   }
 
-  logger.info('image.generate.request', {
-    targetUrl,
-    model: payload.model,
-    profileName: body.name,
-    apiKey: maskApiKey(apiKey)
-  });
-  onProgress?.({
-    stage: 'upstream',
-    message: `正在调用 ${payload.model}，连接会持续保活…`,
-    elapsedMs: Date.now() - started
-  });
-
-  const { ok, status, data, durationMs } = await callUpstream({
-    targetUrl,
-    apiKey,
-    payload,
-    signal,
-    timeoutMs: DEFAULT_IMAGE_TIMEOUT_MS
-  });
-
-  if (!ok) {
-    const errMsg = data?.error?.message || data?.message || `Request failed with ${status}`;
-    logger.error('image.generate.failed', {
-      status, durationMs, model: payload.model, error: errMsg
-    });
-    recordFailure(userInfo.id);
-    return { status, body: { error: errMsg } };
-  }
-
-  onProgress?.({
-    stage: 'saving',
-    message: '上游已返回，正在保存图片到本地…',
-    elapsedMs: Date.now() - started
-  });
-
-  const imageItems = Array.isArray(data?.data) ? data.data : [];
-  let saved = [];
   try {
-    const saveResult = await saveGeneratedImages(
-      imageItems,
-      {
-        prompt: payload.prompt,
+    logger.info('image.generate.request', {
+      targetUrl,
+      model: payload.model,
+      profileName: body.name,
+      apiKey: maskApiKey(apiKey)
+    });
+    onProgress?.({
+      stage: 'upstream',
+      message: `正在调用 ${payload.model}，连接会持续保活…`,
+      elapsedMs: Date.now() - started
+    });
+
+    const { ok, status, data, durationMs } = await callUpstream({
+      targetUrl,
+      apiKey,
+      payload,
+      signal,
+      timeoutMs: DEFAULT_IMAGE_TIMEOUT_MS
+    });
+
+    if (!ok) {
+      const errMsg = data?.error?.message || data?.message || `Request failed with ${status}`;
+      logger.error('image.generate.failed', {
+        status, durationMs, model: payload.model, error: errMsg
+      });
+      recordFailure(userInfo.id);
+      return { status, body: { error: errMsg } };
+    }
+
+    onProgress?.({
+      stage: 'saving',
+      message: '上游已返回，正在保存图片到本地…',
+      elapsedMs: Date.now() - started
+    });
+
+    const imageItems = Array.isArray(data?.data) ? data.data : [];
+    let saved = [];
+    try {
+      const saveResult = await saveGeneratedImages(
+        imageItems,
+        {
+          prompt: payload.prompt,
+          model: payload.model,
+          size: body.size || '',
+          quality: body.quality || '',
+          outputFormat: body.output_format || '',
+          profileName: body.name || ''
+        },
+        { userId: userInfo.id }
+      );
+      saved = saveResult.saved;
+      if (Array.isArray(data?.data)) data.data = saveResult.items;
+    } catch (saveError) {
+      logger.warn('image.generate.save_failed', {
         model: payload.model,
-        size: body.size || '',
-        quality: body.quality || '',
-        outputFormat: body.output_format || '',
-        profileName: body.name || ''
-      },
-      { userId: userInfo.id }
-    );
-    saved = saveResult.saved;
-    if (Array.isArray(data?.data)) data.data = saveResult.items;
-  } catch (saveError) {
-    logger.warn('image.generate.save_failed', {
+        imageCount: imageItems.length,
+        error: saveError.message || String(saveError)
+      });
+    }
+
+    // 用量记账：成功调用计 1 次 + 实际入库的图数 / 字节数
+    const savedBytes = saved.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
+    recordSuccess(userInfo.id, {
+      calls: 1,
+      images: saved.length || imageItems.length || 0,
+      bytes: savedBytes
+    });
+
+    logger.info('image.generate.success', {
+      status, durationMs,
       model: payload.model,
       imageCount: imageItems.length,
-      error: saveError.message || String(saveError)
+      savedCount: saved.length
     });
+
+    return { status: 200, body: { ...data, saved } };
+  } finally {
+    releaseQuotaSlot?.();
   }
-
-  // 用量记账：成功调用计 1 次 + 实际入库的图数 / 字节数
-  const savedBytes = saved.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
-  recordSuccess(userInfo.id, {
-    calls: 1,
-    images: saved.length || imageItems.length || 0,
-    bytes: savedBytes
-  });
-
-  logger.info('image.generate.success', {
-    status, durationMs,
-    model: payload.model,
-    imageCount: imageItems.length,
-    savedCount: saved.length
-  });
-
-  return { status: 200, body: { ...data, saved } };
 }
 
 export async function handleGenerate(req, res) {
@@ -143,7 +164,7 @@ export async function handleGenerate(req, res) {
       baseUrl: body?.imageBaseUrl || body?.baseUrl,
       error: error.message || String(error)
     });
-    return sendJson(res, 400, { error: error.message || String(error) });
+    return sendJson(res, bodyErrorStatus(error), { error: error.message || String(error) });
   }
 }
 
@@ -158,7 +179,7 @@ export async function handleGenerateStream(req, res) {
   try {
     body = await readJsonBody(req);
   } catch (error) {
-    return sendJson(res, 400, { error: error.message || String(error) });
+    return sendJson(res, bodyErrorStatus(error), { error: error.message || String(error) });
   }
 
   res.writeHead(200, {
@@ -221,7 +242,7 @@ export async function handleGenerateStream(req, res) {
       baseUrl: body?.imageBaseUrl || body?.baseUrl,
       error: error.message || String(error)
     });
-    writeSse(res, 'error', { status: 400, error: error.message || String(error) });
+    writeSse(res, 'error', { status: bodyErrorStatus(error), error: error.message || String(error) });
     completed = true;
     return res.end();
   } finally {

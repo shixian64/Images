@@ -1,7 +1,7 @@
 // /api/users* 路由：仅 admin 可用。
 // TAG: hmt---
 
-import { sendJson, readJsonBody } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listUsers,
@@ -54,8 +54,8 @@ async function handleCollection(req, res, urlObj) {
   }
   if (req.method === 'POST') {
     let body;
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { error: 'invalid json' });
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
       return;
     }
     try {
@@ -88,8 +88,8 @@ async function handleDetail(req, res, id) {
 
   if (method === 'PATCH') {
     let body;
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { error: 'invalid json' });
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
       return;
     }
     const { role, status } = body || {};
@@ -129,7 +129,13 @@ async function handleAction(req, res, id, action) {
 
   if (action === 'reset-password') {
     let body = {};
-    try { body = await readJsonBody(req); } catch { /* 可空 */ }
+    try { body = await readJsonBody(req); } catch (err) {
+      if (bodyErrorStatus(err) === 413) {
+        sendJson(res, 413, { error: err.message });
+        return;
+      }
+      /* 可空 */
+    }
     try {
       const result = resetPasswordByAdmin(req.session.user.id, id, body || {});
       auditRecord(req, 'user.reset_password', { type: 'user', id }, {

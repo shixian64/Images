@@ -2,7 +2,7 @@
 // 列表（带筛选/分页）、单张/批量删除、统计、孤儿扫描与清理。
 // TAG: hmt---
 
-import { sendJson, readJsonBody } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listGallery,
@@ -124,8 +124,8 @@ async function handleDeleteOne(req, res, id) {
 
 async function handleBulkDelete(req, res) {
   let body = {};
-  try { body = await readJsonBody(req); } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  try { body = await readJsonBody(req); } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const ids = Array.isArray(body?.ids) ? body.ids.filter((x) => typeof x === 'string') : [];
@@ -157,8 +157,8 @@ async function handleOrphans(req, res, urlObj) {
 
 async function handleDeleteDangling(req, res) {
   let body = {};
-  try { body = await readJsonBody(req); } catch {
-    sendJson(res, 400, { error: 'invalid json' });
+  try { body = await readJsonBody(req); } catch (err) {
+    sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' });
     return;
   }
   const path = String(body?.path || '');
