@@ -2,7 +2,7 @@
 // 对应 docs/PRODUCT_DESIGN.md §13.1 第 4 条：把尺寸/质量等选项抽成常量。
 
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
-export const DEFAULT_CHAT_MODEL = 'gpt-4.1-mini';
+export const DEFAULT_CHAT_MODEL = 'gpt-5.5';
 
 // 兼容旧代码 / 旧 localStorage 字段名；新代码请优先使用 DEFAULT_IMAGE_MODEL。
 export const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;

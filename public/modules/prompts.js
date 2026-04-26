@@ -15,6 +15,7 @@ const SOURCE_LABEL = {
   builder: '构造器',
   studio: '生成页',
   manual: '手动',
+  optimizer: '优化',
   square: '广场',
   seed: '精选'
 };

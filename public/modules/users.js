@@ -82,7 +82,7 @@ function globalEndpoint(kind) {
     apiKey: '',
     hasApiKey: endpoint.hasApiKey === undefined ? null : Boolean(endpoint.hasApiKey),
     maskedApiKey: endpoint.maskedApiKey || '',
-    defaultModel: endpoint.defaultModel || (kind === 'chat' ? 'gpt-4.1-mini' : 'gpt-image-2'),
+    defaultModel: endpoint.defaultModel || (kind === 'chat' ? 'gpt-5.5' : 'gpt-image-2'),
     testStatus: endpoint.testStatus || 'unknown',
     testLatencyMs: endpoint.testLatencyMs ?? null,
     testedAt: endpoint.testedAt || null,
@@ -127,7 +127,7 @@ function renderGlobalInterfaceSummary() {
   const chat = globalEndpoint('chat');
   host.innerHTML = `
     <span class="chip ${globalInterface.enabled === false ? 'error' : 'ok'}">${globalInterface.enabled === false ? '停用' : '启用'}</span>
-    <span class="chip info">${escapeHtml(globalInterface.name || '示例接口')}</span>
+    <span class="chip info">${escapeHtml(globalInterface.name || '系统默认')}</span>
     <span class="chip">生图 Key：${keyState(image)}</span>
     <span class="chip">对话 Key：${keyState(chat)}</span>
     <span class="chip">生图模型：${escapeHtml(image.defaultModel || '-')}</span>
@@ -142,11 +142,11 @@ function renderGlobalInterfaceForm() {
 
   const enabled = $('globalInterfaceEnabled');
   if (enabled) enabled.checked = globalInterface.enabled !== false;
-  if ($('globalInterfaceName')) $('globalInterfaceName').value = globalInterface.name || '示例接口';
+  if ($('globalInterfaceName')) $('globalInterfaceName').value = globalInterface.name || '系统默认';
   if ($('globalImageBaseUrl')) $('globalImageBaseUrl').value = image.baseUrl || DEFAULT_BASE_URL;
   if ($('globalImageDefaultModel')) $('globalImageDefaultModel').value = image.defaultModel || 'gpt-image-2';
   if ($('globalChatBaseUrl')) $('globalChatBaseUrl').value = chat.baseUrl || DEFAULT_BASE_URL;
-  if ($('globalChatDefaultModel')) $('globalChatDefaultModel').value = chat.defaultModel || 'gpt-4.1-mini';
+  if ($('globalChatDefaultModel')) $('globalChatDefaultModel').value = chat.defaultModel || 'gpt-5.5';
 
   const imageKey = $('globalImageApiKey');
   const chatKey = $('globalChatApiKey');
@@ -184,14 +184,14 @@ function readGlobalInterfaceForm() {
   const chatKey = $('globalChatApiKey')?.value.trim() || '';
   const body = {
     enabled: Boolean($('globalInterfaceEnabled')?.checked),
-    name: $('globalInterfaceName')?.value.trim() || '示例接口',
+    name: $('globalInterfaceName')?.value.trim() || '系统默认',
     image: {
       baseUrl: $('globalImageBaseUrl')?.value.trim() || DEFAULT_BASE_URL,
       defaultModel: $('globalImageDefaultModel')?.value.trim() || 'gpt-image-2'
     },
     chat: {
       baseUrl: $('globalChatBaseUrl')?.value.trim() || DEFAULT_BASE_URL,
-      defaultModel: $('globalChatDefaultModel')?.value.trim() || 'gpt-4.1-mini'
+      defaultModel: $('globalChatDefaultModel')?.value.trim() || 'gpt-5.5'
     }
   };
   if (imageKey) body.image.apiKey = imageKey;

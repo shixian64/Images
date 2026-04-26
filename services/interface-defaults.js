@@ -71,7 +71,7 @@ function normalizeEndpoint(kind, value = {}, previous = null) {
 function normalizeConfig(value = {}, previous = null) {
   const current = previous || {
     enabled: true,
-    name: '示例接口',
+    name: '系统默认',
     image: defaultEndpoint('image'),
     chat: defaultEndpoint('chat'),
     updatedAt: null,
@@ -80,7 +80,7 @@ function normalizeConfig(value = {}, previous = null) {
 
   return {
     enabled: value?.enabled === undefined ? current.enabled !== false : Boolean(value.enabled),
-    name: cleanString(value?.name ?? current.name, '示例接口').slice(0, 80),
+    name: cleanString(value?.name ?? current.name, '系统默认').slice(0, 80),
     image: normalizeEndpoint('image', value?.image || {}, current.image),
     chat: normalizeEndpoint('chat', value?.chat || {}, current.chat),
     updatedAt: value?.updatedAt || current.updatedAt || null,
@@ -148,4 +148,3 @@ export function getSystemEndpoint(kind) {
 export function interfaceDefaultsKey() {
   return SETTINGS_KEY;
 }
-

@@ -61,16 +61,27 @@
             <input id="model" value="gpt-image-2" spellcheck="false" />
           </label>
 
-          <label class="field prompt-field">
-            <span class="field-row">
-              <span>提示词 <kbd>⌘⏎</kbd> 生成</span>
-              <span class="hint-right"><span id="promptCount">0</span> 字符</span>
-            </span>
-            <textarea id="prompt" rows="7"
-              placeholder="描述你想生成的图片：主体、风格、构图、光线、画面中的文字……"
-              aria-describedby="promptHint"></textarea>
-          </label>
-          <p class="hint" id="promptHint">草稿会自动保存到本地；下次回到生成页自动恢复。</p>
+          <div class="prompt-workbench" id="promptWorkbench" data-optimized="false">
+            <label class="field prompt-field">
+              <span class="field-row">
+                <span>提示词 <kbd>⌘⏎</kbd> 生成</span>
+                <span class="hint-right"><span id="promptCount">0</span> 字符</span>
+              </span>
+              <textarea id="prompt" rows="7"
+                placeholder="描述你想生成的图片：主体、风格、构图、光线、画面中的文字……"
+                aria-describedby="promptHint"></textarea>
+            </label>
+            <label class="field prompt-field prompt-optimized-field" id="promptOptimizedField" hidden>
+              <span class="field-row">
+                <span>优化后提示词</span>
+                <span class="hint-right"><span id="optimizedPromptCount">0</span> 字符</span>
+              </span>
+              <textarea id="optimizedPrompt" rows="7"
+                placeholder="点击下方“优化提示词”后，这里会生成更适合生图模型的版本。"
+                aria-describedby="promptHint"></textarea>
+            </label>
+          </div>
+          <p class="hint" id="promptHint">草稿会自动保存到本地；默认使用手动输入，可用下方左右切换选择生成来源；优化完成后会自动切到优化后提示词。</p>
 
           <details class="advanced">
             <summary>高级参数</summary>
@@ -91,6 +102,11 @@
           </details>
 
           <div class="action-row">
+            <div class="prompt-source-switch" role="group" aria-label="选择生成使用的提示词">
+              <button id="useManualPrompt" class="active" type="button" data-prompt-source="manual" aria-pressed="true">手动输入提示词</button>
+              <button id="useOptimizedPrompt" type="button" data-prompt-source="optimized" aria-pressed="false" disabled>优化后提示词</button>
+            </div>
+            <button id="optimizePrompt" class="ghost" type="button">优化提示词</button>
             <button id="generate" class="primary">
               <span>生成</span>
               <kbd class="kbd-inline">⌘⏎</kbd>
@@ -238,6 +254,7 @@
                   <option value="all">全部来源</option>
                   <option value="builder">构造器</option>
                   <option value="studio">生成页</option>
+                  <option value="optimizer">优化</option>
                   <option value="manual">手动</option>
                   <option value="square">广场</option>
                 </select>
@@ -340,7 +357,7 @@
           <div>
             <p class="eyebrow">系统默认接口</p>
             <h3>默认使用管理员配置的全局接口</h3>
-            <p class="hint">配置菜单下方默认展示示例接口；只有开启“覆盖系统默认”后，个人接口才会用于生成。</p>
+            <p class="hint">配置菜单下方默认展示系统默认接口；只有开启“覆盖系统默认”后，个人接口才会用于生成。</p>
           </div>
           <div id="systemDefaultCard" class="system-default-card" aria-live="polite"></div>
           <div class="system-default-actions">
@@ -403,7 +420,7 @@
               <input id="chatApiKey" type="password" placeholder="sk-..." autocomplete="off" />
             </label>
             <label class="field"><span>对话默认模型</span>
-              <input id="chatDefaultModel" placeholder="gpt-4.1-mini" />
+              <input id="chatDefaultModel" placeholder="gpt-5.5" />
             </label>
             <label class="field"><span>对话连通性</span>
               <div class="test-result" id="chatTestResult" data-state="idle">未测试</div>
@@ -586,7 +603,7 @@
                 </label>
               </div>
               <label class="field span-2"><span>默认接口名称</span>
-                <input id="globalInterfaceName" placeholder="示例接口" />
+                <input id="globalInterfaceName" placeholder="系统默认" />
               </label>
 
               <div class="config-section span-2">
@@ -617,7 +634,7 @@
                 <input id="globalChatApiKey" type="password" placeholder="未配置；或留空保留现有密钥" autocomplete="off" />
               </label>
               <label class="field"><span>对话默认模型</span>
-                <input id="globalChatDefaultModel" placeholder="gpt-4.1-mini" />
+                <input id="globalChatDefaultModel" placeholder="gpt-5.5" />
               </label>
               <label class="field"><span>对话连通性</span>
                 <div class="test-result" id="globalChatTestResult" data-state="idle">未测试</div>

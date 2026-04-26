@@ -193,7 +193,7 @@ function migratePromptSquareNullableOwner(db) {
 }
 
 function seedPromptSquareDefaults(db) {
-  const seedKey = 'prompt_square.seed.promptsref_sref_v3';
+  const seedKey = 'prompt_square.seed.promptsref_sref_v4';
   const done = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey);
   if (done) return;
 
@@ -259,7 +259,7 @@ function seedPromptSquareDefaults(db) {
     inserted,
     updated
   }), nowIso());
-  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v3', inserted, updated });
+  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v4', inserted, updated });
 }
 
 function migrateLegacyGallery(db) {

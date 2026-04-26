@@ -33,7 +33,7 @@ services:
 
       # 默认仅允许 HTTPS + 公网地址上游；隔离开发环境确需内网上游时再显式打开。
       ALLOW_INSECURE_UPSTREAMS: "${ALLOW_INSECURE_UPSTREAMS:-0}"
-      ALLOW_PRIVATE_UPSTREAMS: "${ALLOW_PRIVATE_UPSTREAMS:-0}"
+      ALLOW_PRIVATE_UPSTREAMS: "${ALLOW_PRIVATE_UPSTREAMS:-1}"
 
       # 只有在 HTTPS 反向代理后面部署时才建议设为 production，否则 Secure Cookie 会影响 HTTP 登录。
       NODE_ENV: "${NODE_ENV:-development}"

@@ -4,20 +4,26 @@
 import { $, escapeHtml, setStatus } from './dom.js';
 import { KEYS, readStringScoped, writeStringScoped } from './state.js';
 import {
-  DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
+  DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
   estimateDurationMs
 } from '../../shared/constants.js';
-import { getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
+import { getChatConfig, getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 import { apiFetch } from './auth.js';
 
 const GENERATE_TIMEOUT_MS = 10 * 60 * 1000;
+const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
+const PROMPT_SOURCE = Object.freeze({
+  manual: 'manual',
+  optimized: 'optimized'
+});
 
 let studioPreviewItems = [];
 let studioPreviewPrompt = '';
 let previewModal = null;
 let lastPreviewTrigger = null;
+let selectedPromptSource = PROMPT_SOURCE.manual;
 
 function renderSelect(id, items) {
   const el = $(id);
@@ -50,11 +56,69 @@ function updatePromptCount() {
   $('promptCount').textContent = len;
 }
 
+function showOptimizedPromptPane(show = true) {
+  const workbench = $('promptWorkbench');
+  const field = $('promptOptimizedField');
+  if (workbench) workbench.dataset.optimized = show ? 'true' : 'false';
+  if (field) field.hidden = !show;
+  syncPromptSourceToggle();
+}
+
+function updateOptimizedPromptCount() {
+  const el = $('optimizedPromptCount');
+  if (!el) return;
+  el.textContent = ($('optimizedPrompt')?.value || '').length;
+}
+
+function hasOptimizedPrompt() {
+  return Boolean($('optimizedPrompt')?.value.trim()) && !$('promptOptimizedField')?.hidden;
+}
+
+function syncPromptSourceToggle() {
+  const canUseOptimized = hasOptimizedPrompt();
+  if (selectedPromptSource === PROMPT_SOURCE.optimized && !canUseOptimized) {
+    selectedPromptSource = PROMPT_SOURCE.manual;
+  }
+
+  const workbench = $('promptWorkbench');
+  if (workbench) workbench.dataset.promptSource = selectedPromptSource;
+
+  for (const btn of document.querySelectorAll('[data-prompt-source]')) {
+    const source = btn.dataset.promptSource;
+    const active = source === selectedPromptSource;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    if (source === PROMPT_SOURCE.optimized) btn.disabled = !canUseOptimized;
+  }
+}
+
+function selectPromptSource(source) {
+  if (source === PROMPT_SOURCE.optimized && !hasOptimizedPrompt()) {
+    showError('优化后提示词还没有生成，请先点击“优化提示词”。');
+    return;
+  }
+  selectedPromptSource = source === PROMPT_SOURCE.optimized
+    ? PROMPT_SOURCE.optimized
+    : PROMPT_SOURCE.manual;
+  showError('');
+  syncPromptSourceToggle();
+}
+
+function getGenerationPrompt() {
+  if (selectedPromptSource === PROMPT_SOURCE.optimized) {
+    const optimized = $('optimizedPrompt')?.value.trim() || '';
+    return { prompt: optimized, source: 'optimized' };
+  }
+  return { prompt: $('prompt').value.trim(), source: 'original' };
+}
+
 function updateActiveChip() {
   const p = getEffectiveProfile();
   const image = getImageConfig(p);
-  const prefix = usesSystemDefault() ? '系统默认' : '个人覆盖';
-  $('activeConfigName').textContent = p ? `${prefix}：${p.name || '未命名'} · 生图 ${image.baseUrl || ''}` : '-';
+  const mode = usesSystemDefault() ? '系统默认' : '个人覆盖';
+  const name = p?.name || '未命名';
+  $('activeConfigName').textContent = p ? name : '-';
+  $('activeProfileChip')?.setAttribute('title', p ? `${mode} · 生图 ${image.baseUrl || ''}` : '');
   const dot = document.querySelector('#activeProfileChip .dot');
   if (dot) dot.dataset.status = image?.testStatus === 'ok' ? 'ok'
     : image?.testStatus === 'err' ? 'err'
@@ -157,9 +221,6 @@ function renderImages(items, prompt) {
   const altBase = escapeHtml((prompt || '').slice(0, 100));
   gallery.innerHTML = items.map((item, index) => {
     const src = imageSrcFromItem(item);
-    const revised = item.revised_prompt
-      ? `<p class="revised">${escapeHtml(item.revised_prompt)}</p>`
-      : '';
     const stem = `image-${Date.now()}-${index + 1}`;
     const downloadName = item.file_name || `${stem}.png`;
     const saveError = item.save_error
@@ -172,7 +233,6 @@ function renderImages(items, prompt) {
       <div class="card-actions">
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
       </div>
-      ${revised}
       ${saveError}
     </article>`;
   }).join('');
@@ -272,6 +332,150 @@ async function requestGenerate(payload, controller, started) {
   return data;
 }
 
+function buildPromptOptimizationMessages(prompt) {
+  return [
+    {
+      role: 'system',
+      content: [
+        '你是专业的 AI 生图提示词优化助手。',
+        '将用户的中文想法改写成更稳定、更具体、更适合图像生成模型的提示词。',
+        '保留用户明确指定的主体、风格、构图、文字、禁忌和语种；不要改变核心意图。',
+        '补足画面主体、环境、构图、镜头、光线、色彩、材质、细节和负面约束。',
+        '只输出优化后的完整提示词，不要解释，不要 Markdown，不要编号。'
+      ].join('\n')
+    },
+    {
+      role: 'user',
+      content: `请优化下面的生图提示词：\n\n${prompt}`
+    }
+  ];
+}
+
+function extractChatText(data = {}) {
+  const message = data?.choices?.[0]?.message;
+  const content = message?.content ?? data?.choices?.[0]?.text ?? data?.output_text ?? data?.content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        return part?.text || part?.content || '';
+      })
+      .join('');
+  }
+  return String(content || '');
+}
+
+function cleanOptimizedPrompt(text) {
+  let value = String(text || '').trim();
+  const fence = value.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
+  if (fence) value = fence[1].trim();
+  const quotePairs = [
+    ['"', '"'],
+    ['“', '”'],
+    ["'", "'"]
+  ];
+  for (const [left, right] of quotePairs) {
+    if (value.startsWith(left) && value.endsWith(right)) {
+      value = value.slice(left.length, -right.length).trim();
+      break;
+    }
+  }
+  return value;
+}
+
+async function optimizePrompt() {
+  showError('');
+  const profile = getEffectiveProfile();
+  const chat = getChatConfig(profile);
+  const systemMode = usesSystemDefault();
+  if (!profile) return showError('请先在"配置"页面创建接口配置。');
+  if (profile.status !== 'active') return showError(systemMode
+    ? '系统默认接口未启用，请联系管理员或在"配置"页面启用个人覆盖。'
+    : '当前接口未启用，请在"配置"页面切换为"启用"。');
+  if (systemMode && chat.hasApiKey === false) {
+    return showError('系统默认对话接口缺少 API Key，请联系管理员或在"配置"页面启用个人覆盖。');
+  }
+  if (!systemMode && !chat.apiKey) return showError('当前配置缺少对话 API Key。');
+
+  const sourcePrompt = $('prompt').value.trim();
+  if (!sourcePrompt) return showError('请先填写需要优化的提示词。');
+
+  showOptimizedPromptPane(true);
+  $('optimizedPrompt').value = '';
+  updateOptimizedPromptCount();
+  syncPromptSourceToggle();
+
+  const payload = {
+    name: profile.name,
+    useSystemDefault: systemMode,
+    model: chat.defaultModel || DEFAULT_CHAT_MODEL,
+    messages: buildPromptOptimizationMessages(sourcePrompt)
+  };
+  if (!systemMode) {
+    payload.chatBaseUrl = chat.baseUrl;
+    payload.chatApiKey = chat.apiKey;
+  }
+
+  const button = $('optimizePrompt');
+  button.disabled = true;
+  setStatus('优化提示词中…', 'busy');
+  showProgress(`正在调用对话模型 ${payload.model} 优化提示词…`);
+
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROMPT_OPTIMIZE_TIMEOUT_MS);
+  try {
+    const resp = await apiFetch('/api/chat', {
+      method: 'POST',
+      body: payload,
+      signal: controller.signal
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    const optimized = cleanOptimizedPrompt(extractChatText(data));
+    if (!optimized) throw new Error('对话模型没有返回优化后的提示词。');
+    $('optimizedPrompt').value = optimized;
+    updateOptimizedPromptCount();
+    selectPromptSource(PROMPT_SOURCE.optimized);
+
+    const durationMs = Date.now() - started;
+    addPromptHistory(optimized, {
+      source: 'optimizer',
+      title: optimized.slice(0, 28),
+      tags: ['优化'],
+      model: payload.model
+    });
+    addLog('info', 'prompt.optimize.success', {
+      model: payload.model,
+      profileName: profile.name,
+      interfaceMode: systemMode ? 'system' : 'custom',
+      durationMs,
+      sourceLength: sourcePrompt.length,
+      optimizedLength: optimized.length
+    });
+    setStatus(`提示词已优化 · ${durationMs}ms`, 'ok', 2000);
+  } catch (err) {
+    const durationMs = Date.now() - started;
+    const message = err.name === 'AbortError'
+      ? '提示词优化请求超时，请稍后重试或检查对话接口配置。'
+      : (err.message || String(err));
+    showError(message);
+    addLog('error', 'prompt.optimize.failed', {
+      model: payload.model,
+      profileName: profile.name,
+      interfaceMode: systemMode ? 'system' : 'custom',
+      durationMs,
+      error: message
+    });
+    setStatus('优化失败', 'err', 2000);
+  } finally {
+    clearTimeout(timeoutId);
+    button.disabled = false;
+    showProgress('');
+  }
+}
+
 async function generate({ onSavedImages } = {}) {
   showError('');
   const profile = getEffectiveProfile();
@@ -286,8 +490,11 @@ async function generate({ onSavedImages } = {}) {
   }
   if (!systemMode && !image.apiKey) return showError('当前配置缺少生图 API Key。');
 
-  const prompt = $('prompt').value.trim();
-  if (!prompt) return showError('请填写提示词。');
+  const promptInfo = getGenerationPrompt();
+  const prompt = promptInfo.prompt;
+  if (!prompt) return showError(promptInfo.source === 'optimized'
+    ? '当前选择的是优化后提示词，请先点击“优化提示词”生成内容，或切回“手动输入提示词”。'
+    : '请填写手动输入提示词。');
 
   const payload = {
     name: profile.name,
@@ -311,7 +518,8 @@ async function generate({ onSavedImages } = {}) {
     model: payload.model,
     size: payload.size,
     quality: payload.quality,
-    outputFormat: payload.output_format
+    outputFormat: payload.output_format,
+    promptSource: promptInfo.source
   });
 
   $('generate').disabled = true;
@@ -340,7 +548,8 @@ async function generate({ onSavedImages } = {}) {
       imageCount: items.length,
       size: payload.size,
       quality: payload.quality,
-      prompt
+      prompt,
+      promptSource: promptInfo.source
     });
     setStatus(`完成 · ${durationMs}ms`, 'ok', 2000);
   } catch (err) {
@@ -356,7 +565,8 @@ async function generate({ onSavedImages } = {}) {
       interfaceMode: systemMode ? 'system' : 'custom',
       durationMs,
       error: message,
-      prompt
+      prompt,
+      promptSource: promptInfo.source
     });
     setStatus('失败', 'err', 2000);
   } finally {
@@ -370,8 +580,13 @@ async function generate({ onSavedImages } = {}) {
 export function loadPromptFromLog(prompt) {
   if (!prompt) return;
   $('prompt').value = prompt;
+  if ($('optimizedPrompt')) $('optimizedPrompt').value = '';
+  showOptimizedPromptPane(false);
+  selectedPromptSource = PROMPT_SOURCE.manual;
   writeStringScoped(KEYS.promptDraft, prompt);
   updatePromptCount();
+  updateOptimizedPromptCount();
+  syncPromptSourceToggle();
 }
 
 export function mountStudioPanel({ onSavedImages } = {}) {
@@ -381,6 +596,8 @@ export function mountStudioPanel({ onSavedImages } = {}) {
   const draft = readStringScoped(KEYS.promptDraft, '');
   if (draft) $('prompt').value = draft;
   updatePromptCount();
+  updateOptimizedPromptCount();
+  syncPromptSourceToggle();
   updateEstimate();
   updateActiveChip();
 
@@ -394,11 +611,20 @@ export function mountStudioPanel({ onSavedImages } = {}) {
     updatePromptCount();
     writeStringScoped(KEYS.promptDraft, $('prompt').value);
   });
+  $('optimizedPrompt')?.addEventListener('input', () => {
+    updateOptimizedPromptCount();
+    syncPromptSourceToggle();
+  });
+
+  for (const btn of document.querySelectorAll('[data-prompt-source]')) {
+    btn.addEventListener('click', () => selectPromptSource(btn.dataset.promptSource));
+  }
 
   // 标记用户手动改过 model，之后 profile 切换不再覆盖
   $('model').addEventListener('input', () => { $('model').dataset.userEdited = '1'; });
 
   $('generate').addEventListener('click', () => generate({ onSavedImages }));
+  $('optimizePrompt')?.addEventListener('click', optimizePrompt);
   $('gallery').addEventListener('click', (ev) => {
     const trigger = ev.target.closest('.image-preview-trigger');
     if (!trigger) return;

@@ -10,9 +10,14 @@ const MAX_TITLE_LEN = 120;
 const MAX_PROMPT_LEN = 12_000;
 const MAX_TAGS = 8;
 const MAX_TAG_LEN = 32;
+const STYLE_REFERENCE_RE = /\s*风格参考\s*[:：]\s*--sref\s+[\w-]+\s*$/i;
 
 function trimText(value, max = 1000) {
   return String(value || '').trim().slice(0, max);
+}
+
+function stripStyleReference(value) {
+  return String(value || '').replace(STYLE_REFERENCE_RE, '').trim();
 }
 
 function deriveTitle(prompt) {
@@ -85,7 +90,7 @@ function mapSquareRow(row, viewerId) {
     id: row.id,
     sourcePromptId: row.source_prompt_id || '',
     title: row.title,
-    prompt: row.prompt,
+    prompt: stripStyleReference(row.prompt),
     tags: Array.isArray(tags) ? tags : [],
     source: row.source || 'manual',
     meta,
@@ -104,7 +109,7 @@ function mapSquareRow(row, viewerId) {
 }
 
 function validatePublishPayload(body) {
-  const prompt = trimText(body?.prompt, MAX_PROMPT_LEN + 1);
+  const prompt = stripStyleReference(trimText(body?.prompt, MAX_PROMPT_LEN + 1));
   if (!prompt) throw new Error('prompt is required');
   if (prompt.length > MAX_PROMPT_LEN) throw new Error(`prompt too long (max ${MAX_PROMPT_LEN} characters)`);
 

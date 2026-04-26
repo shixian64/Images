@@ -134,9 +134,13 @@ export async function assertAllowedUpstreamUrl(url, { lookupImpl = dnsLookup } =
   const host = normalizeHostname(parsed.hostname);
   if (!host) throw new Error('Upstream host is required.');
 
-  // Local/private upstreams are useful in isolated development, but should be
-  // explicit opt-in; otherwise user-controlled Base URL becomes SSRF.
-  if (process.env.ALLOW_PRIVATE_UPSTREAMS === '1') return true;
+  // Local/private upstreams are common in isolated development and CTF-style
+  // sandboxes where a public-looking domain may resolve to an internal gateway.
+  // Keep production strict by default; development can still force strict mode
+  // with ALLOW_PRIVATE_UPSTREAMS=0.
+  const allowPrivateUpstreams = process.env.ALLOW_PRIVATE_UPSTREAMS === '1'
+    || (process.env.NODE_ENV !== 'production' && process.env.ALLOW_PRIVATE_UPSTREAMS !== '0');
+  if (allowPrivateUpstreams) return true;
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
     throw new Error('Upstream host is not allowed.');

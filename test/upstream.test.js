@@ -10,6 +10,23 @@ import {
   resolveModelsUrl
 } from '../services/upstream.js';
 
+async function withEnv(patch, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 // --- resolveApiUrl ---
 
 test('resolveApiUrl 追加 /v1/images/generations', () => {
@@ -49,21 +66,33 @@ test('assertAllowedUpstreamUrl 默认拒绝 HTTP 上游', async () => {
   }), /https/);
 });
 
-test('assertAllowedUpstreamUrl 拒绝 localhost / 私网 IP / 解析到私网的域名', async () => {
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://localhost/v1/models'), /not allowed/);
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://127.0.0.1/v1/models'), /not allowed/);
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://10.0.0.1/v1/models'), /not allowed/);
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
-    lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
-  }), /private address/);
+test('assertAllowedUpstreamUrl rejects localhost and private upstreams in production', async () => {
+  await withEnv({ NODE_ENV: 'production', ALLOW_PRIVATE_UPSTREAMS: '0' }, async () => {
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://localhost/v1/models'), /not allowed/);
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://127.0.0.1/v1/models'), /not allowed/);
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://10.0.0.1/v1/models'), /not allowed/);
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
+      lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
+    }), /private address/);
+  });
 });
 
-test('assertAllowedUpstreamUrl rejects private IPv4-mapped IPv6 addresses', async () => {
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:127.0.0.1]/v1/models'), /not allowed/);
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:169.254.169.254]/v1/models'), /not allowed/);
-  await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
-    lookupImpl: async () => [{ address: '::ffff:7f00:1', family: 6 }]
-  }), /private address/);
+test('assertAllowedUpstreamUrl allows private upstreams by default in development', async () => {
+  await withEnv({ NODE_ENV: 'development', ALLOW_PRIVATE_UPSTREAMS: undefined }, async () => {
+    await assert.doesNotReject(() => assertAllowedUpstreamUrl('https://internal.example/v1/models', {
+      lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
+    }));
+  });
+});
+
+test('assertAllowedUpstreamUrl rejects private IPv4-mapped IPv6 addresses in production', async () => {
+  await withEnv({ NODE_ENV: 'production', ALLOW_PRIVATE_UPSTREAMS: '0' }, async () => {
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:127.0.0.1]/v1/models'), /not allowed/);
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://[::ffff:169.254.169.254]/v1/models'), /not allowed/);
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://evil.example/v1/models', {
+      lookupImpl: async () => [{ address: '::ffff:7f00:1', family: 6 }]
+    }), /private address/);
+  });
 });
 
 test('callUpstream disables automatic fetch redirects', async () => {
@@ -140,7 +169,7 @@ test('buildChatPayload 需要 messages 或 prompt', () => {
 
 test('buildChatPayload 支持 prompt 简写并使用默认对话模型', () => {
   const p = buildChatPayload({ prompt: 'hello' });
-  assert.equal(p.model, 'gpt-4.1-mini');
+  assert.equal(p.model, 'gpt-5.5');
   assert.deepEqual(p.messages, [{ role: 'user', content: 'hello' }]);
 });
 
