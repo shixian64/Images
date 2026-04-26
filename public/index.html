@@ -115,7 +115,16 @@
           </div>
 
           <div id="error" class="error" hidden role="alert"></div>
-          <div id="progress" class="progress" hidden aria-live="polite"></div>
+          <div class="progress-grid" aria-label="任务状态" hidden>
+            <div id="optimizeProgress" class="progress progress-task" data-task="optimize" hidden aria-live="polite">
+              <strong>提示词优化</strong>
+              <span data-progress-message></span>
+            </div>
+            <div id="generateProgress" class="progress progress-task" data-task="generate" hidden aria-live="polite">
+              <strong>生图</strong>
+              <span data-progress-message></span>
+            </div>
+          </div>
 
           <section class="gallery-section">
             <h3 class="section-title">结果</h3>

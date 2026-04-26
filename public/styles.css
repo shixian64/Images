@@ -423,7 +423,14 @@ pre::-webkit-scrollbar-corner,
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
-.prompt-field textarea { min-height: 140px; font-family: var(--font-mono); font-size: 13.5px; }
+.prompt-field textarea {
+  min-height: 140px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
 
 .prompt-workbench {
   display: grid;
@@ -443,8 +450,11 @@ pre::-webkit-scrollbar-corner,
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
 .prompt-optimized-field textarea {
+  min-height: 168px;
   background: color-mix(in srgb, var(--brand-soft) 22%, var(--surface));
   border-color: color-mix(in srgb, var(--brand) 30%, var(--border));
+  line-height: 1.78;
+  letter-spacing: 0.01em;
 }
 .prompt-optimized-field .field-row > span:first-child::before {
   content: '✨ ';
@@ -592,6 +602,46 @@ button.danger:hover { background: var(--danger-soft); }
   font-size: 18px;
   line-height: 1;
 }
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+.progress-grid[hidden] { display: none; }
+.progress-grid:has(.progress-task[hidden]:first-child):has(.progress-task[hidden]:last-child) {
+  display: none;
+}
+.progress-task {
+  margin: 0;
+  min-height: 42px;
+  align-items: flex-start;
+}
+.progress-task strong {
+  flex: 0 0 auto;
+  padding-right: 8px;
+  color: var(--text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.progress-task [data-progress-message] {
+  min-width: 0;
+  color: inherit;
+  word-break: break-word;
+}
+.progress-task[data-task="optimize"] {
+  background: color-mix(in srgb, var(--brand-soft) 86%, var(--surface));
+  color: var(--brand);
+}
+.progress-task[data-task="generate"] {
+  background: color-mix(in srgb, var(--success-soft) 72%, var(--surface));
+  color: var(--success);
+}
+@media (max-width: 720px) {
+  .progress-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 /* ============================================================
    Gallery
@@ -640,6 +690,8 @@ button.danger:hover { background: var(--danger-soft); }
 
 .image-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -661,6 +713,7 @@ button.danger:hover { background: var(--danger-soft); }
 
 .image-card .image-preview-trigger {
   display: block;
+  flex: 0 0 auto;
   width: 100%;
   padding: 0;
   border: 0;
@@ -678,12 +731,24 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .image-card .image-meta {
   padding: 10px 12px;
+  min-height: 34px;
   font-size: 12px;
   color: var(--text-muted);
   display: flex; justify-content: space-between; gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.image-card .image-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-card .image-meta span:last-child {
+  flex: 0 0 auto;
 }
 .image-card .compact-meta {
+  min-height: 28px;
   padding-top: 0;
   color: var(--text-faint);
 }
@@ -697,6 +762,8 @@ button.danger:hover { background: var(--danger-soft); }
 .image-card .prompt-preview {
   padding: 0 12px 10px;
   margin: 0;
+  min-height: calc(1.55em * 3 + 10px);
+  max-height: calc(1.55em * 3 + 10px);
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.55;
@@ -704,6 +771,11 @@ button.danger:hover { background: var(--danger-soft); }
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+.image-card .prompt-preview.is-empty {
+  color: var(--text-faint);
 }
 .image-card .saved-badge {
   color: var(--success);
@@ -727,6 +799,10 @@ button.danger:hover { background: var(--danger-soft); }
   border-radius: 6px;
   cursor: pointer;
   text-decoration: none;
+}
+.image-card .card-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 body.preview-open { overflow: hidden; }

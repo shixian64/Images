@@ -135,11 +135,22 @@ function showError(message) {
   el.textContent = message || '';
 }
 
-function showProgress(message) {
-  const el = $('progress');
-  if (!message) { el.hidden = true; el.textContent = ''; return; }
+function showTaskProgress(kind, message) {
+  const el = kind === 'optimize' ? $('optimizeProgress') : $('generateProgress');
+  if (!el) return;
+  const grid = el.closest('.progress-grid');
+  const messageEl = el.querySelector('[data-progress-message]');
+  if (!message) {
+    el.hidden = true;
+    if (messageEl) messageEl.textContent = '';
+    if (grid) {
+      grid.hidden = !Array.from(grid.querySelectorAll('.progress-task')).some((item) => !item.hidden);
+    }
+    return;
+  }
   el.hidden = false;
-  el.textContent = message;
+  if (grid) grid.hidden = false;
+  if (messageEl) messageEl.textContent = message;
 }
 
 function imageSrcFromItem(item) {
@@ -312,7 +323,7 @@ async function requestGenerate(payload, controller, started) {
         onProgress: (event) => {
           const elapsedMs = Number(event?.elapsedMs) || (Date.now() - started);
           const elapsed = Math.max(1, Math.round(elapsedMs / 1000));
-          showProgress(`${event?.message || '仍在生成中…'}（${elapsed}s）`);
+          showTaskProgress('generate', `${event?.message || '仍在生成中…'}（${elapsed}s）`);
         }
       });
     }
@@ -341,6 +352,7 @@ function buildPromptOptimizationMessages(prompt) {
         '将用户的中文想法改写成更稳定、更具体、更适合图像生成模型的提示词。',
         '保留用户明确指定的主体、风格、构图、文字、禁忌和语种；不要改变核心意图。',
         '补足画面主体、环境、构图、镜头、光线、色彩、材质、细节和负面约束。',
+        '按 3-5 个自然段组织输出，每段聚焦一个维度，段落之间用空行分隔。',
         '只输出优化后的完整提示词，不要解释，不要 Markdown，不要编号。'
       ].join('\n')
     },
@@ -383,6 +395,72 @@ function cleanOptimizedPrompt(text) {
   return value;
 }
 
+function splitLongParagraph(paragraph, maxLength = 96) {
+  const text = String(paragraph || '').trim();
+  if (!text || text.length <= maxLength) return text ? [text] : [];
+
+  const parts = text.match(/[^，,、]+[，,、]?/g) || [text];
+  const chunks = [];
+  let current = '';
+
+  for (const part of parts) {
+    const piece = part.trim();
+    if (!piece) continue;
+    if (current && current.length + piece.length > maxLength) {
+      chunks.push(current.trim());
+      current = piece;
+    } else {
+      current += piece;
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+function formatOptimizedPromptParagraphs(text) {
+  const value = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!value) return '';
+
+  const blocks = value
+    .split(/\n{2,}/)
+    .map((block) => block.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean);
+
+  const paragraphs = [];
+  for (const block of blocks.length ? blocks : [value]) {
+    const sentences = block.match(/[^。！？!?；;：:]+[。！？!?；;：:]?/g) || [block];
+    let current = '';
+
+    for (const sentence of sentences) {
+      const piece = sentence.trim();
+      if (!piece) continue;
+      if (current && current.length + piece.length > 110) {
+        paragraphs.push(...splitLongParagraph(current));
+        current = piece;
+      } else {
+        current += piece;
+      }
+
+      if (/[。！？!?；;：:]$/.test(piece) && current.length >= 38) {
+        paragraphs.push(...splitLongParagraph(current));
+        current = '';
+      }
+    }
+
+    if (current.trim()) paragraphs.push(...splitLongParagraph(current));
+  }
+
+  return paragraphs
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 async function optimizePrompt() {
   showError('');
   const profile = getEffectiveProfile();
@@ -419,7 +497,7 @@ async function optimizePrompt() {
   const button = $('optimizePrompt');
   button.disabled = true;
   setStatus('优化提示词中…', 'busy');
-  showProgress(`正在调用对话模型 ${payload.model} 优化提示词…`);
+  showTaskProgress('optimize', `正在调用对话模型 ${payload.model} 优化提示词…`);
 
   const started = Date.now();
   const controller = new AbortController();
@@ -433,7 +511,7 @@ async function optimizePrompt() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
-    const optimized = cleanOptimizedPrompt(extractChatText(data));
+    const optimized = formatOptimizedPromptParagraphs(cleanOptimizedPrompt(extractChatText(data)));
     if (!optimized) throw new Error('对话模型没有返回优化后的提示词。');
     $('optimizedPrompt').value = optimized;
     updateOptimizedPromptCount();
@@ -472,7 +550,7 @@ async function optimizePrompt() {
   } finally {
     clearTimeout(timeoutId);
     button.disabled = false;
-    showProgress('');
+    showTaskProgress('optimize', '');
   }
 }
 
@@ -524,7 +602,7 @@ async function generate({ onSavedImages } = {}) {
 
   $('generate').disabled = true;
   setStatus('生成中…', 'busy');
-  showProgress(`正在调用 ${payload.model} …`);
+  showTaskProgress('generate', `正在调用 ${payload.model} …`);
 
   const started = Date.now();
   const controller = new AbortController();
@@ -572,7 +650,7 @@ async function generate({ onSavedImages } = {}) {
   } finally {
     clearTimeout(timeoutId);
     $('generate').disabled = false;
-    showProgress('');
+    showTaskProgress('generate', '');
   }
 }
 
