@@ -100,19 +100,37 @@ function detectImageType(buffer, { contentType = '', fallbackFormat = 'png', req
   return { ext, mimeType: MIME_BY_EXT[ext] || 'image/png' };
 }
 
-function parseBase64Image(raw) {
+function estimateBase64DecodedBytes(base64) {
+  const compact = String(base64 || '').replace(/\s+/g, '');
+  if (!compact) return 0;
+  const padding = compact.endsWith('==') ? 2 : compact.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+}
+
+function decodeBase64Image(base64, maxBytes) {
+  if (maxBytes && estimateBase64DecodedBytes(base64) > maxBytes) {
+    throw new Error(`decoded image too large (max ${maxBytes} bytes)`);
+  }
+  const buffer = Buffer.from(base64, 'base64');
+  if (maxBytes && buffer.length > maxBytes) {
+    throw new Error(`decoded image too large (max ${maxBytes} bytes)`);
+  }
+  return buffer;
+}
+
+function parseBase64Image(raw, { maxBytes = maxImageDownloadBytes() } = {}) {
   const text = String(raw || '').trim();
   if (!text) return null;
 
   const dataUrlMatch = text.match(/^data:([^;,]+)?;base64,(.+)$/i);
   if (dataUrlMatch) {
     return {
-      buffer: Buffer.from(dataUrlMatch[2], 'base64'),
+      buffer: decodeBase64Image(dataUrlMatch[2], maxBytes),
       contentType: dataUrlMatch[1] || ''
     };
   }
 
-  return { buffer: Buffer.from(text, 'base64'), contentType: '' };
+  return { buffer: decodeBase64Image(text, maxBytes), contentType: '' };
 }
 
 // relPath 形如 users/<uid>/images/<date>/<file> 或旧路径 images/<date>/<file>。

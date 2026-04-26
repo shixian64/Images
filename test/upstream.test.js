@@ -127,6 +127,20 @@ test('callUpstream disables automatic fetch redirects', async () => {
   assert.equal(result.ok, true);
 });
 
+test('callUpstream rejects upstream responses over byte limit', async () => {
+  await withEnv({ MAX_UPSTREAM_RESPONSE_BYTES: '8' }, async () => {
+    await assert.rejects(
+      () => callUpstream({
+        targetUrl: 'https://gateway.example.com/v1/chat/completions',
+        apiKey: 'sk-test',
+        payload: { model: 'x', messages: [{ role: 'user', content: 'hi' }] },
+        fetchImpl: async () => new Response('0123456789', { status: 200 })
+      }),
+      /Upstream response too large/
+    );
+  });
+});
+
 // --- resolveModelsUrl ---
 
 test('resolveModelsUrl 指向 /v1/models', () => {

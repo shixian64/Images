@@ -17,12 +17,31 @@ import { logger } from '../utils/logger.js';
 import { maskApiKey } from '../utils/mask.js';
 
 const VALID_KINDS = new Set(['image', 'chat']);
+const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
+
+function envPositiveInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function testProfileTimeoutMs() {
+  return envPositiveInt('TEST_PROFILE_TIMEOUT_MS', DEFAULT_TEST_PROFILE_TIMEOUT_MS);
+}
+
+function httpError(statusCode, message) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+}
 
 function kindLabel(kind) {
   return kind === 'chat' ? '对话' : '生图';
 }
 
 function statusFromError(message) {
+  if (typeof message === 'object' && message?.statusCode) return Number(message.statusCode) || 400;
   if (String(message).startsWith('invalid ')) return 400;
   if (String(message).includes('缺少 API Key')) return 400;
   if (String(message).includes('已停用')) return 409;
@@ -106,12 +125,25 @@ async function handleAdminTest(req, res) {
       apiKey: maskApiKey(endpoint.apiKey)
     });
 
-    const response = await guardedFetch(targetUrl, {
-      method: 'GET',
-      headers: { authorization: `Bearer ${endpoint.apiKey}`, accept: 'application/json' },
-      redirect: 'manual'
-    });
-    const text = await response.text();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), testProfileTimeoutMs());
+    timeoutId.unref?.();
+    let response;
+    let text;
+    try {
+      response = await guardedFetch(targetUrl, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${endpoint.apiKey}`, accept: 'application/json' },
+        redirect: 'manual',
+        signal: controller.signal
+      });
+      text = await response.text();
+    } catch (err) {
+      if (err?.name === 'AbortError') throw httpError(504, 'Profile test timed out.');
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
     const durationMs = Date.now() - started;
@@ -176,7 +208,7 @@ async function handleAdminTest(req, res) {
       }
     }, req.session.user.id);
     logger.warn('interface.default.test.rejected', { kind, durationMs, error });
-    sendJson(res, statusFromError(error), {
+    sendJson(res, statusFromError(err), {
       ok: false,
       error,
       default: publicInterfaceConfig(next)

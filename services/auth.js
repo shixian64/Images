@@ -53,6 +53,10 @@ export function isValidAdminBootstrapToken(token) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+export function canUseAdminBootstrapToken(token) {
+  return users.countAdmins() === 0 && isValidAdminBootstrapToken(token);
+}
+
 export function sanitizeUser(row, { includeSecurity = false } = {}) {
   if (!row) return null;
   const { password_hash, password_salt, ...rest } = row;
@@ -65,8 +69,14 @@ export function sanitizeUser(row, { includeSecurity = false } = {}) {
 
 export function register({ username, email, password, adminBootstrapToken, signupIp, signupUserAgent }) {
   assertValidCredentials({ username, email, password });
-  if (adminBootstrapToken && !isValidAdminBootstrapToken(adminBootstrapToken)) {
-    throw new Error('invalid admin bootstrap token');
+  const hasBootstrapToken = Boolean(adminBootstrapToken);
+  if (hasBootstrapToken) {
+    if (!isValidAdminBootstrapToken(adminBootstrapToken)) {
+      throw new Error('invalid admin bootstrap token');
+    }
+    if (users.countAdmins() > 0) {
+      throw new Error('admin bootstrap token is no longer accepted');
+    }
   }
   // 查重（username / email 分别查一次，区分错误信息）
   if (users.findByLogin(username)) {
@@ -78,9 +88,7 @@ export function register({ username, email, password, adminBootstrapToken, signu
   const { hash, salt } = hashPassword(password);
   // 管理员必须通过部署时设置的 ADMIN_BOOTSTRAP_TOKEN 显式初始化；
   // 避免空库状态下任意首位注册者直接变成 admin。
-  const role = users.countAdmins() === 0 && isValidAdminBootstrapToken(adminBootstrapToken)
-    ? 'admin'
-    : 'user';
+  const role = hasBootstrapToken ? 'admin' : 'user';
   const row = users.create({
     username,
     email,

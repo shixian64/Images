@@ -6,10 +6,13 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 let workDir;
 let prevCwd;
 let auth;
+let authRoutes;
+let rateLimit;
 let users;
 let db;
 let prevBootstrapToken;
@@ -23,6 +26,8 @@ before(async () => {
 
   db = await import('../services/db.js');
   auth = await import('../services/auth.js');
+  authRoutes = await import('../routes/auth.js');
+  rateLimit = await import('../services/rate-limit.js');
   users = await import('../services/users.js');
   db.migrate();
 });
@@ -57,6 +62,82 @@ test('first registration is not admin unless bootstrap token matches', () => {
 
   const u2 = auth.register({ username: 'bob', email: 'bob@x.com', password: 'longenough1' });
   assert.equal(u2.role, 'user');
+
+  assert.throws(
+    () => auth.register({
+      username: 'lateadmin',
+      email: 'lateadmin@x.com',
+      password: 'longenough1',
+      adminBootstrapToken: 'bootstrap-secret'
+    }),
+    /no longer accepted/
+  );
+});
+
+function jsonReq(body, { ip = '198.51.100.10' } = {}) {
+  const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+  req.method = 'POST';
+  req.headers = { 'user-agent': 'node-test' };
+  req.socket = { remoteAddress: ip };
+  return req;
+}
+
+function captureRes() {
+  return {
+    statusCode: null,
+    headers: {},
+    body: '',
+    setHeader(key, value) {
+      this.headers[String(key).toLowerCase()] = value;
+    },
+    writeHead(status, headers = {}) {
+      this.statusCode = status;
+      this.headers = { ...this.headers, ...headers };
+    },
+    end(chunk = '') {
+      this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    }
+  };
+}
+
+async function postAuth(pathname, body, opts) {
+  const req = jsonReq(body, opts);
+  const res = captureRes();
+  await authRoutes.handleAuthRoute(req, res, pathname);
+  return res;
+}
+
+test('login rate limit caps source IP even when login changes', async () => {
+  rateLimit.clear();
+  const prev = {
+    LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE: process.env.LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE,
+    LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE: process.env.LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE,
+    LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE: process.env.LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE
+  };
+  process.env.LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE = '3';
+  process.env.LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE = '100';
+  process.env.LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE = '100';
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const res = await postAuth('/api/auth/login', {
+        login: `rotating-${i}`,
+        password: 'wrong-password'
+      });
+      assert.equal(res.statusCode, 401);
+    }
+    const blocked = await postAuth('/api/auth/login', {
+      login: 'rotating-4',
+      password: 'wrong-password'
+    });
+    assert.equal(blocked.statusCode, 429);
+    assert.equal(JSON.parse(blocked.body).code, 'login_ip_rate_limited');
+  } finally {
+    rateLimit.clear();
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test('register validates username/email/password', () => {

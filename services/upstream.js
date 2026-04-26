@@ -13,6 +13,8 @@ import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
 
+const DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES = 64 * 1024 * 1024;
+
 const BLOCKED_IPV4_CIDRS = [
   ['0.0.0.0', 8],
   ['10.0.0.0', 8],
@@ -30,6 +32,15 @@ const BLOCKED_IPV4_CIDRS = [
   ['240.0.0.0', 4],
   ['255.255.255.255', 32]
 ];
+
+function positiveIntFromEnv(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+export function getMaxUpstreamResponseBytes() {
+  return positiveIntFromEnv('MAX_UPSTREAM_RESPONSE_BYTES', DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES);
+}
 
 function normalizeHostname(hostname) {
   return String(hostname || '')
@@ -304,15 +315,45 @@ function fetchWithPinnedDns(policy, options = {}) {
   });
 }
 
-export async function guardedFetch(url, options = {}, { lookupImpl = dnsLookup, fetchImpl = null } = {}) {
+function withTimeoutSignal(options = {}, timeoutMs = null) {
+  const ms = Number(timeoutMs);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return { options, cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const callerSignal = options.signal;
+  const abortFromCaller = () => controller.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), Math.floor(ms));
+  timeoutId.unref?.();
+
+  return {
+    options: { ...options, signal: controller.signal },
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener?.('abort', abortFromCaller);
+    }
+  };
+}
+
+export async function guardedFetch(url, options = {}, { lookupImpl = dnsLookup, fetchImpl = null, timeoutMs = null } = {}) {
   // Unit tests pass explicit fetchImpl stubs; production code should use the
   // pinned transport below so the socket connects to the already-vetted DNS
   // answer instead of re-resolving after the SSRF check.
-  if (fetchImpl && fetchImpl !== fetch) {
-    return fetchImpl(url, options);
+  const timed = withTimeoutSignal(options, timeoutMs);
+  try {
+    if (fetchImpl && fetchImpl !== fetch) {
+      return await fetchImpl(url, timed.options);
+    }
+    const policy = await assertAllowedUpstreamUrl(url, { lookupImpl });
+    return await fetchWithPinnedDns(policy, timed.options);
+  } finally {
+    timed.cleanup();
   }
-  const policy = await assertAllowedUpstreamUrl(url, { lookupImpl });
-  return fetchWithPinnedDns(policy, options);
 }
 
 function normalizeBase(baseUrl) {
@@ -400,6 +441,53 @@ export function buildChatPayload(body) {
   return payload;
 }
 
+function upstreamHttpError(statusCode, message) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+}
+
+function assertContentLengthWithinLimit(response, limitBytes) {
+  const raw = response.headers?.get?.('content-length');
+  if (!raw) return;
+  const length = Number(raw);
+  if (Number.isFinite(length) && length > limitBytes) {
+    throw upstreamHttpError(502, `Upstream response too large (max ${limitBytes} bytes).`);
+  }
+}
+
+async function readResponseTextLimited(response, limitBytes = getMaxUpstreamResponseBytes()) {
+  assertContentLengthWithinLimit(response, limitBytes);
+
+  if (!response.body?.getReader) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > limitBytes) {
+      throw upstreamHttpError(502, `Upstream response too large (max ${limitBytes} bytes).`);
+    }
+    return buffer.toString('utf8');
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.length;
+      if (total > limitBytes) {
+        await reader.cancel?.();
+        throw upstreamHttpError(502, `Upstream response too large (max ${limitBytes} bytes).`);
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
+}
+
 // 调用上游。把 fetch 结果统一成 { ok, status, data, durationMs }。
 export async function callUpstream({
   targetUrl,
@@ -449,7 +537,7 @@ export async function callUpstream({
     clearTimeout(timeoutId);
     signal?.removeEventListener?.('abort', abortFromCaller);
   }
-  const text = await response.text();
+  const text = await readResponseTextLimited(response);
   let data;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
   return { ok: response.ok, status: response.status, data, durationMs: Date.now() - started };

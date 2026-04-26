@@ -89,6 +89,19 @@ test('saveGeneratedImages rejects URL downloads over byte limit', async () => {
   });
 });
 
+test('saveGeneratedImages rejects b64_json images over byte limit', async () => {
+  await withEnv({ MAX_IMAGE_DOWNLOAD_BYTES: '4' }, async () => {
+    const result = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'x', outputFormat: 'png' },
+      { userId: user.id }
+    );
+
+    assert.equal(result.saved.length, 0);
+    assert.match(result.items[0].save_error, /too large/);
+  });
+});
+
 test('saveGeneratedImages rejects explicit non-image content-type', async () => {
   const result = await gallery.saveGeneratedImages(
     [{ url: 'https://example.com/not-image' }],

@@ -9,6 +9,7 @@ import {
   login as authLogin,
   createSession,
   destroySession,
+  canUseAdminBootstrapToken,
   isValidAdminBootstrapToken
 } from '../services/auth.js';
 import {
@@ -20,12 +21,52 @@ import {
 import { logger } from '../utils/logger.js';
 import { clientIp, userAgent } from '../utils/request.js';
 
-function rateLimit(res, key, max, windowMs) {
+const LOGIN_RATE_WINDOW_MS = 60_000;
+
+function envInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function rateLimit(res, key, max, windowMs, { message = 'rate limited', code = null } = {}) {
   const r = rateLimitHit(key, max, windowMs);
   if (r.allowed) return true;
   res.setHeader('retry-after', Math.ceil(r.retryAfterMs / 1000));
-  sendJson(res, 429, { error: 'rate limited' });
+  const payload = { error: message };
+  if (code) payload.code = code;
+  sendJson(res, 429, payload);
   return false;
+}
+
+function normalizeLoginForRateLimit(login) {
+  return String(login || '').trim().toLowerCase().slice(0, 160);
+}
+
+function checkLoginRateLimit(res, ip, login) {
+  const safeIp = ip || 'unknown';
+  const normalizedLogin = normalizeLoginForRateLimit(login);
+  const ipMax = envInt('LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE', 20);
+  const pairMax = envInt('LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE', 5);
+  const accountMax = envInt('LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE', 8);
+
+  if (!rateLimit(res, `login:ip:${safeIp}`, ipMax, LOGIN_RATE_WINDOW_MS, {
+    message: 'login rate limited',
+    code: 'login_ip_rate_limited'
+  })) return false;
+
+  if (normalizedLogin && !rateLimit(res, `login:account:${normalizedLogin}`, accountMax, LOGIN_RATE_WINDOW_MS, {
+    message: 'login rate limited',
+    code: 'login_account_rate_limited'
+  })) return false;
+
+  if (!rateLimit(res, `login:pair:${safeIp}:${normalizedLogin || 'empty'}`, pairMax, LOGIN_RATE_WINDOW_MS, {
+    message: 'login rate limited',
+    code: 'login_pair_rate_limited'
+  })) return false;
+
+  return true;
 }
 
 async function handleRegister(req, res) {
@@ -50,7 +91,8 @@ async function handleRegister(req, res) {
     if (adminBootstrapToken && !adminBootstrapOk) {
       throw new Error('invalid admin bootstrap token');
     }
-    const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: adminBootstrapOk });
+    const canBootstrapAdmin = canUseAdminBootstrapToken(adminBootstrapToken);
+    const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canBootstrapAdmin });
     const user = authRegister({
       username,
       email,
@@ -87,8 +129,8 @@ async function handleLogin(req, res) {
     return;
   }
   const { login, password } = body || {};
-  // 限流 key 同时按 ip 与 login，阻止单账号被爆破
-  if (!rateLimit(res, `login:${ip}:${login || ''}`, 5, 60_000)) return;
+  // 同时按 IP、账号和 IP+账号限流，避免攻击者变换 login 绕过单一组合 key。
+  if (!checkLoginRateLimit(res, ip, login)) return;
   try {
     const { user, sessionId } = authLogin({
       login,

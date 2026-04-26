@@ -59,3 +59,34 @@ test('handleTestProfile disables automatic fetch redirects', async (t) => {
   assert.equal(redirected, false);
   assert.equal(res.statusCode, 302);
 });
+
+test('handleTestProfile times out stalled probes', async (t) => {
+  const prevEnv = {
+    ALLOW_INSECURE_UPSTREAMS: process.env.ALLOW_INSECURE_UPSTREAMS,
+    ALLOW_PRIVATE_UPSTREAMS: process.env.ALLOW_PRIVATE_UPSTREAMS,
+    TEST_PROFILE_TIMEOUT_MS: process.env.TEST_PROFILE_TIMEOUT_MS
+  };
+  process.env.ALLOW_INSECURE_UPSTREAMS = '1';
+  process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
+  process.env.TEST_PROFILE_TIMEOUT_MS = '25';
+
+  const server = http.createServer((_req, _res) => {
+    // Keep the socket open without sending headers; the route must abort it.
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const { port } = server.address();
+  const req = jsonReq({ baseUrl: `http://127.0.0.1:${port}`, apiKey: 'sk-test' });
+  const res = captureRes();
+  await handleTestProfile(req, res);
+
+  assert.equal(res.statusCode, 504);
+  assert.match(JSON.parse(res.body).error, /timed out/);
+});
