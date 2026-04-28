@@ -50,7 +50,7 @@ test('adminInterfaceConfig keeps probe details while redacting raw keys', () => 
 
   assert.equal(config.image.apiKey, '');
   assert.equal(config.image.hasApiKey, true);
-  assert.equal(config.image.testError, 'upstream leaked sk-image-secret-123456');
+  assert.equal(config.image.testError, 'upstream leaked sk-i****3456');
   assert.equal(config.image.testLatencyMs, 123);
   assert.equal(config.image.testedAt, '2026-04-26T00:00:00.000Z');
 });

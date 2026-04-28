@@ -71,13 +71,6 @@ function checkLoginRateLimit(res, ip, login) {
 
 async function handleRegister(req, res) {
   const ip = clientIp(req);
-  const limit = checkRegistrationRateLimit({ ip });
-  if (!limit.ok) {
-    res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
-    sendJson(res, 429, { error: limit.message, code: limit.code });
-    return;
-  }
-
   let body;
   try {
     body = await readJsonBody(req);
@@ -93,6 +86,14 @@ async function handleRegister(req, res) {
     }
     const canBootstrapAdmin = canUseAdminBootstrapToken(adminBootstrapToken);
     const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canBootstrapAdmin });
+    if (!canBootstrapAdmin) {
+      const limit = checkRegistrationRateLimit({ ip });
+      if (!limit.ok) {
+        res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
+        sendJson(res, 429, { error: limit.message, code: limit.code });
+        return;
+      }
+    }
     const user = authRegister({
       username,
       email,

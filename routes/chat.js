@@ -3,7 +3,7 @@
 
 import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
-import { maskApiKey } from '../utils/mask.js';
+import { maskApiKey, redactSecrets } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, buildChatPayload, callUpstream, resolveChatCompletionsUrl } from '../services/upstream.js';
 import { getSystemEndpoint } from '../services/interface-defaults.js';
 import { hit as rateLimitHit } from '../services/rate-limit.js';
@@ -268,7 +268,7 @@ export async function handleChat(req, res) {
     });
 
     if (!ok) {
-      const errMsg = data?.error?.message || data?.message || `Request failed with ${status}`;
+      const errMsg = redactSecrets(data?.error?.message || data?.message || `Request failed with ${status}`, [apiKey]);
       logger.error('chat.completion.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });

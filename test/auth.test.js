@@ -87,6 +87,9 @@ function captureRes() {
     statusCode: null,
     headers: {},
     body: '',
+    getHeader(key) {
+      return this.headers[String(key).toLowerCase()];
+    },
     setHeader(key, value) {
       this.headers[String(key).toLowerCase()] = value;
     },
@@ -131,6 +134,54 @@ test('login rate limit caps source IP even when login changes', async () => {
     });
     assert.equal(blocked.statusCode, 429);
     assert.equal(JSON.parse(blocked.body).code, 'login_ip_rate_limited');
+  } finally {
+    rateLimit.clear();
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('closed registration failures do not consume IP registration limit', async () => {
+  rateLimit.clear();
+  const prev = {
+    REGISTRATION_MODE: process.env.REGISTRATION_MODE,
+    REGISTRATION_INVITE_CODE: process.env.REGISTRATION_INVITE_CODE,
+    REGISTRATION_INVITE_CODES: process.env.REGISTRATION_INVITE_CODES,
+    REGISTRATION_IP_MAX_PER_10MIN: process.env.REGISTRATION_IP_MAX_PER_10MIN,
+    REGISTRATION_IP_MAX_PER_DAY: process.env.REGISTRATION_IP_MAX_PER_DAY,
+    REGISTRATION_EMAIL_DOMAIN_ALLOWLIST: process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST,
+    REGISTRATION_EMAIL_DOMAIN_BLOCKLIST: process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST
+  };
+  const ip = '198.51.100.44';
+  try {
+    process.env.REGISTRATION_MODE = 'closed';
+    process.env.REGISTRATION_INVITE_CODE = '';
+    process.env.REGISTRATION_INVITE_CODES = '';
+    process.env.REGISTRATION_IP_MAX_PER_10MIN = '2';
+    process.env.REGISTRATION_IP_MAX_PER_DAY = '100';
+    process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST = '';
+    process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST = '';
+
+    for (let i = 0; i < 2; i += 1) {
+      const closed = await postAuth('/api/auth/register', {
+        username: `closed${i}`,
+        email: `closed${i}@example.com`,
+        password: 'longenough1'
+      }, { ip });
+      assert.equal(closed.statusCode, 403);
+      assert.equal(JSON.parse(closed.body).code, 'registration_closed');
+    }
+
+    process.env.REGISTRATION_MODE = 'open';
+    const allowed = await postAuth('/api/auth/register', {
+      username: 'rateok',
+      email: 'rateok@example.com',
+      password: 'longenough1'
+    }, { ip });
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(JSON.parse(allowed.body).user.username, 'rateok');
   } finally {
     rateLimit.clear();
     for (const [key, value] of Object.entries(prev)) {

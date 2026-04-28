@@ -14,7 +14,7 @@ import {
 } from '../services/interface-defaults.js';
 import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
 import { logger } from '../utils/logger.js';
-import { maskApiKey } from '../utils/mask.js';
+import { maskApiKey, redactSecrets } from '../utils/mask.js';
 
 const VALID_KINDS = new Set(['image', 'chat']);
 const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
@@ -118,9 +118,11 @@ async function handleAdminTest(req, res) {
 
   const kind = VALID_KINDS.has(body?.kind) ? body.kind : 'image';
   const started = Date.now();
+  let probeApiKey = '';
 
   try {
     const endpoint = getSystemEndpoint(kind);
+    probeApiKey = endpoint.apiKey;
     const targetUrl = resolveModelsUrl(endpoint.baseUrl);
 
     logger.info('interface.default.test.request', {
@@ -153,7 +155,7 @@ async function handleAdminTest(req, res) {
     const durationMs = Date.now() - started;
 
     if (!response.ok) {
-      const error = data?.error?.message || data?.message || `Request failed with ${response.status}`;
+      const error = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [probeApiKey]);
       const next = setGlobalInterfaceConfig({
         [kind]: {
           testStatus: 'err',
@@ -202,7 +204,7 @@ async function handleAdminTest(req, res) {
     });
   } catch (err) {
     const durationMs = Date.now() - started;
-    const error = err.message || String(err);
+    const error = redactSecrets(err.message || String(err), [probeApiKey]);
     const next = setGlobalInterfaceConfig({
       [kind]: {
         testStatus: 'err',

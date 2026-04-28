@@ -158,3 +158,46 @@ test('handleGenerate enqueues and worker records multi-image requests with the s
     }
   });
 });
+
+test('handleGenerate redacts upstream errors that echo API keys', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1'
+  }, async () => {
+    const secret = 'sk-route-secret-123456';
+    const server = http.createServer((req, res) => {
+      req.resume();
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        error: { message: `upstream rejected Authorization: Bearer ${secret}` }
+      }));
+    });
+    await listen(server);
+
+    try {
+      const routeUser = auth.register({
+        username: 'gen_redact_user',
+        email: 'gen_redact_user@example.com',
+        password: 'longenough1'
+      });
+      const { port } = server.address();
+      const req = jsonReq({
+        imageBaseUrl: `http://127.0.0.1:${port}`,
+        imageApiKey: secret,
+        prompt: 'redact failure',
+        model: 'test-image-model',
+        n: 1
+      }, routeUser);
+      const res = captureRes();
+
+      await generate.handleGenerate(req, res);
+
+      assert.equal(res.statusCode, 401);
+      const body = JSON.parse(res.body);
+      assert.ok(!body.error.includes(secret));
+      assert.match(body.error, /sk-r\*\*\*\*3456/);
+    } finally {
+      await close(server);
+    }
+  });
+});

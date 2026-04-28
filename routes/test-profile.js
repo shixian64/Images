@@ -3,7 +3,7 @@
 
 import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
-import { maskApiKey } from '../utils/mask.js';
+import { maskApiKey, redactSecrets } from '../utils/mask.js';
 import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
 
 const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
@@ -66,7 +66,7 @@ export async function handleTestProfile(req, res) {
     const durationMs = Date.now() - started;
 
     if (!response.ok) {
-      const error = data?.error?.message || data?.message || `Request failed with ${response.status}`;
+      const error = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [apiKey]);
       logger.warn('profile.test.failed', { status: response.status, durationMs, kind, error });
       return sendJson(res, response.status, { ok: false, error });
     }
@@ -82,11 +82,12 @@ export async function handleTestProfile(req, res) {
       models: models.slice(0, 50)
     });
   } catch (error) {
+    const safeError = redactSecrets(error.message || String(error), [body?.apiKey]);
     logger.warn('profile.test.rejected', {
       durationMs: Date.now() - started,
       baseUrl: body?.baseUrl,
-      error: error.message || String(error)
+      error: safeError
     });
-    return sendJson(res, bodyErrorStatus(error), { ok: false, error: error.message || String(error) });
+    return sendJson(res, bodyErrorStatus(error), { ok: false, error: safeError });
   }
 }

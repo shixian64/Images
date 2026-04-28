@@ -2,6 +2,7 @@
 
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../shared/constants.js';
 import { systemSettings } from './db.js';
+import { redactSecrets } from '../utils/mask.js';
 
 const SETTINGS_KEY = 'interfaces.default';
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -53,17 +54,19 @@ function normalizeEndpoint(kind, value = {}, previous = null) {
   const current = previous || defaultEndpoint(kind);
   const hasApiKeyPatch = Object.hasOwn(value || {}, 'apiKey');
   const clearApiKey = Boolean(value?.clearApiKey);
+  const apiKey = clearApiKey
+    ? ''
+    : (hasApiKeyPatch ? cleanString(value.apiKey, '') : cleanString(current.apiKey, ''));
+  const testError = cleanString(value?.testError ?? current.testError, '');
 
   return defaultEndpoint(kind, {
     baseUrl: validateBaseUrl(value?.baseUrl ?? current.baseUrl ?? DEFAULT_BASE_URL),
-    apiKey: clearApiKey
-      ? ''
-      : (hasApiKeyPatch ? cleanString(value.apiKey, '') : cleanString(current.apiKey, '')),
+    apiKey,
     defaultModel: cleanString(value?.defaultModel ?? current.defaultModel, meta.defaultModel),
     testStatus: cleanString(value?.testStatus ?? current.testStatus, 'unknown'),
     testLatencyMs: value?.testLatencyMs === undefined ? (current.testLatencyMs ?? null) : value.testLatencyMs,
     testedAt: value?.testedAt === undefined ? (current.testedAt ?? null) : value.testedAt,
-    testError: cleanString(value?.testError ?? current.testError, '')
+    testError: redactSecrets(testError, [apiKey, current.apiKey])
   });
 }
 
@@ -95,7 +98,7 @@ function publicEndpoint(endpoint, { includeTestDetails = false } = {}) {
     hasApiKey: Boolean(apiKey)
   };
   if (includeTestDetails) {
-    out.testError = testError || '';
+    out.testError = redactSecrets(testError || '', [apiKey]);
     out.testLatencyMs = testLatencyMs ?? null;
     out.testedAt = testedAt || null;
   }
