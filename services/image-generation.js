@@ -2,7 +2,7 @@
 // Keeps upstream execution reusable while queueing/cancellation live in services/job-queue.js.
 
 import { logger } from '../utils/logger.js';
-import { maskApiKey } from '../utils/mask.js';
+import { maskApiKey, redactSecrets } from '../utils/mask.js';
 import { assertAllowedUpstreamUrl, buildImagePayload, callUpstream, resolveApiUrl } from './upstream.js';
 import { saveGeneratedImages } from './gallery-store.js';
 import { getSystemEndpoint } from './interface-defaults.js';
@@ -162,7 +162,7 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
   });
 
   if (!ok) {
-    const errMsg = data?.error?.message || data?.message || `Request failed with ${status}`;
+    const errMsg = redactSecrets(data?.error?.message || data?.message || `Request failed with ${status}`, [apiKey]);
     logger.error('image.generate.failed', {
       userId: userInfo?.id,
       status,
