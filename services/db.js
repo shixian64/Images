@@ -119,6 +119,28 @@ CREATE INDEX IF NOT EXISTS idx_audit_target  ON audit_logs(target_type, target_i
 CREATE INDEX IF NOT EXISTS idx_audit_actor   ON audit_logs(actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS client_logs (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id   TEXT,
+  client_ts   TEXT,
+  received_at TEXT NOT NULL,
+  level       TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  meta        TEXT,
+  page_url    TEXT,
+  user_agent  TEXT,
+  ip          TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_client_logs_user_client
+  ON client_logs(user_id, client_id);
+CREATE INDEX IF NOT EXISTS idx_client_logs_user_received
+  ON client_logs(user_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_logs_received
+  ON client_logs(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_logs_level
+  ON client_logs(level, received_at DESC);
+
 CREATE TABLE IF NOT EXISTS user_quotas (
   user_id          TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   daily_limit      INTEGER,
@@ -716,6 +738,106 @@ export const auditLogs = {
     return open().prepare(`
       SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?
     `).all(limit);
+  }
+};
+
+// ---- client_logs ----
+
+function parseClientLog(row) {
+  if (!row) return null;
+  let meta = null;
+  if (row.meta) {
+    try { meta = JSON.parse(row.meta); } catch { meta = row.meta; }
+  }
+  const out = {
+    id: row.id,
+    userId: row.user_id,
+    clientId: row.client_id,
+    clientTs: row.client_ts,
+    receivedAt: row.received_at,
+    level: row.level,
+    message: row.message,
+    meta,
+    pageUrl: row.page_url,
+    userAgent: row.user_agent,
+    ip: row.ip
+  };
+  if (row.user_username || row.user_email || row.user_role) {
+    out.user = {
+      id: row.user_id,
+      username: row.user_username || '',
+      email: row.user_email || '',
+      role: row.user_role || ''
+    };
+  }
+  return out;
+}
+
+export const clientLogs = {
+  insertMany(userId, items = [], { ip = null, userAgent = null } = {}) {
+    if (!userId || !Array.isArray(items) || !items.length) return { inserted: 0, ignored: 0 };
+    const db = open();
+    const stmt = db.prepare(`
+      INSERT OR IGNORE INTO client_logs
+      (id, user_id, client_id, client_ts, received_at, level, message, meta, page_url, user_agent, ip)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    let inserted = 0;
+    let ignored = 0;
+    for (const item of items) {
+      const res = stmt.run(
+        item.id || randomUUID(),
+        userId,
+        item.clientId || null,
+        item.clientTs || null,
+        item.receivedAt || nowIso(),
+        item.level || 'info',
+        item.message || '',
+        item.meta === undefined || item.meta === null ? null : JSON.stringify(item.meta),
+        item.pageUrl || null,
+        userAgent || item.userAgent || null,
+        ip || item.ip || null
+      );
+      if (res.changes) inserted += 1;
+      else ignored += 1;
+    }
+    return { inserted, ignored };
+  },
+  listByUser(userId, { limit = 100, level = '', search = '' } = {}) {
+    return this.listAll({ userId, limit, level, search });
+  },
+  listAll({ limit = 300, userId = '', level = '', search = '' } = {}) {
+    const clauses = [];
+    const args = [];
+    if (userId) {
+      clauses.push('l.user_id = ?');
+      args.push(userId);
+    }
+    if (level) {
+      clauses.push('l.level = ?');
+      args.push(level);
+    }
+    if (search) {
+      const like = `%${search}%`;
+      clauses.push(`(
+        l.message LIKE ?
+        OR l.meta LIKE ?
+        OR l.page_url LIKE ?
+        OR u.username LIKE ?
+        OR u.email LIKE ?
+      )`);
+      args.push(like, like, like, like, like);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 300)));
+    return open().prepare(`
+      SELECT l.*, u.username AS user_username, u.email AS user_email, u.role AS user_role
+      FROM client_logs l
+      LEFT JOIN users u ON u.id = l.user_id
+      ${where}
+      ORDER BY l.received_at DESC
+      LIMIT ?
+    `).all(...args, safeLimit).map(parseClientLog);
   }
 };
 

@@ -554,6 +554,15 @@
           >生成队列</button>
           <button
             class="management-tab"
+            id="managementTabClientLogs"
+            type="button"
+            role="tab"
+            aria-controls="clientLogManagement"
+            aria-selected="false"
+            data-management-tab="clientLogManagement"
+          >客户端日志</button>
+          <button
+            class="management-tab"
             id="managementTabInterfaces"
             type="button"
             role="tab"
@@ -647,6 +656,42 @@
           <div id="adminJobsSummary" class="management-summary" aria-live="polite"></div>
           <div id="adminJobsSettings" class="queue-settings-grid"></div>
           <div id="adminJobsTableWrap"></div>
+        </section>
+
+        <section id="clientLogManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabClientLogs" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">Client Logs</p>
+              <h2>客户端详细日志</h2>
+              <p class="hint">查看用户浏览器自动同步的本地日志、错误堆栈与上下文，便于复现和修复问题。</p>
+            </div>
+            <div class="management-actions">
+              <button class="ghost small" id="adminClientLogsRefresh" type="button">刷新</button>
+            </div>
+          </header>
+
+          <div class="users-toolbar admin-client-log-toolbar">
+            <label class="inline-label">用户
+              <select id="adminClientLogUserFilter">
+                <option value="">全部用户</option>
+              </select>
+            </label>
+            <label class="inline-label">等级
+              <select id="adminClientLogLevelFilter">
+                <option value="">全部等级</option>
+                <option value="error">Error</option>
+                <option value="warn">Warn</option>
+                <option value="info">Info</option>
+                <option value="debug">Debug</option>
+              </select>
+            </label>
+            <label class="inline-label">关键字
+              <input id="adminClientLogSearch" placeholder="消息 / meta / URL / 用户" autocomplete="off" />
+            </label>
+            <span class="users-summary" id="adminClientLogsSummary" aria-live="polite"></span>
+          </div>
+
+          <div id="adminClientLogsTableWrap"></div>
         </section>
 
         <section id="interfaceManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabInterfaces" hidden>

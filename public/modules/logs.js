@@ -2,6 +2,7 @@
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
 import { $, escapeHtml, maskKey } from './dom.js';
+import { apiFetch } from './auth.js';
 import {
   KEYS,
   readJsonScoped,
@@ -11,17 +12,32 @@ import {
 } from './state.js';
 
 const MAX_LOGS = 300;
+const SYNC_QUEUE_MAX = 300;
+const SYNC_BATCH_SIZE = 50;
+const SYNC_RETRY_MS = 15_000;
 const LEVEL_ORDER = ['debug', 'info', 'warn', 'error'];
 
 // why：延迟到首次访问/挂载，模块加载期用户尚未就绪；避免误用 guest scope。
 let logs = [];
 let logsLoaded = false;
 let errorSeenAt = '';
+let syncQueue = [];
+let syncQueueLoaded = false;
+let syncTimer = null;
+let syncInFlight = false;
+let clientErrorHandlersMounted = false;
 function ensureLogsLoaded() {
   if (logsLoaded) return;
   logsLoaded = true;
   logs = readJsonScoped(KEYS.logs, []);
   errorSeenAt = readStringScoped(KEYS.logErrorSeenAt, '');
+}
+
+function ensureSyncQueueLoaded() {
+  if (syncQueueLoaded) return;
+  syncQueueLoaded = true;
+  syncQueue = readJsonScoped(KEYS.clientLogSyncQueue, []);
+  if (!Array.isArray(syncQueue)) syncQueue = [];
 }
 const listeners = new Set();
 
@@ -33,13 +49,108 @@ export function onLogsChanged(fn) {
 }
 
 // meta 中若含 apiKey / key 字段，自动脱敏，避免日志泄漏。
-function sanitizeMeta(meta) {
-  if (!meta || typeof meta !== 'object') return meta;
-  const copy = { ...meta };
-  for (const k of ['apiKey', 'api_key', 'key', 'authorization']) {
-    if (copy[k]) copy[k] = maskKey(copy[k]);
+function isSensitiveMetaKey(key) {
+  return /^(apiKey|api_key|key|authorization|token|password|secret)$/i.test(String(key || ''));
+}
+
+function sanitizeMetaValue(value, depth = 0) {
+  if (depth > 5) return '[max-depth]';
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.slice(0, 80).map((item) => sanitizeMetaValue(item, depth + 1));
+  if (typeof value !== 'object') return value;
+  const copy = {};
+  for (const [key, item] of Object.entries(value)) {
+    copy[key] = isSensitiveMetaKey(key)
+      ? (String(item || '').startsWith('sk-') ? maskKey(item) : '••••')
+      : sanitizeMetaValue(item, depth + 1);
   }
   return copy;
+}
+
+function sanitizeMeta(meta) {
+  if (!meta || typeof meta !== 'object') return meta;
+  return sanitizeMetaValue(meta);
+}
+
+function persistSyncQueue() {
+  ensureSyncQueueLoaded();
+  if (syncQueue.length > SYNC_QUEUE_MAX) syncQueue = syncQueue.slice(0, SYNC_QUEUE_MAX);
+  writeJsonScoped(KEYS.clientLogSyncQueue, syncQueue);
+}
+
+function clientContext() {
+  return {
+    pageUrl: location.href,
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`
+  };
+}
+
+function entryForSync(entry) {
+  return {
+    id: entry.id,
+    ts: entry.ts,
+    level: entry.level,
+    message: entry.message,
+    meta: sanitizeMeta(entry.meta),
+    context: clientContext()
+  };
+}
+
+function scheduleSync(delay = 800) {
+  ensureSyncQueueLoaded();
+  if (!syncQueue.length || syncTimer) return;
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    syncClientLogs();
+  }, delay);
+}
+
+function enqueueSync(entry) {
+  ensureSyncQueueLoaded();
+  if (!entry?.id) return;
+  if (!syncQueue.some((item) => item.id === entry.id)) {
+    syncQueue.unshift(entry);
+    persistSyncQueue();
+  }
+  scheduleSync();
+}
+
+function enqueueExistingLogsForSync() {
+  ensureLogsLoaded();
+  ensureSyncQueueLoaded();
+  const queued = new Set(syncQueue.map((item) => item.id));
+  let changed = false;
+  for (const entry of logs.slice(0, MAX_LOGS)) {
+    if (!entry?.id || queued.has(entry.id)) continue;
+    syncQueue.push(entry);
+    queued.add(entry.id);
+    changed = true;
+  }
+  if (changed) persistSyncQueue();
+}
+
+export async function syncClientLogs() {
+  ensureSyncQueueLoaded();
+  if (syncInFlight || !syncQueue.length) return;
+  syncInFlight = true;
+  const batch = syncQueue.slice(0, SYNC_BATCH_SIZE);
+  try {
+    const resp = await apiFetch('/api/client-logs', {
+      method: 'POST',
+      body: { items: batch.map(entryForSync) }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const sentIds = new Set(batch.map((item) => item.id));
+    syncQueue = syncQueue.filter((item) => !sentIds.has(item.id));
+    persistSyncQueue();
+    if (syncQueue.length) scheduleSync(300);
+  } catch {
+    scheduleSync(SYNC_RETRY_MS);
+  } finally {
+    syncInFlight = false;
+  }
 }
 
 export function addLog(level, message, meta = {}) {
@@ -55,6 +166,7 @@ export function addLog(level, message, meta = {}) {
   logs.unshift(entry);
   if (logs.length > MAX_LOGS) logs.length = MAX_LOGS;
   writeJsonScoped(KEYS.logs, logs);
+  enqueueSync(entry);
   emit();
   return entry;
 }
@@ -81,6 +193,41 @@ function markErrorsSeen() {
   const latestError = logs.find((log) => log.level === 'error');
   errorSeenAt = latestError?.ts || new Date().toISOString();
   writeStringScoped(KEYS.logErrorSeenAt, errorSeenAt);
+}
+
+function errorMeta(error) {
+  if (!error) return {};
+  if (typeof error === 'string') return { reason: error };
+  return {
+    name: error.name || '',
+    message: error.message || String(error),
+    stack: error.stack || ''
+  };
+}
+
+function mountClientErrorLogging() {
+  if (clientErrorHandlersMounted) return;
+  clientErrorHandlersMounted = true;
+  window.addEventListener('error', (ev) => {
+    const target = ev.target;
+    if (target && target !== window && !ev.message) {
+      addLog('error', 'client.resource_error', {
+        tagName: target.tagName || '',
+        src: target.currentSrc || target.src || target.href || ''
+      });
+      return;
+    }
+    addLog('error', 'client.error', {
+      message: ev.message || '',
+      source: ev.filename || '',
+      lineno: ev.lineno || 0,
+      colno: ev.colno || 0,
+      ...errorMeta(ev.error)
+    });
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    addLog('error', 'client.unhandledrejection', errorMeta(ev.reason));
+  });
 }
 
 export function exportLogs() {
@@ -187,6 +334,10 @@ function renderList(filtered, { onReusePrompt } = {}) {
 
 export function mountLogsPanel({ onReusePrompt } = {}) {
   ensureLogsLoaded();
+  ensureSyncQueueLoaded();
+  mountClientErrorLogging();
+  enqueueExistingLogsForSync();
+  scheduleSync(300);
   const searchEl = $('logSearch');
   let activeLevel = 'all';
 

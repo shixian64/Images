@@ -14,6 +14,7 @@ import {
 } from '../services/users.js';
 import { record as auditRecord, listForActor as listAuditForActor, listForTarget as listAuditForTarget } from '../services/audit.js';
 import { getAdminJobs } from '../services/job-queue.js';
+import { listClientLogsForUser } from '../services/client-logs.js';
 
 const VALID_ROLES = new Set(['all', 'admin', 'user']);
 const VALID_STATUSES = new Set(['all', 'active', 'disabled']);
@@ -82,7 +83,8 @@ async function handleDetail(req, res, id) {
       const audits = listAuditForTarget('user', id, 50);
       const activityLogs = listAuditForActor(id, 50);
       const jobs = getAdminJobs({ userId: id, limit: 50 });
-      sendJson(res, 200, { ...detail, audits, activityLogs, jobs });
+      const clientLogs = listClientLogsForUser(id, { limit: 100 });
+      sendJson(res, 200, { ...detail, audits, activityLogs, jobs, clientLogs });
     } catch (err) {
       sendJson(res, statusFromError(err.message), { error: err.message });
     }

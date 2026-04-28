@@ -3007,6 +3007,11 @@ body.drawer-open { overflow: hidden; }
   color: var(--brand);
   background: var(--brand-soft);
 }
+.user-audit-list .chip.warn,
+.users-table .chip.warn {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
 .user-audit-list .chip.ok,
 .user-detail-grid .chip.ok {
   color: var(--success);
@@ -3037,6 +3042,41 @@ body.drawer-open { overflow: hidden; }
   font-size: 11.5px;
   color: var(--text-muted);
   word-break: break-all;
+}
+.client-log-url {
+  flex: 1 1 100%;
+  color: var(--text-faint);
+  word-break: break-all;
+}
+.admin-client-log-table td {
+  vertical-align: top;
+}
+.client-log-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+}
+.client-log-message strong {
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+.client-log-message small {
+  color: var(--text-faint);
+  word-break: break-all;
+}
+.client-log-message code {
+  display: block;
+  max-width: min(720px, 65vw);
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ============================================================

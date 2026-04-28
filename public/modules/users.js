@@ -31,7 +31,14 @@ let galleryFilter = {
 let galleryView = { items: [], total: 0, totalAll: 0, pageInfo: null };
 const gallerySelected = new Set();
 
-const MANAGEMENT_TABS = new Set(['usersManagement', 'quotaManagement', 'jobManagement', 'interfaceManagement', 'galleryManagement']);
+const MANAGEMENT_TABS = new Set([
+  'usersManagement',
+  'quotaManagement',
+  'jobManagement',
+  'clientLogManagement',
+  'interfaceManagement',
+  'galleryManagement'
+]);
 const DEFAULT_BASE_URL = 'https://api.openai.com';
 
 function formatTime(iso) {
@@ -944,6 +951,13 @@ function statusChipClass(status) {
   return 'info';
 }
 
+function logLevelChipClass(level) {
+  if (level === 'error') return 'err';
+  if (level === 'warn') return 'warn';
+  if (level === 'info') return 'info';
+  return '';
+}
+
 function fmtDuration(ms) {
   const n = Number(ms);
   if (!Number.isFinite(n) || n <= 0) return '-';
@@ -1190,6 +1204,125 @@ function bindAdminJobsPanel() {
   });
 }
 
+// ---------- 客户端详细日志 ----------
+
+let adminClientLogs = [];
+let adminClientLogsLoaded = false;
+const adminClientLogFilter = {
+  userId: '',
+  level: '',
+  search: ''
+};
+
+function syncClientLogUserFilter() {
+  const userSel = $('adminClientLogUserFilter');
+  if (!userSel) return;
+  const current = adminClientLogFilter.userId;
+  userSel.innerHTML = `<option value="">全部用户</option>` + users.map((u) => {
+    const label = `${u.username || u.email || '-'} (${shortId(u.id)})`;
+    return `<option value="${escapeHtml(u.id)}" ${current === u.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+function buildAdminClientLogQuery() {
+  const params = new URLSearchParams();
+  params.set('limit', '300');
+  if (adminClientLogFilter.userId) params.set('userId', adminClientLogFilter.userId);
+  if (adminClientLogFilter.level) params.set('level', adminClientLogFilter.level);
+  if (adminClientLogFilter.search) params.set('search', adminClientLogFilter.search);
+  return params.toString();
+}
+
+function renderAdminClientLogs() {
+  const wrap = $('adminClientLogsTableWrap');
+  const summary = $('adminClientLogsSummary');
+  if (!wrap) return;
+  syncClientLogUserFilter();
+  if (summary) summary.textContent = `显示 ${adminClientLogs.length} 条`;
+
+  if (!adminClientLogs.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><p>暂无匹配的客户端日志。</p></div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="users-table admin-client-log-table">
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>用户</th>
+          <th>等级</th>
+          <th>消息 / 上下文</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${adminClientLogs.map((log) => {
+          const user = log.user || {};
+          const meta = log.meta ? JSON.stringify(log.meta) : '';
+          return `
+            <tr>
+              <td>
+                <div class="management-file-cell">
+                  <strong>${escapeHtml(formatTime(log.receivedAt))}</strong>
+                  ${log.clientTs ? `<small>客户端：${escapeHtml(formatTime(log.clientTs))}</small>` : ''}
+                </div>
+              </td>
+              <td>
+                <div class="management-user-cell">
+                  <strong>${escapeHtml(user.username || userLabel(log.userId))}</strong>
+                  <small>${escapeHtml(shortId(log.userId))}</small>
+                </div>
+              </td>
+              <td><span class="chip ${logLevelChipClass(log.level)}">${escapeHtml(log.level || '-')}</span></td>
+              <td>
+                <div class="client-log-message">
+                  <strong>${escapeHtml(log.message || '-')}</strong>
+                  ${log.pageUrl ? `<small>${escapeHtml(log.pageUrl)}</small>` : ''}
+                  ${meta ? `<code>${escapeHtml(meta)}</code>` : ''}
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function refreshAdminClientLogs({ silent = false } = {}) {
+  try {
+    const resp = await apiFetch(`/api/admin/client-logs?${buildAdminClientLogQuery()}`);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    adminClientLogs = Array.isArray(data.items) ? data.items : [];
+    adminClientLogsLoaded = true;
+    renderAdminClientLogs();
+    if (!silent) setStatus(`客户端日志已刷新 · ${adminClientLogs.length} 条`, 'ok', 1400);
+  } catch (err) {
+    setStatus(`加载客户端日志失败：${err?.message || err}`, 'err', 2400);
+    const wrap = $('adminClientLogsTableWrap');
+    if (wrap) wrap.innerHTML = `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`;
+  }
+}
+
+function bindAdminClientLogsPanel() {
+  let searchTimer = null;
+  $('adminClientLogsRefresh')?.addEventListener('click', () => refreshAdminClientLogs());
+  $('adminClientLogUserFilter')?.addEventListener('change', (ev) => {
+    adminClientLogFilter.userId = ev.target.value || '';
+    refreshAdminClientLogs({ silent: true });
+  });
+  $('adminClientLogLevelFilter')?.addEventListener('change', (ev) => {
+    adminClientLogFilter.level = ev.target.value || '';
+    refreshAdminClientLogs({ silent: true });
+  });
+  $('adminClientLogSearch')?.addEventListener('input', (ev) => {
+    adminClientLogFilter.search = ev.target.value || '';
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => refreshAdminClientLogs({ silent: true }), 240);
+  });
+}
+
 function renderAdminGalleryStats() {
   const host = $('adminGalleryStats');
   if (!host) return;
@@ -1374,7 +1507,9 @@ async function refresh({ silent = false } = {}) {
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
     users = Array.isArray(data.items) ? data.items : [];
     renderTable();
+    syncClientLogUserFilter();
     if (galleryLoaded) renderAdminGallery();
+    if (adminClientLogsLoaded) renderAdminClientLogs();
     if (openDetailUserId) refreshOpenDetail();
     if (!silent) setStatus(`用户列表已刷新 · ${users.length} 人`, 'ok', 1400);
   } catch (err) {
@@ -1699,6 +1834,9 @@ function switchManagementTab(tabId) {
   } else if (nextTab === 'jobManagement') {
     if (!adminJobsLoaded) refreshAdminJobs({ silent: true });
     else { renderAdminJobsSummary(); renderAdminJobSettings(); renderAdminJobsTable(); }
+  } else if (nextTab === 'clientLogManagement') {
+    if (!adminClientLogsLoaded) refreshAdminClientLogs({ silent: true });
+    else renderAdminClientLogs();
   } else if (nextTab === 'interfaceManagement') {
     if (!globalInterfaceLoaded) refreshGlobalInterface({ silent: true });
     else renderGlobalInterfaceForm();
@@ -1716,6 +1854,7 @@ function renderDetailBody(detail) {
   const audits = Array.isArray(detail?.audits) ? detail.audits : [];
   const activityLogs = Array.isArray(detail?.activityLogs) ? detail.activityLogs : [];
   const jobs = Array.isArray(detail?.jobs) ? detail.jobs : [];
+  const clientLogs = Array.isArray(detail?.clientLogs) ? detail.clientLogs : [];
   const isSelf = u.id === getCurrentUserId();
 
   return `
@@ -1769,7 +1908,7 @@ function renderDetailBody(detail) {
 
       <section class="user-detail-block">
         <h3>生成记录 (${jobs.length})</h3>
-        <p class="hint">这里显示服务端队列记录；用户浏览器「日志面板」中的本地 localStorage 日志不会自动上传。</p>
+        <p class="hint">这里显示服务端队列记录；用户浏览器日志见下方「客户端详细日志」。</p>
         ${jobs.length ? `
           <ul class="user-audit-list">
             ${jobs.slice(0, 30).map((job) => {
@@ -1789,6 +1928,28 @@ function renderDetailBody(detail) {
             }).join('')}
           </ul>
         ` : '<p class="hint">暂无生成记录</p>'}
+      </section>
+
+      <section class="user-detail-block">
+        <h3>客户端详细日志 (${clientLogs.length})</h3>
+        <p class="hint">用户浏览器「日志面板」自动同步的本地日志，包含前端错误和未处理异常；敏感字段会在上传前后脱敏。</p>
+        ${clientLogs.length ? `
+          <ul class="user-audit-list">
+            ${clientLogs.slice(0, 50).map((log) => {
+              const meta = log.meta ? JSON.stringify(log.meta) : '';
+              return `
+                <li>
+                  <span class="chip ${logLevelChipClass(log.level)}">${escapeHtml(log.level || '-')}</span>
+                  <small>${escapeHtml(formatTime(log.receivedAt))}</small>
+                  ${log.clientTs ? `<small>客户端：${escapeHtml(formatTime(log.clientTs))}</small>` : ''}
+                  <small>${escapeHtml(log.message || '-')}</small>
+                  ${log.pageUrl ? `<small class="client-log-url">${escapeHtml(log.pageUrl)}</small>` : ''}
+                  ${meta ? `<code class="user-audit-meta">${escapeHtml(meta)}</code>` : ''}
+                </li>
+              `;
+            }).join('')}
+          </ul>
+        ` : '<p class="hint">暂无客户端日志；用户刷新页面后，新日志会自动同步到服务端。</p>'}
       </section>
 
       <section class="user-detail-block">
@@ -2118,6 +2279,7 @@ export function mountUsersPanel() {
   bindAdminGalleryToolbar();
   bindQuotaPanel();
   bindAdminJobsPanel();
+  bindAdminClientLogsPanel();
   bindGlobalInterfacePanel();
   switchManagementTab('usersManagement');
   refresh();
