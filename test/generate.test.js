@@ -194,10 +194,17 @@ test('handleGenerate redacts upstream errors that echo API keys', async () => {
 
       await generate.handleGenerate(req, res);
 
-      assert.equal(res.statusCode, 401);
-      const body = JSON.parse(res.body);
-      assert.ok(!body.error.includes(secret));
-      assert.match(body.error, /sk-r\*\*\*\*3456/);
+      assert.equal(res.statusCode, 202);
+      const queued = JSON.parse(res.body);
+      assert.ok(queued.jobId);
+
+      const done = await waitFor(() => {
+        const [job] = jobQueue.getUserJobs(routeUser.id).filter((j) => j.id === queued.jobId);
+        return job?.status === 'failed' || job?.status === 'timeout' ? job : null;
+      });
+      assert.ok(done, 'job should have failed');
+      assert.ok(!done.error.includes(secret), 'error must not contain raw secret');
+      assert.match(done.error, /sk-r\*\*\*\*3456/);
     } finally {
       await close(server);
     }
