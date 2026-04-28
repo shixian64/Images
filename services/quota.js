@@ -347,3 +347,8 @@ export function patchUserQuota(userId, patch, updatedBy) {
   if (Object.keys(clean).length === 0) return userQuotas.get(userId);
   return userQuotas.upsert(userId, clean, updatedBy);
 }
+
+export function clearUserQuota(userId) {
+  userQuotas.delete(userId);
+  return effectiveQuota(userId);
+}

@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { clientLogs } from './db.js';
 import { clientIp, userAgent } from '../utils/request.js';
+import { redactSecrets } from '../utils/mask.js';
 
 const VALID_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 const MAX_BATCH = 100;
@@ -27,6 +28,10 @@ function truncate(value, max = MAX_TEXT_CHARS) {
   return `${text.slice(0, max)}…`;
 }
 
+function safeText(value, max = MAX_TEXT_CHARS) {
+  return truncate(redactSecrets(value), max);
+}
+
 function isSensitiveKey(key) {
   return SENSITIVE_KEY_RE.test(String(key || ''));
 }
@@ -34,7 +39,7 @@ function isSensitiveKey(key) {
 function redactMeta(value, depth = 0) {
   if (depth > MAX_DEPTH) return '[max-depth]';
   if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return truncate(value);
+  if (typeof value === 'string') return safeText(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) return value.slice(0, 80).map((item) => redactMeta(item, depth + 1));
   if (typeof value !== 'object') return truncate(value);
@@ -71,17 +76,17 @@ function normalizeClientTs(value) {
 
 function normalizeLogItem(raw = {}) {
   const context = raw.context && typeof raw.context === 'object' ? raw.context : {};
-  const clientId = truncate(raw.clientId || raw.id || '', 160) || null;
+  const clientId = safeText(raw.clientId || raw.id || '', 160) || null;
   return {
     id: randomUUID(),
     clientId,
     clientTs: normalizeClientTs(raw.clientTs || raw.ts || raw.createdAt),
     receivedAt: new Date().toISOString(),
     level: normalizeLevel(raw.level),
-    message: truncate(raw.message || raw.msg || '', MAX_MESSAGE_CHARS),
+    message: safeText(raw.message || raw.msg || '', MAX_MESSAGE_CHARS),
     meta: compactMeta(raw.meta),
-    pageUrl: truncate(raw.pageUrl || raw.url || context.pageUrl || context.url || '', 1200) || null,
-    userAgent: truncate(context.userAgent || '', 1200) || null
+    pageUrl: safeText(raw.pageUrl || raw.url || context.pageUrl || context.url || '', 1200) || null,
+    userAgent: safeText(context.userAgent || '', 1200) || null
   };
 }
 

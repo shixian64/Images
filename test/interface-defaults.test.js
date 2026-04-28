@@ -59,3 +59,13 @@ test('adminInterfaceConfig keeps probe details while redacting raw keys', () => 
   assert.equal(config.image.testLatencyMs, 123);
   assert.equal(config.image.testedAt, '2026-04-26T00:00:00.000Z');
 });
+
+test('interface defaults reject base URLs with embedded credentials', () => {
+  const config = sampleConfig();
+  config.image.baseUrl = 'https://user:pass@api.example.com';
+
+  assert.throws(
+    () => adminInterfaceConfig(config),
+    /baseUrl must not include credentials/
+  );
+});

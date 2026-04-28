@@ -72,3 +72,42 @@ test('client logs are stored, deduplicated, and redacted for admin debugging', (
   assert.equal(rows[0].meta.nested.keep, 'stack context');
   assert.equal(rows[0].pageUrl, 'http://localhost:8787/#studio');
 });
+
+test('client logs redact secrets embedded in ordinary strings', () => {
+  const user = auth.register({
+    username: 'log_secret_user',
+    email: 'log_secret_user@example.com',
+    password: 'longenough1'
+  });
+
+  const leakedBearer = 'sk-client-log-secret-123456';
+  const leakedMeta = 'sk-meta-secret-123456';
+  const leakedUrl = 'sk-url-secret-123456';
+  const result = clientLogService.recordClientLogs(reqFor(user), {
+    items: [
+      {
+        id: 'local-log-secret',
+        level: 'error',
+        message: `upstream echoed Authorization: Bearer ${leakedBearer}`,
+        meta: {
+          detail: `nested authorization: Bearer ${leakedMeta}`,
+          url: `https://example.com/callback?api_key=${leakedUrl}`
+        },
+        context: {
+          pageUrl: `http://localhost:8787/#studio?api_key=${leakedUrl}`,
+          userAgent: `agent token ${leakedBearer}`
+        }
+      }
+    ]
+  });
+  assert.equal(result.inserted, 1);
+
+  const [row] = clientLogService.listClientLogsForUser(user.id, { limit: 10 });
+  const serialized = JSON.stringify(row);
+  assert.equal(serialized.includes(leakedBearer), false);
+  assert.equal(serialized.includes(leakedMeta), false);
+  assert.equal(serialized.includes(leakedUrl), false);
+  assert.match(row.message, /Bearer sk-c\*\*\*\*3456/);
+  assert.match(row.meta.detail, /Bearer sk-m\*\*\*\*3456/);
+  assert.match(row.pageUrl, /api_key=sk-u\*\*\*\*3456/);
+});

@@ -32,6 +32,9 @@ function validateBaseUrl(value) {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error('invalid baseUrl');
   }
+  if (parsed.username || parsed.password) {
+    throw new Error('baseUrl must not include credentials');
+  }
   return url;
 }
 

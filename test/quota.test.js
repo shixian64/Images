@@ -212,3 +212,19 @@ test('global concurrent slot respects environment limit', () => {
     afterRelease.release();
   });
 });
+
+test('clearUserQuota removes quota override row', () => {
+  return withQuotaEnv({}, () => {
+    const user = createNormalUser();
+
+    quota.patchUserQuota(user.id, { daily_limit: 1 }, 'admin');
+    let effective = quota.effectiveQuota(user.id);
+    assert.equal(effective.daily_limit, 1);
+    assert.equal(effective.overridden, true);
+
+    effective = quota.clearUserQuota(user.id);
+    assert.equal(effective.daily_limit, 10);
+    assert.equal(effective.overridden, false);
+    assert.equal(effective.raw, null);
+  });
+});

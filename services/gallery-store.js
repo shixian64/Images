@@ -133,9 +133,14 @@ function parseBase64Image(raw, { maxBytes = maxImageDownloadBytes() } = {}) {
 
   const dataUrlMatch = text.match(/^data:([^;,]+)?;base64,(.+)$/i);
   if (dataUrlMatch) {
+    const contentType = dataUrlMatch[1] || '';
+    const mime = normalizeMimeType(contentType);
+    if (mime && !EXT_BY_MIME[mime]) {
+      throw new Error(`b64_json content-type is not allowed: ${mime}`);
+    }
     return {
       buffer: decodeBase64Image(dataUrlMatch[2], maxBytes),
-      contentType: dataUrlMatch[1] || ''
+      contentType
     };
   }
 
@@ -252,7 +257,8 @@ async function assetFromItem(item, { fetchImpl = fetch, fallbackFormat = 'png' }
     if (!parsed) return null;
     const detected = detectImageType(parsed.buffer, {
       contentType: parsed.contentType,
-      fallbackFormat
+      fallbackFormat,
+      requireMagic: true
     });
     return { ...detected, buffer: parsed.buffer, sourceType: 'b64_json' };
   }

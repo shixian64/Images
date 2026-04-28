@@ -127,6 +127,18 @@ test('saveGeneratedImages rejects b64_json images over byte limit', async () => 
   });
 });
 
+test('saveGeneratedImages rejects b64_json payloads that are not real images', async () => {
+  const html = Buffer.from('<!doctype html><script>globalThis.pwned=1</script>');
+  const result = await gallery.saveGeneratedImages(
+    [{ b64_json: `data:text/html;base64,${html.toString('base64')}` }],
+    { prompt: 'x', outputFormat: 'png' },
+    { userId: user.id }
+  );
+
+  assert.equal(result.saved.length, 0);
+  assert.match(result.items[0].save_error, /content-type is not allowed|not a supported image/);
+});
+
 test('saveGeneratedImages rejects explicit non-image content-type', async () => {
   const result = await gallery.saveGeneratedImages(
     [{ url: 'https://example.com/not-image' }],

@@ -14,6 +14,7 @@ import {
   effectiveQuota,
   usageSnapshot,
   patchUserQuota,
+  clearUserQuota,
   getDefaults,
   setDefaults,
   resetUsage
@@ -122,12 +123,9 @@ async function handleUserDetail(req, res, id) {
 
   if (method === 'DELETE') {
     try {
-      patchUserQuota(id, {
-        daily_limit: null, monthly_limit: null,
-        storage_limit_mb: null, concurrent_limit: null
-      }, req.session.user.id);
+      const quota = clearUserQuota(id);
       auditRecord(req, 'quota.user_clear', { type: 'user', id });
-      sendJson(res, 200, { quota: effectiveQuota(id), usage: usageSnapshot(id) });
+      sendJson(res, 200, { quota, usage: usageSnapshot(id) });
     } catch (err) {
       sendJson(res, statusFromError(err.message), { error: err.message });
     }
