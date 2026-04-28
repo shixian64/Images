@@ -37,7 +37,34 @@
     </div>
   </header>
 
-  <main id="main" class="shell">
+  <main id="main" class="shell app-layout">
+    <aside id="jobQueueDock" class="job-queue-dock" aria-label="生成队列" hidden>
+      <header class="job-queue-head">
+        <div>
+          <p class="eyebrow">Queue</p>
+          <h2>生成队列</h2>
+        </div>
+        <button id="jobQueueClearDone" class="ghost small" type="button">清空已完成</button>
+      </header>
+      <div id="jobQueueSummary" class="job-queue-summary" aria-live="polite">正在加载队列…</div>
+      <section class="job-queue-section" aria-labelledby="jobQueueRunningTitle">
+        <h3 id="jobQueueRunningTitle">正在执行</h3>
+        <div id="jobQueueRunning" class="job-queue-list"></div>
+      </section>
+      <section class="job-queue-section" aria-labelledby="jobQueueQueuedTitle">
+        <h3 id="jobQueueQueuedTitle">排队中</h3>
+        <div id="jobQueueQueued" class="job-queue-list"></div>
+      </section>
+      <section class="job-queue-section job-queue-recent-section" aria-labelledby="jobQueueRecentTitle">
+        <h3 id="jobQueueRecentTitle">最近完成</h3>
+        <div id="jobQueueRecent" class="job-queue-list"></div>
+      </section>
+    </aside>
+    <button id="jobQueueMobileButton" class="job-queue-mobile-button" type="button" aria-controls="jobQueueDock" aria-expanded="false" hidden>
+      队列 <span id="jobQueueMobileBadge">0</span>
+    </button>
+
+    <div class="workspace-panels">
     <!-- ============================================================ -->
     <!-- Studio -->
     <!-- ============================================================ -->
@@ -518,6 +545,15 @@
           >额度管理</button>
           <button
             class="management-tab"
+            id="managementTabJobs"
+            type="button"
+            role="tab"
+            aria-controls="jobManagement"
+            aria-selected="false"
+            data-management-tab="jobManagement"
+          >生成队列</button>
+          <button
+            class="management-tab"
             id="managementTabInterfaces"
             type="button"
             role="tab"
@@ -593,6 +629,24 @@
           </div>
 
           <div id="quotaTableWrap"></div>
+        </section>
+
+        <section id="jobManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabJobs" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">生成队列</p>
+              <h2>队列调度</h2>
+              <p class="hint">控制单进程调度器、查看全局排队与最近执行结果。</p>
+            </div>
+            <div class="management-actions">
+              <button class="ghost small" id="adminJobsRefresh" type="button">刷新</button>
+              <button class="primary small" id="adminJobsSaveSettings" type="button">保存队列设置</button>
+            </div>
+          </header>
+
+          <div id="adminJobsSummary" class="management-summary" aria-live="polite"></div>
+          <div id="adminJobsSettings" class="queue-settings-grid"></div>
+          <div id="adminJobsTableWrap"></div>
         </section>
 
         <section id="interfaceManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabInterfaces" hidden>
@@ -722,6 +776,7 @@
         </section>
       </div>
     </section>
+    </div>
   </main>
 
   <aside id="appDrawer" class="app-drawer" hidden aria-hidden="true">

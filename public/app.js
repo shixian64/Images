@@ -13,6 +13,7 @@ import { getMe, setCurrentUser } from './modules/auth.js';
 import { mountProfileMenu } from './modules/profile.js';
 import { mountUsersPanel } from './modules/users.js';
 import { mountSelectEnhancer } from './modules/selects.js';
+import { mountJobQueue } from './modules/jobs.js';
 
 // why：入口先确认登录态，未登录立即跳转，避免后续模块触发 401 噪音。
 const me = await getMe();
@@ -34,6 +35,7 @@ mountGalleryPanel();
 mountStudioPanel({
   onSavedImages: () => refreshGalleryPanel({ silent: true })
 });
+mountJobQueue();
 mountPromptPanel({
   onUsePrompt: (prompt) => {
     loadPromptFromLog(prompt);

@@ -1,7 +1,14 @@
 // 额度服务：默认配额、用户覆盖、生成入口拦截、用量记录与汇总。
 // TAG: hmt---
 
-import { users, userQuotas, usageDaily, systemSettings, images as imagesTable } from './db.js';
+import {
+  users,
+  userQuotas,
+  usageDaily,
+  systemSettings,
+  images as imagesTable,
+  generationJobs
+} from './db.js';
 
 const DEFAULT_KEY = 'quota.defaults';
 
@@ -36,9 +43,22 @@ function envFallbackDefaults() {
 }
 
 export function getGlobalConcurrentLimit() {
-  const limit = envLimit('GLOBAL_CONCURRENT_GENERATIONS', null);
+  const queueSettings = systemSettings.get('queue.settings') || {};
+  const configured = queueSettings.global_concurrency ?? queueSettings.globalConcurrency;
+  const limit = configured === undefined || configured === null || configured === ''
+    ? envLimit('GLOBAL_CONCURRENT_GENERATIONS', null)
+    : envLimitFromValue(configured, null);
   if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return null;
   return Number(limit);
+}
+
+function envLimitFromValue(raw, fallback) {
+  if (raw === undefined || raw === '') return fallback ?? null;
+  const text = String(raw).trim().toLowerCase();
+  if (text === '' || text === 'null' || text === 'none' || text === 'unlimited') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback ?? null;
+  return Math.floor(n);
 }
 
 export function getSignupIpQuotaLimits() {
@@ -128,47 +148,51 @@ export function summary(userId) {
 }
 
 // 调用 generate 之前检查。返回 { ok, code, message } —— ok=false 时路由层抛 429。
-export function assertCanGenerate(userId, { n = 1 } = {}) {
+export function assertCanGenerate(userId, { n = 1, includeQueued = false } = {}) {
   if (!userId) return { ok: true };
   const { quota, usage } = summary(userId);
   const callsRequested = Math.max(1, Number(n) || 1);
+  const queuedCalls = includeQueued ? Number(generationJobs.pendingCallCount(userId)) || 0 : 0;
+  const todayCalls = usage.today.calls + queuedCalls;
+  const monthCalls = usage.month.calls + queuedCalls;
 
-  if (quota.daily_limit && usage.today.calls + callsRequested > quota.daily_limit) {
+  if (quota.daily_limit && todayCalls + callsRequested > quota.daily_limit) {
     return {
       ok: false,
       code: 'daily_limit_exceeded',
-      message: `今日额度已用完（${usage.today.calls}/${quota.daily_limit}）`
+      message: `今日额度已用完（${todayCalls}/${quota.daily_limit}）`
     };
   }
-  if (quota.monthly_limit && usage.month.calls + callsRequested > quota.monthly_limit) {
+  if (quota.monthly_limit && monthCalls + callsRequested > quota.monthly_limit) {
     return {
       ok: false,
       code: 'monthly_limit_exceeded',
-      message: `本月额度已用完（${usage.month.calls}/${quota.monthly_limit}）`
+      message: `本月额度已用完（${monthCalls}/${quota.monthly_limit}）`
     };
   }
   const user = users.findById(userId);
   const signupIpLimits = getSignupIpQuotaLimits();
   if (user?.role !== 'admin' && user?.signup_ip) {
     const pooled = usageBySignupIpSnapshot(user.signup_ip);
+    const pooledQueued = includeQueued ? Number(generationJobs.pendingCallCountBySignupIp(user.signup_ip)) || 0 : 0;
     if (
       signupIpLimits.daily_limit &&
-      pooled.today.calls + callsRequested > signupIpLimits.daily_limit
+      pooled.today.calls + pooledQueued + callsRequested > signupIpLimits.daily_limit
     ) {
       return {
         ok: false,
         code: 'signup_ip_daily_limit_exceeded',
-        message: `该注册来源今日额度已用完（${pooled.today.calls}/${signupIpLimits.daily_limit}）`
+        message: `该注册来源今日额度已用完（${pooled.today.calls + pooledQueued}/${signupIpLimits.daily_limit}）`
       };
     }
     if (
       signupIpLimits.monthly_limit &&
-      pooled.month.calls + callsRequested > signupIpLimits.monthly_limit
+      pooled.month.calls + pooledQueued + callsRequested > signupIpLimits.monthly_limit
     ) {
       return {
         ok: false,
         code: 'signup_ip_monthly_limit_exceeded',
-        message: `该注册来源本月额度已用完（${pooled.month.calls}/${signupIpLimits.monthly_limit}）`
+        message: `该注册来源本月额度已用完（${pooled.month.calls + pooledQueued}/${signupIpLimits.monthly_limit}）`
       };
     }
   }

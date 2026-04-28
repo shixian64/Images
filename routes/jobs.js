@@ -1,0 +1,226 @@
+// /api/jobs and /api/admin/jobs routes for the persistent generation queue.
+
+import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { requireAdmin } from '../middleware/guard.js';
+import {
+  cancelJob,
+  getAdminJobs,
+  getJobForUser,
+  getQueueSettings,
+  getUserJobs,
+  queueStats,
+  retryJob,
+  setQueueSettings,
+  subscribeAdminJobs,
+  subscribeJob,
+  subscribeUserJobs,
+  updateJobPriority
+} from '../services/job-queue.js';
+
+function writeSse(res, event, data = {}) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function writeSseComment(res, message) {
+  res.write(`: ${message}\n\n`);
+}
+
+function openSse(res) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    'connection': 'keep-alive',
+    'x-accel-buffering': 'no'
+  });
+  res.flushHeaders?.();
+  writeSseComment(res, 'connected');
+}
+
+function statusFromError(err) {
+  return err?.statusCode || bodyErrorStatus(err);
+}
+
+async function readBodyOrEmpty(req) {
+  try { return await readJsonBody(req); }
+  catch (err) {
+    if (bodyErrorStatus(err) === 413) throw err;
+    return {};
+  }
+}
+
+async function handleUserJobs(req, res, pathname) {
+  const user = req.session.user;
+
+  if (pathname === '/api/jobs') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    return sendJson(res, 200, { items: getUserJobs(user.id) });
+  }
+
+  if (pathname === '/api/jobs/stream') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    openSse(res);
+    writeSse(res, 'snapshot', { items: getUserJobs(user.id) });
+    const cleanup = subscribeUserJobs(user.id, res);
+    const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
+    heartbeat.unref?.();
+    res.on('close', () => {
+      clearInterval(heartbeat);
+      cleanup();
+    });
+    return;
+  }
+
+  const streamMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/stream\/?$/);
+  if (streamMatch) {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    const id = decodeURIComponent(streamMatch[1]);
+    try {
+      const job = getJobForUser(id, user);
+      openSse(res);
+      writeSse(res, 'snapshot', { job });
+      const cleanup = subscribeJob(id, res);
+      const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
+      heartbeat.unref?.();
+      res.on('close', () => {
+        clearInterval(heartbeat);
+        cleanup();
+      });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+    }
+    return;
+  }
+
+  const cancelMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/cancel\/?$/);
+  if (cancelMatch) {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    try {
+      const job = cancelJob(decodeURIComponent(cancelMatch[1]), user);
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+    }
+  }
+
+  const retryMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/retry\/?$/);
+  if (retryMatch) {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    try {
+      const job = retryJob(decodeURIComponent(retryMatch[1]), user);
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+    }
+  }
+
+  const detailMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/?$/);
+  if (detailMatch) {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    try {
+      const job = getJobForUser(decodeURIComponent(detailMatch[1]), user);
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'not found' });
+}
+
+async function handleAdminJobs(req, res, pathname, url) {
+  if (!requireAdmin(req, res)) return;
+
+  if (pathname === '/api/admin/jobs') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    const status = url?.searchParams?.get('status') || '';
+    const userId = url?.searchParams?.get('userId') || '';
+    const limit = Number(url?.searchParams?.get('limit') || 200) || 200;
+    return sendJson(res, 200, {
+      items: getAdminJobs({ limit, status, userId }),
+      settings: getQueueSettings(),
+      stats: queueStats()
+    });
+  }
+
+  if (pathname === '/api/admin/jobs/stream') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    openSse(res);
+    writeSse(res, 'snapshot', {
+      items: getAdminJobs({ limit: 200 }),
+      settings: getQueueSettings(),
+      stats: queueStats()
+    });
+    const cleanup = subscribeAdminJobs(res);
+    const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
+    heartbeat.unref?.();
+    res.on('close', () => {
+      clearInterval(heartbeat);
+      cleanup();
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/jobs/settings') {
+    if (req.method === 'GET') return sendJson(res, 200, { settings: getQueueSettings() });
+    if (req.method === 'PUT') {
+      let body;
+      try { body = await readBodyOrEmpty(req); }
+      catch (err) { return sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' }); }
+      try {
+        const settings = setQueueSettings(body || {}, req.session.user.id);
+        return sendJson(res, 200, { settings });
+      } catch (err) {
+        return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+      }
+    }
+    return sendJson(res, 405, { error: 'method not allowed' });
+  }
+
+  const cancelMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/cancel\/?$/);
+  if (cancelMatch) {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    try {
+      const job = cancelJob(decodeURIComponent(cancelMatch[1]), req.session.user, { admin: true });
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+    }
+  }
+
+  const priorityMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/priority\/?$/);
+  if (priorityMatch) {
+    if (req.method !== 'PATCH' && req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    let body;
+    try { body = await readJsonBody(req); }
+    catch (err) { return sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' }); }
+    try {
+      const job = updateJobPriority(decodeURIComponent(priorityMatch[1]), body?.priority, req.session.user);
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+    }
+  }
+
+  const detailMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/?$/);
+  if (detailMatch) {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    try {
+      const job = getAdminJobs({ limit: 10000 }).find((item) => item.id === decodeURIComponent(detailMatch[1]));
+      if (!job) return sendJson(res, 404, { error: 'job not found' });
+      return sendJson(res, 200, { job });
+    } catch (err) {
+      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'not found' });
+}
+
+export async function handleJobsRoute(req, res, pathname, url) {
+  if (pathname.startsWith('/api/admin/jobs')) return handleAdminJobs(req, res, pathname, url);
+  if (pathname.startsWith('/api/jobs')) return handleUserJobs(req, res, pathname, url);
+  return sendJson(res, 404, { error: 'not found' });
+}
+
+export default handleJobsRoute;

@@ -16,12 +16,14 @@ import { handleAdminGalleryRoute } from './routes/admin-gallery.js';
 import { handleQuotaRoute } from './routes/quota.js';
 import { handleInterfacesRoute } from './routes/interfaces.js';
 import { handlePromptSquareRoute } from './routes/prompt-square.js';
+import { handleJobsRoute } from './routes/jobs.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
 import { requireAuth, requireCsrf } from './middleware/guard.js';
 
 import { migrate, sessions } from './services/db.js';
+import { startJobQueue, stopJobQueue } from './services/job-queue.js';
 import { sendJson } from './utils/http.js';
 import { logger } from './utils/logger.js';
 
@@ -32,6 +34,7 @@ const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
 
 // 启动前先建表 + 处理 legacy gallery.json 迁移
 migrate();
+startJobQueue();
 
 async function handleRequest(req, res) {
   // 任何请求都先尝试附会话；未登录场景下 req.session = null
@@ -73,6 +76,9 @@ async function handleRequest(req, res) {
     }
     if (pathname.startsWith('/api/prompt-square')) {
       return handlePromptSquareRoute(req, res, pathname, url);
+    }
+    if (pathname.startsWith('/api/jobs') || pathname.startsWith('/api/admin/jobs')) {
+      return handleJobsRoute(req, res, pathname, url);
     }
     if (req.method === 'GET' && pathname === '/api/generate/config') return handleGenerateConfig(req, res);
     if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
@@ -131,6 +137,7 @@ function shutdown(signal) {
   shuttingDown = true;
   logger.info('server.shutdown', { signal });
   clearInterval(cleaner);
+  stopJobQueue();
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal });
     process.exit(1);

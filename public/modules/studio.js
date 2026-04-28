@@ -11,8 +11,8 @@ import { getChatConfig, getEffectiveProfile, getImageConfig, onProfilesChanged, 
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 import { apiFetch } from './auth.js';
+import { submitGenerationJob } from './jobs.js';
 
-const GENERATE_TIMEOUT_MS = 10 * 60 * 1000;
 const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
 const PROMPT_SOURCE = Object.freeze({
   manual: 'manual',
@@ -24,6 +24,8 @@ let studioPreviewPrompt = '';
 let previewModal = null;
 let lastPreviewTrigger = null;
 let selectedPromptSource = PROMPT_SOURCE.manual;
+const renderedQueueJobIds = new Set();
+const loggedQueueFinalJobIds = new Set();
 
 function renderSelect(id, items) {
   const el = $(id);
@@ -625,40 +627,32 @@ async function generate({ onSavedImages } = {}) {
   });
 
   $('generate').disabled = true;
-  setStatus('生成中…', 'busy');
-  showTaskProgress('generate', `正在调用 ${payload.model} …`);
+  setStatus('正在加入队列…', 'busy');
+  showTaskProgress('generate', `正在提交 ${payload.model} 到生成队列…`);
 
   const started = Date.now();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
   try {
-    const data = await requestGenerate(payload, controller, started);
-
-    const items = data?.data || [];
-    renderImages(items, prompt);
-    if (items.some((item) => item.local_url || item.localUrl) || data?.saved?.length) {
-      onSavedImages?.(items);
-    }
+    const data = await submitGenerationJob(payload);
     const durationMs = Date.now() - started;
-
-    addLog('info', 'image.generate.success', {
+    addLog('info', 'image.generate.queued', {
       model: payload.model,
       profileName: profile.name,
       apiKey: systemMode ? 'system-default' : image.apiKey,
       interfaceMode: systemMode ? 'system' : 'custom',
       durationMs,
-      imageCount: items.length,
+      jobId: data.jobId,
+      queuePosition: data.position,
       size: payload.size,
       quality: payload.quality,
       prompt,
       promptSource: promptInfo.source
     });
-    setStatus(`完成 · ${durationMs}ms`, 'ok', 2000);
+    const positionText = data.position ? `，第 ${data.position} 位` : '';
+    showTaskProgress('generate', `已加入队列${positionText}。可在左侧队列面板查看进度。`);
+    setStatus(`已加入队列${positionText}`, 'ok', 2000);
   } catch (err) {
     const durationMs = Date.now() - started;
-    const message = err.name === 'AbortError'
-      ? '生成请求超时，请稍后重试或检查接口配置。'
-      : (err.message || String(err));
+    const message = err.message || String(err);
     showError(message);
     addLog('error', 'image.generate.failed', {
       model: payload.model,
@@ -672,10 +666,56 @@ async function generate({ onSavedImages } = {}) {
     });
     setStatus('失败', 'err', 2000);
   } finally {
-    clearTimeout(timeoutId);
     $('generate').disabled = false;
-    showTaskProgress('generate', '');
+    setTimeout(() => showTaskProgress('generate', ''), 2200);
   }
+}
+
+function handleQueueJobSucceeded(job, { onSavedImages, force = false } = {}) {
+  if (!job?.id || (renderedQueueJobIds.has(job.id) && !force)) return;
+  const result = job.result || {};
+  const items = Array.isArray(result.data) ? result.data : [];
+  const prompt = job.payload?.prompt || job.promptPreview || '';
+  renderImages(items, prompt);
+  renderedQueueJobIds.add(job.id);
+  if (items.some((item) => item.local_url || item.localUrl) || result.saved?.length) {
+    onSavedImages?.(items);
+  }
+  showTaskProgress('generate', '');
+  showError('');
+  setStatus(`队列任务完成 · ${job.model || 'image'}`, 'ok', 2200);
+}
+
+function handleQueueJobFinished(job, { onSavedImages } = {}) {
+  if (!job?.id || loggedQueueFinalJobIds.has(job.id)) return;
+  loggedQueueFinalJobIds.add(job.id);
+  if (job.status === 'succeeded') {
+    handleQueueJobSucceeded(job, { onSavedImages });
+    addLog('info', 'image.generate.completed', {
+      jobId: job.id,
+      model: job.model,
+      profileName: job.profileName,
+      interfaceMode: job.payload?.interfaceMode || (job.payload?.useSystemDefault ? 'system' : 'custom'),
+      durationMs: job.startedAt && job.finishedAt ? job.finishedAt - job.startedAt : undefined,
+      imageCount: Array.isArray(job.result?.data) ? job.result.data.length : 0,
+      prompt: job.payload?.prompt || '',
+      size: job.payload?.size,
+      quality: job.payload?.quality
+    });
+    return;
+  }
+  const message = job.error || job.progress?.message || '生成失败';
+  showError(message);
+  addLog('error', 'image.generate.failed', {
+    jobId: job.id,
+    model: job.model,
+    profileName: job.profileName,
+    interfaceMode: job.payload?.interfaceMode || (job.payload?.useSystemDefault ? 'system' : 'custom'),
+    durationMs: job.startedAt && job.finishedAt ? job.finishedAt - job.startedAt : undefined,
+    error: message,
+    prompt: job.payload?.prompt || ''
+  });
+  setStatus(`队列任务${job.status === 'cancelled' ? '已取消' : '失败'}`, 'err', 2200);
 }
 
 // 外部调用：把日志里的 prompt 回填到 Studio。
@@ -728,6 +768,12 @@ export function mountStudioPanel({ onSavedImages } = {}) {
 
   $('generate').addEventListener('click', () => generate({ onSavedImages }));
   $('optimizePrompt')?.addEventListener('click', optimizePrompt);
+  window.addEventListener('generation-job-succeeded', (ev) => {
+    handleQueueJobSucceeded(ev.detail?.job, { onSavedImages, force: Boolean(ev.detail?.force) });
+  });
+  window.addEventListener('generation-job-finished', (ev) => {
+    handleQueueJobFinished(ev.detail?.job, { onSavedImages });
+  });
   $('gallery').addEventListener('click', (ev) => {
     const trigger = ev.target.closest('.image-preview-trigger');
     if (!trigger) return;

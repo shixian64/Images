@@ -32,6 +32,11 @@ export function listForTarget(targetType, targetId, limit = 50) {
   return rows.map(rowToItem);
 }
 
+export function listForActor(actorId, limit = 50) {
+  const rows = auditLogs.listByActor(actorId, limit);
+  return rows.map(rowToItem);
+}
+
 export function listRecent(limit = 200) {
   return auditLogs.listRecent(limit).map(rowToItem);
 }

@@ -13,6 +13,7 @@ let db;
 let auth;
 let quota;
 let generate;
+let jobQueue;
 let user;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
@@ -74,19 +75,33 @@ before(async () => {
   auth = await import('../services/auth.js');
   quota = await import('../services/quota.js');
   generate = await import('../routes/generate.js');
+  jobQueue = await import('../services/job-queue.js');
 
   db.migrate();
+  jobQueue.startJobQueue();
   user = auth.register({ username: 'gen_user', email: 'gen_user@example.com', password: 'longenough1' });
 });
 
 after(() => {
+  try { jobQueue?.stopJobQueue?.(); } catch {}
   process.chdir(prevCwd);
   if (prevMaxImagesPerRequest === undefined) delete process.env.MAX_IMAGES_PER_REQUEST;
   else process.env.MAX_IMAGES_PER_REQUEST = prevMaxImagesPerRequest;
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
-test('handleGenerate records multi-image requests with the same quota cost used by precheck', async () => {
+async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await fn();
+    if (last) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return last;
+}
+
+test('handleGenerate enqueues and worker records multi-image requests with the same quota cost used by precheck', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',
     ALLOW_PRIVATE_UPSTREAMS: '1',
@@ -122,7 +137,16 @@ test('handleGenerate records multi-image requests with the same quota cost used 
 
       await generate.handleGenerate(req, res);
 
-      assert.equal(res.statusCode, 200);
+      assert.equal(res.statusCode, 202);
+      const queued = JSON.parse(res.body);
+      assert.equal(queued.status, 'queued');
+      assert.ok(queued.jobId);
+
+      const done = await waitFor(() => {
+        const [job] = jobQueue.getUserJobs(user.id).filter((item) => item.id === queued.jobId);
+        return job?.status === 'succeeded' ? job : null;
+      });
+      assert.equal(done?.status, 'succeeded');
       assert.equal(upstreamPayload.n, 3);
       const usage = quota.usageSnapshot(user.id);
       assert.equal(usage.today.calls, 3);
