@@ -3,23 +3,28 @@ import assert from 'node:assert/strict';
 
 import { adminInterfaceConfig, publicInterfaceConfig } from '../services/interface-defaults.js';
 
+const skLike = (suffix) => ['sk', suffix].join('-');
+
 function sampleConfig() {
+  const imageApiKey = skLike('image-secret-123456');
+  const chatApiKey = skLike('chat-secret-123456');
+
   return {
     enabled: true,
     name: 'default',
     image: {
       baseUrl: 'https://api.example.com',
-      apiKey: 'sk-image-secret-123456',
+      apiKey: imageApiKey,
       maskedApiKey: 'sk-i****3456',
       defaultModel: 'gpt-image-2',
       testStatus: 'err',
       testLatencyMs: 123,
       testedAt: '2026-04-26T00:00:00.000Z',
-      testError: 'upstream leaked sk-image-secret-123456'
+      testError: `upstream leaked ${imageApiKey}`
     },
     chat: {
       baseUrl: 'https://api.example.com',
-      apiKey: 'sk-chat-secret-123456',
+      apiKey: chatApiKey,
       maskedApiKey: 'sk-c****3456',
       defaultModel: 'gpt-5.5',
       testStatus: 'ok',

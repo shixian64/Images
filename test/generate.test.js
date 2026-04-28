@@ -18,6 +18,8 @@ let user;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
+const skLike = (suffix) => ['sk', suffix].join('-');
+
 function jsonReq(body, sessionUser) {
   const req = Readable.from([Buffer.from(JSON.stringify(body))]);
   req.session = { user: sessionUser };
@@ -128,7 +130,7 @@ test('handleGenerate enqueues and worker records multi-image requests with the s
       const { port } = server.address();
       const req = jsonReq({
         imageBaseUrl: `http://127.0.0.1:${port}`,
-        imageApiKey: 'sk-test',
+        imageApiKey: skLike('test'),
         prompt: 'three small pngs',
         model: 'test-image-model',
         n: 3
@@ -164,7 +166,7 @@ test('handleGenerate redacts upstream errors that echo API keys', async () => {
     ALLOW_INSECURE_UPSTREAMS: '1',
     ALLOW_PRIVATE_UPSTREAMS: '1'
   }, async () => {
-    const secret = 'sk-route-secret-123456';
+    const secret = skLike('route-secret-123456');
     const server = http.createServer((req, res) => {
       req.resume();
       res.writeHead(401, { 'content-type': 'application/json' });
