@@ -745,6 +745,7 @@ button.danger:hover { background: var(--danger-soft); }
   margin: 8px 0 16px;
   color: var(--text-muted); font-size: 12.5px;
 }
+.gallery-summary[hidden] { display: none; }
 .gallery-summary .chip {
   min-height: 28px;
   padding: 0 10px;
@@ -869,7 +870,7 @@ button.danger:hover { background: var(--danger-soft); }
 .image-card .like-badge {
   position: absolute;
   top: 8px;
-  left: 8px;
+  right: 8px;
   z-index: 2;
   min-height: 26px;
   padding: 0 9px;
@@ -889,6 +890,12 @@ button.danger:hover { background: var(--danger-soft); }
   color: var(--success);
   font-weight: 600;
 }
+.gallery-card .gallery-image-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  overflow: hidden;
+}
 .image-card .card-actions {
   position: absolute; top: 8px; right: 8px;
   z-index: 2;
@@ -900,6 +907,11 @@ button.danger:hover { background: var(--danger-soft); }
 }
 .image-card.has-like-badge .card-actions {
   top: 42px;
+}
+.gallery-card .card-actions,
+.image-card.gallery-card.has-like-badge .card-actions {
+  top: auto;
+  bottom: 8px;
 }
 .image-card:hover .card-actions,
 .image-card:focus-within .card-actions { opacity: 1; }

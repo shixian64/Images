@@ -8,7 +8,6 @@ let galleryItems = [];
 let galleryScope = 'mine';
 let galleryCounts = { mine: 0, myPublic: 0, public: 0 };
 let likeQuota = { limit: 10, used: 0, remaining: 10 };
-let galleryStorage = '';
 let mounted = false;
 
 let previewModal = null;
@@ -98,8 +97,14 @@ function renderScopeTabs() {
   if (pub) pub.textContent = String(galleryCounts.public || 0);
 }
 
+function hideGallerySummary() {
+  const summary = $('gallerySummary');
+  if (!summary) return;
+  summary.hidden = true;
+  summary.innerHTML = '';
+}
+
 function renderSummary(data = {}) {
-  if (data.storage !== undefined) galleryStorage = data.storage || '';
   galleryCounts = {
     ...galleryCounts,
     ...(data.counts || {})
@@ -109,30 +114,7 @@ function renderSummary(data = {}) {
     ...(data.likeQuota || {})
   };
   renderScopeTabs();
-
-  const total = Number(data.count ?? galleryItems.length) || 0;
-  const savedToday = galleryItems.filter((item) => {
-    const ts = String(item.createdAt || '');
-    return ts.slice(0, 10) === new Date().toISOString().slice(0, 10);
-  }).length;
-
-  if (galleryScope === 'public') {
-    $('gallerySummary').innerHTML = `
-      <span class="chip">公开共 ${galleryCounts.public || total} 张</span>
-      <span class="chip info">当前显示 ${galleryItems.length} 张</span>
-      <span class="chip">今日可赞 ${likeQuota.remaining ?? 0}/${likeQuota.limit ?? 10}</span>
-      <span class="chip">目录 ${escapeHtml(galleryStorage || 'generated/users/*/images')}</span>
-    `;
-    return;
-  }
-
-  $('gallerySummary').innerHTML = `
-    <span class="chip">我的共 ${galleryCounts.mine || total} 张</span>
-    <span class="chip info">当前显示 ${galleryItems.length} 张</span>
-    <span class="chip">已公开 ${galleryCounts.myPublic || 0} 张</span>
-    <span class="chip">今日新增 ${savedToday} 张</span>
-    <span class="chip">目录 ${escapeHtml(galleryStorage || 'generated/users/<uid>/images')}</span>
-  `;
+  hideGallerySummary();
 }
 
 function emptyHtml(message = '还没有本地图片。生成成功后会自动保存并显示在这里。') {
@@ -189,12 +171,14 @@ function renderGallery() {
       `;
 
     return `<article class="${cardClass}" data-gallery-id="${escapeHtml(item.id || '')}" data-gallery-index="${index}" data-scope="${galleryScope}">
-      ${hasLikeBadge ? `<span class="like-badge" title="获赞数量">♥ ${likeCount}</span>` : ''}
-      <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
-        <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
-      </button>
-      <div class="card-actions">
-        ${actionButtons}
+      <div class="gallery-image-wrap">
+        ${hasLikeBadge ? `<span class="like-badge" title="获赞数量">♥ ${likeCount}</span>` : ''}
+        <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
+          <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
+        </button>
+        <div class="card-actions">
+          ${actionButtons}
+        </div>
       </div>
       <div class="image-meta">
         <span>#${galleryItems.length - index}</span>
@@ -212,11 +196,10 @@ function renderGallery() {
 
 export async function refreshGalleryPanel({ silent = false } = {}) {
   if (!mounted) return;
-  const summary = $('gallerySummary');
   const list = $('savedGallery');
   try {
     if (!silent) {
-      summary.innerHTML = '<span class="chip">正在加载本地图库…</span>';
+      hideGallerySummary();
       list.dataset.empty = 'true';
       list.innerHTML = emptyHtml('正在加载本地图库…');
     }
@@ -232,7 +215,7 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
     if (!silent) setStatus('图库已刷新', 'ok', 1200);
   } catch (err) {
     const message = err.message || String(err);
-    summary.innerHTML = `<span class="chip error">加载失败：${escapeHtml(message)}</span>`;
+    hideGallerySummary();
     list.dataset.empty = 'true';
     list.innerHTML = emptyHtml(`图库加载失败：${message}`);
     setStatus('图库加载失败', 'err', 1800);
