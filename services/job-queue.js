@@ -476,10 +476,27 @@ async function executeJob(job, slot, userInfo) {
 function queuedWaitCleanup(settings = getQueueSettings()) {
   const wait = Number(settings.max_wait_ms) || 0;
   if (!wait) return;
-  const changed = generationJobs.cancelQueuedOlderThan(Date.now() - wait);
+  const staleJobs = generationJobs.queuedOlderThan(Date.now() - wait);
+  if (!staleJobs.length) return;
+
+  let changed = 0;
+  for (const job of staleJobs) {
+    const latest = generationJobs.findById(job.id);
+    if (!latest || latest.status !== 'queued') continue;
+    const cancelled = generationJobs.updateStatus(job.id, 'cancelled', {
+      finishedAt: Date.now(),
+      errorMessage: 'queue_wait_timeout',
+      progress: { stage: 'cancelled', message: '队列等待超时，任务已取消' },
+      cancelRequested: true
+    });
+    transientJobSecrets.delete(job.id);
+    changed += 1;
+    emitJob(cancelled, 'job');
+  }
+
   if (changed) {
     logger.warn('job.queue_wait_timeout', { cancelled: changed, maxWaitMs: wait });
-    // Emit a cheap refresh hint; individual rows will be refreshed by next GET.
+    // Refresh snapshots so remaining queued jobs get updated positions.
     emitTo(adminSubscribers, 'refresh', { reason: 'queue_wait_timeout', changed });
     for (const set of userSubscribers.values()) {
       emitTo(set, 'refresh', { reason: 'queue_wait_timeout', changed });

@@ -54,6 +54,49 @@ function payload(n = 1) {
   };
 }
 
+async function waitFor(fn, { timeoutMs = 1000, intervalMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await fn();
+    if (last) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return last;
+}
+
+test('queued jobs persist only safe worker payload fields', async () => {
+  const u = user('safe_payload');
+  const job = await jobQueue.enqueueImageGeneration({
+    ...payload(1),
+    imageApiKey: 'sk-image',
+    api_key: 'sk-alt',
+    token: 'secret-token',
+    extraHeaders: { Authorization: 'Bearer secret-token' },
+    messages: [{ role: 'user', content: 'chat-only context' }],
+    size: '1024x1024',
+    quality: 'high',
+    output_format: 'png'
+  }, u);
+
+  const stored = db.generationJobs.findById(job.id).payload;
+  assert.equal(stored.prompt, 'test prompt 1');
+  assert.equal(stored.model, 'test-image-model');
+  assert.equal(stored.n, 1);
+  assert.equal(stored.size, '1024x1024');
+  assert.equal(stored.quality, 'high');
+  assert.equal(stored.output_format, 'png');
+  assert.equal(stored.apiKey, undefined);
+  assert.equal(stored.imageApiKey, undefined);
+  assert.equal(stored.api_key, undefined);
+  assert.equal(stored.token, undefined);
+  assert.equal(stored.extraHeaders, undefined);
+  assert.equal(stored.messages, undefined);
+  assert.equal(stored.baseUrl, undefined);
+  assert.equal(stored.imageBaseUrl, undefined);
+  jobQueue.cancelJob(job.id, u);
+});
+
 test('enqueue quota check counts already queued calls', async () => {
   const u = user('queued_quota');
 
@@ -77,6 +120,36 @@ test('queued jobs can be cancelled before execution without usage', async () => 
   const cancelled = jobQueue.cancelJob(job.id, u);
   assert.equal(cancelled.status, 'cancelled');
   assert.equal(quota.usageSnapshot(u.id).today.calls, 0);
+});
+
+test('queue wait timeout emits a terminal job update', async () => {
+  const u = user('wait_timeout');
+  const job = await jobQueue.enqueueImageGeneration(payload(1), u);
+  let cleanup = () => {};
+  const updatePromise = new Promise((resolve) => {
+    cleanup = jobQueue.onJobUpdate(job.id, (updated) => {
+      if (updated.status === 'cancelled') resolve(updated);
+    });
+  });
+
+  jobQueue.setQueueSettings({ max_wait_ms: 1, maintenance_mode: false });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  jobQueue.startJobQueue();
+
+  const updated = await Promise.race([
+    updatePromise,
+    waitFor(() => {
+      const current = jobQueue.getJobForUser(job.id, u);
+      return current.status === 'cancelled' ? current : null;
+    })
+  ]);
+
+  cleanup();
+  assert.equal(updated?.status, 'cancelled');
+  assert.equal(updated?.error, 'queue_wait_timeout');
+  assert.equal(updated?.progress?.stage, 'cancelled');
+  jobQueue.stopJobQueue();
+  jobQueue.setQueueSettings({ max_wait_ms: 0, maintenance_mode: false });
 });
 
 test('startup recovery marks stale running jobs as failed', async () => {

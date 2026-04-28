@@ -1175,17 +1175,13 @@ export const generationJobs = {
     `).run(reason, now, now);
     return res.changes || 0;
   },
-  cancelQueuedOlderThan(cutoffMs) {
-    const now = Date.now();
-    const res = open().prepare(`
-      UPDATE generation_jobs
-      SET status = 'cancelled',
-          error_message = 'queue_wait_timeout',
-          finished_at = ?,
-          updated_at = ?
+  queuedOlderThan(cutoffMs, limit = 1000) {
+    return open().prepare(`
+      SELECT * FROM generation_jobs
       WHERE status = 'queued' AND created_at < ?
-    `).run(now, now, cutoffMs);
-    return res.changes || 0;
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(cutoffMs, Math.max(1, Math.floor(Number(limit) || 1000))).map(parseJob);
   },
   countQueued({ userId = '', statuses = ['queued'] } = {}) {
     const states = Array.isArray(statuses) && statuses.length ? statuses : ['queued'];

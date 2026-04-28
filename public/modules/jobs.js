@@ -10,6 +10,7 @@ let source = null;
 let fallbackTimer = null;
 let currentTabId = 'studioPanel';
 let pendingSubmissions = 0;
+let jobsInitialized = false;
 const dismissedDone = new Set();
 const notifiedFinal = new Set();
 
@@ -80,8 +81,30 @@ function sortJobs(list) {
   });
 }
 
+function notifyFinalJob(job) {
+  if (!job?.id || !FINAL.has(job.status) || notifiedFinal.has(job.id)) return;
+  notifiedFinal.add(job.id);
+  window.dispatchEvent(new CustomEvent('generation-job-finished', { detail: { job } }));
+  if (job.status === 'succeeded') {
+    window.dispatchEvent(new CustomEvent('generation-job-succeeded', { detail: { job } }));
+  }
+}
+
+function shouldNotifySnapshotJob(job, previous) {
+  if (!job?.id || !FINAL.has(job.status) || notifiedFinal.has(job.id)) return false;
+  if (previous && !FINAL.has(previous.status)) return true;
+  if (!jobsInitialized) return false;
+  return !previous;
+}
+
 function setJobs(next) {
-  jobs = sortJobs(Array.isArray(next) ? next : []);
+  const previousById = new Map(jobs.map((job) => [job.id, job]));
+  const nextJobs = sortJobs(Array.isArray(next) ? next : []);
+  for (const job of nextJobs) {
+    if (shouldNotifySnapshotJob(job, previousById.get(job.id))) notifyFinalJob(job);
+  }
+  jobs = nextJobs;
+  jobsInitialized = true;
   renderQueue();
 }
 
@@ -92,13 +115,7 @@ function upsertJob(job, { notify = false } = {}) {
   else jobs.push(job);
   jobs = sortJobs(jobs);
 
-  if (notify && FINAL.has(job.status) && !notifiedFinal.has(job.id)) {
-    notifiedFinal.add(job.id);
-    window.dispatchEvent(new CustomEvent('generation-job-finished', { detail: { job } }));
-    if (job.status === 'succeeded') {
-      window.dispatchEvent(new CustomEvent('generation-job-succeeded', { detail: { job } }));
-    }
-  }
+  if (notify) notifyFinalJob(job);
   renderQueue();
 }
 

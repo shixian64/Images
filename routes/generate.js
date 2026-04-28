@@ -169,12 +169,8 @@ export async function handleGenerateStream(req, res) {
     writeSseComment(res, `heartbeat ${Date.now()}`);
     try {
       const current = getJobForUser(job.id, req.session.user);
-      writeSse(res, 'progress', {
-        stage: current.status,
-        message: current.status === 'queued' ? '仍在队列中，连接保持中…' : '仍在生成中，连接保持中…',
-        elapsedMs: Date.now() - started,
-        job: current
-      });
+      const done = streamJobResult(current, res, started);
+      if (done) finish();
     } catch {
       writeSse(res, 'progress', {
         stage: 'waiting',

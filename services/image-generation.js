@@ -17,13 +17,15 @@ const DEFAULT_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_HEARTBEAT_MS = 15 * 1000;
 const DEFAULT_MAX_IMAGES_PER_REQUEST = 4;
 
-const SECRET_FIELDS = new Set([
-  'apiKey',
-  'imageApiKey',
-  'chatApiKey',
-  'authorization',
-  'Authorization'
-]);
+const PERSISTED_IMAGE_FIELDS = [
+  'model',
+  'prompt',
+  'n',
+  'size',
+  'quality',
+  'output_format',
+  'moderation'
+];
 
 export function getMaxImagesPerRequest() {
   return positiveIntFromEnv('MAX_IMAGES_PER_REQUEST', DEFAULT_MAX_IMAGES_PER_REQUEST);
@@ -42,18 +44,17 @@ export function shouldUseSystemDefault(body = {}) {
 }
 
 export function sanitizeGenerationPayload(body = {}) {
+  const source = body && typeof body === 'object' ? body : {};
   const out = {};
-  for (const [key, value] of Object.entries(body || {})) {
-    if (SECRET_FIELDS.has(key)) continue;
-    // Chat-only fields are never needed by the image worker and can contain verbose prompt-assist data.
-    if (key === 'messages' || key === 'chatBaseUrl' || key === 'chatModel') continue;
-    out[key] = value;
+  for (const key of PERSISTED_IMAGE_FIELDS) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+      out[key] = source[key];
+    }
   }
+
   if (shouldUseSystemDefault(body)) {
     out.useSystemDefault = true;
     out.interfaceMode = 'system';
-    delete out.baseUrl;
-    delete out.imageBaseUrl;
   } else {
     out.useSystemDefault = false;
     out.interfaceMode = 'custom';
