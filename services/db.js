@@ -6,7 +6,11 @@ import { mkdirSync, existsSync, renameSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
-import { PROMPT_SQUARE_SEEDS, PROMPTSREF_SREF_SOURCE_URL } from './prompt-square-seeds.js';
+import {
+  PROMPT_SQUARE_SEED_KEY,
+  PROMPT_SQUARE_SEEDS,
+  PROMPTSREF_SREF_SOURCE_URL
+} from './prompt-square-seeds.js';
 
 const DB_DIR = join(process.cwd(), 'generated');
 const DB_PATH = join(DB_DIR, 'app.db');
@@ -238,7 +242,7 @@ function migratePromptSquareNullableOwner(db) {
 }
 
 function seedPromptSquareDefaults(db) {
-  const seedKey = 'prompt_square.seed.promptsref_sref_v4';
+  const seedKey = PROMPT_SQUARE_SEED_KEY;
   const done = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey);
   if (done) return;
 
@@ -304,7 +308,7 @@ function seedPromptSquareDefaults(db) {
     inserted,
     updated
   }), nowIso());
-  logger.info('prompt_square.seed.done', { source: 'promptsref_sref_v4', inserted, updated });
+  logger.info('prompt_square.seed.done', { source: PROMPT_SQUARE_SEED_KEY, inserted, updated });
 }
 
 function migrateLegacyGallery(db) {

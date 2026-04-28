@@ -147,7 +147,7 @@ async function handleCollection(req, res, urlObj) {
   const user = req.session.user;
 
   if (req.method === 'GET') {
-    const limit = Math.min(500, Math.max(1, Number(urlObj.searchParams.get('limit') || 200)));
+    const limit = Math.min(500, Math.max(1, Number(urlObj.searchParams.get('limit') || 300)));
     const search = String(urlObj.searchParams.get('search') || '').trim().toLowerCase();
     const tag = String(urlObj.searchParams.get('tag') || 'all').trim();
     const mine = urlObj.searchParams.get('mine') === '1';
