@@ -339,14 +339,22 @@
       <section class="panel saved-gallery-panel">
         <header class="panel-head gallery-head">
           <div>
-            <p class="eyebrow">本地图库</p>
-            <p class="hint">生成成功后会自动保存到本地 <code>generated/images</code>；程序启动时自动读取并显示。</p>
+            <p class="eyebrow">图库</p>
+            <p class="hint">生成成功后默认仅自己可见，可选择公开到公开图库。</p>
           </div>
           <div class="gallery-actions">
             <button id="refreshGallery" class="ghost">刷新图库</button>
           </div>
         </header>
 
+        <div class="gallery-scope-tabs" id="galleryScopeTabs" role="tablist" aria-label="图库范围">
+          <button class="gallery-scope-tab active" type="button" data-gallery-scope="mine" role="tab" aria-selected="true">
+            我的图库 <span id="galleryMineCount" class="soft-count">0</span>
+          </button>
+          <button class="gallery-scope-tab" type="button" data-gallery-scope="public" role="tab" aria-selected="false">
+            公开图库 <span id="galleryPublicCount" class="soft-count">0</span>
+          </button>
+        </div>
         <div class="gallery-summary" id="gallerySummary" aria-live="polite"></div>
         <div id="savedGallery" class="gallery saved-gallery" data-empty="true">
           <div class="empty-state">

@@ -84,6 +84,21 @@ before(async () => {
     index: 1
   });
 
+  writeFileSync(join(imgDir, 'public.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  db.images.insert({
+    id: 'img-A-public',
+    userId: userA.id,
+    createdAt: '2026-04-25T00:01:00.000Z',
+    filename: 'public.png',
+    path: `users/${userA.id}/images/2026-04-25/public.png`,
+    mimeType: 'image/png',
+    bytes: 4,
+    isPublic: true,
+    publishedAt: '2026-04-25T00:01:00.000Z',
+    sourceType: 'b64_json',
+    index: 1
+  });
+
   // 给 legacy 旧路径写一张图（在 generated/images/ 下，归属 userA）
   const legacyDir = join(workDir, 'generated', 'images', '2026-01-01');
   mkdirSync(legacyDir, { recursive: true });
@@ -121,6 +136,22 @@ test('other user gets 403 on cross-user image', async () => {
   const res = await call(
     `/gallery-files/users/${userA.id}/images/2026-04-25/a.png`,
     { user: userB, sessionId: 's' }
+  );
+  assert.equal(res.statusCode, 403);
+});
+
+test('other logged-in user can access a public user-scoped image', async () => {
+  const res = await call(
+    `/gallery-files/users/${userA.id}/images/2026-04-25/public.png`,
+    { user: userB, sessionId: 's' }
+  );
+  assert.equal(res.statusCode, 200);
+});
+
+test('unauthenticated request still cannot access a public image file', async () => {
+  const res = await call(
+    `/gallery-files/users/${userA.id}/images/2026-04-25/public.png`,
+    null
   );
   assert.equal(res.statusCode, 403);
 });

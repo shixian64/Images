@@ -134,6 +134,7 @@ pre,
 .app-dialog-secret code,
 .top-menu,
 .prompt-tabs,
+.gallery-scope-tabs,
 .management-tabs {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
@@ -153,6 +154,7 @@ pre::-webkit-scrollbar,
 .app-dialog-secret code::-webkit-scrollbar,
 .top-menu::-webkit-scrollbar,
 .prompt-tabs::-webkit-scrollbar,
+.gallery-scope-tabs::-webkit-scrollbar,
 .management-tabs::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -171,6 +173,7 @@ pre::-webkit-scrollbar-track,
 .app-dialog-secret code::-webkit-scrollbar-track,
 .top-menu::-webkit-scrollbar-track,
 .prompt-tabs::-webkit-scrollbar-track,
+.gallery-scope-tabs::-webkit-scrollbar-track,
 .management-tabs::-webkit-scrollbar-track {
   margin: 8px 0;
   border-radius: 999px;
@@ -190,6 +193,7 @@ pre::-webkit-scrollbar-thumb,
 .app-dialog-secret code::-webkit-scrollbar-thumb,
 .top-menu::-webkit-scrollbar-thumb,
 .prompt-tabs::-webkit-scrollbar-thumb,
+.gallery-scope-tabs::-webkit-scrollbar-thumb,
 .management-tabs::-webkit-scrollbar-thumb {
   min-height: 56px;
   border: 3px solid transparent;
@@ -217,6 +221,7 @@ pre::-webkit-scrollbar-thumb:hover,
 .app-dialog-secret code::-webkit-scrollbar-thumb:hover,
 .top-menu::-webkit-scrollbar-thumb:hover,
 .prompt-tabs::-webkit-scrollbar-thumb:hover,
+.gallery-scope-tabs::-webkit-scrollbar-thumb:hover,
 .management-tabs::-webkit-scrollbar-thumb:hover {
   background:
     linear-gradient(
@@ -711,6 +716,30 @@ button.danger:hover { background: var(--danger-soft); }
 
 .saved-gallery-panel .gallery-head { align-items: flex-end; }
 .gallery-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gallery-scope-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 2px 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.gallery-scope-tab {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.gallery-scope-tab:hover { background: var(--surface); color: var(--text); }
+.gallery-scope-tab.active {
+  background: var(--surface);
+  color: var(--brand);
+  border-color: var(--border);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+}
 .gallery-summary {
   display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   margin: 8px 0 16px;
@@ -837,13 +866,43 @@ button.danger:hover { background: var(--danger-soft); }
   font-size: 11px;
   font-weight: 600;
 }
+.image-card .like-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  min-height: 26px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  color: white;
+  background: rgba(0, 0, 0, 0.58);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.image-card .public-state {
+  color: var(--success);
+  font-weight: 600;
+}
 .image-card .card-actions {
   position: absolute; top: 8px; right: 8px;
   z-index: 2;
   display: flex; gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 16px);
   opacity: 0; transition: opacity 120ms ease;
 }
-.image-card:hover .card-actions { opacity: 1; }
+.image-card.has-like-badge .card-actions {
+  top: 42px;
+}
+.image-card:hover .card-actions,
+.image-card:focus-within .card-actions { opacity: 1; }
 .image-card .card-actions button,
 .image-card .card-actions a {
   padding: 4px 8px;
@@ -858,6 +917,9 @@ button.danger:hover { background: var(--danger-soft); }
 .image-card .card-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+.image-card .card-actions button[data-gallery-like][aria-pressed="true"] {
+  background: color-mix(in srgb, var(--brand) 82%, black);
 }
 
 body.preview-open { overflow: hidden; }
@@ -1805,6 +1867,8 @@ body.preview-open { overflow: hidden; }
   .prompt-manager-head { align-items: flex-start; }
   .prompt-tabs { width: 100%; overflow-x: auto; border-radius: var(--radius-btn); }
   .prompt-tab { white-space: nowrap; }
+  .gallery-scope-tabs { width: 100%; overflow-x: auto; border-radius: var(--radius-btn); }
+  .gallery-scope-tab { white-space: nowrap; }
   .prompt-builder-grid { grid-template-columns: 1fr; }
   .prompt-preview-pane { position: static; }
   .prompt-form-grid { grid-template-columns: 1fr; }

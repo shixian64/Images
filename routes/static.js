@@ -2,8 +2,8 @@
 // 主根：public/；额外根：
 // - /shared/* 映射到项目根的 shared/（供浏览器 ESM import）
 // - /gallery-files/users/<uid>/images/... 映射到 generated/users/<uid>/images/...
-//   仅限当前登录用户（uid 匹配）或 admin。
-// - /gallery-files/images/...（旧迁移路径）通过 images 表查 user_id 做归属校验。
+//   仅限当前登录用户（uid 匹配）、admin，或已公开图片的任意登录用户。
+// - /gallery-files/images/...（旧迁移路径）通过 images 表查 user_id / is_public 做归属校验。
 // 统一用 path.normalize + startsWith 做路径穿越防护。
 
 import { createReadStream } from 'node:fs';
@@ -71,11 +71,19 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       const rest = userMatch[2];
       const user = session?.user;
       if (!user) return { forbidden: true };
-      if (user.id !== uid && user.role !== 'admin') return { forbidden: true };
 
       const filePath = normalize(join(generatedDir, 'users', uid, 'images', rest));
       const expectedRoot = normalize(join(generatedDir, 'users', uid, 'images'));
       if (!isInside(filePath, expectedRoot)) return { forbidden: true };
+
+      if (user.id === uid || user.role === 'admin') {
+        return { filePath, root: expectedRoot };
+      }
+
+      // 其他登录用户只能访问已公开的图片文件。
+      const lookupKey = ['users', uid, 'images', ...rest.split(/[\\/]+/).filter(Boolean)].join('/');
+      const row = imagesTable.findByPath(lookupKey);
+      if (!row?.is_public) return { forbidden: true };
       return { filePath, root: expectedRoot };
     }
 
@@ -93,7 +101,7 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       const lookupKey = relPath.split(/[\\/]+/).filter(Boolean).join('/');
       const row = imagesTable.findByPath(lookupKey);
       if (!row) return { forbidden: true };
-      if (row.user_id !== user.id && user.role !== 'admin') return { forbidden: true };
+      if (row.user_id !== user.id && user.role !== 'admin' && !row.is_public) return { forbidden: true };
 
       return { filePath, root: legacyImagesRoot };
     }

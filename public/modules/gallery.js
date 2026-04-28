@@ -1,10 +1,14 @@
-// 本地图库面板：启动时自动读取服务端 generated/gallery.json，并展示已落盘图片。
+// 图库面板：展示我的图片 / 公开图片，并处理公开、点赞、删除等操作。
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 
 let galleryItems = [];
+let galleryScope = 'mine';
+let galleryCounts = { mine: 0, myPublic: 0, public: 0 };
+let likeQuota = { limit: 10, used: 0, remaining: 10 };
+let galleryStorage = '';
 let mounted = false;
 
 let previewModal = null;
@@ -80,18 +84,54 @@ function getImagePrompt(item = {}) {
   return String(item.prompt || item.revised_prompt || item.revisedPrompt || '').trim();
 }
 
+function renderScopeTabs() {
+  const wrap = $('galleryScopeTabs');
+  if (!wrap) return;
+  wrap.querySelectorAll('[data-gallery-scope]').forEach((btn) => {
+    const active = btn.dataset.galleryScope === galleryScope;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  const mine = $('galleryMineCount');
+  const pub = $('galleryPublicCount');
+  if (mine) mine.textContent = String(galleryCounts.mine || 0);
+  if (pub) pub.textContent = String(galleryCounts.public || 0);
+}
+
 function renderSummary(data = {}) {
+  if (data.storage !== undefined) galleryStorage = data.storage || '';
+  galleryCounts = {
+    ...galleryCounts,
+    ...(data.counts || {})
+  };
+  likeQuota = {
+    ...likeQuota,
+    ...(data.likeQuota || {})
+  };
+  renderScopeTabs();
+
   const total = Number(data.count ?? galleryItems.length) || 0;
   const savedToday = galleryItems.filter((item) => {
     const ts = String(item.createdAt || '');
     return ts.slice(0, 10) === new Date().toISOString().slice(0, 10);
   }).length;
 
+  if (galleryScope === 'public') {
+    $('gallerySummary').innerHTML = `
+      <span class="chip">公开共 ${galleryCounts.public || total} 张</span>
+      <span class="chip info">当前显示 ${galleryItems.length} 张</span>
+      <span class="chip">今日可赞 ${likeQuota.remaining ?? 0}/${likeQuota.limit ?? 10}</span>
+      <span class="chip">目录 ${escapeHtml(galleryStorage || 'generated/users/*/images')}</span>
+    `;
+    return;
+  }
+
   $('gallerySummary').innerHTML = `
-    <span class="chip">本地共 ${total} 张</span>
+    <span class="chip">我的共 ${galleryCounts.mine || total} 张</span>
     <span class="chip info">当前显示 ${galleryItems.length} 张</span>
+    <span class="chip">已公开 ${galleryCounts.myPublic || 0} 张</span>
     <span class="chip">今日新增 ${savedToday} 张</span>
-    <span class="chip">目录 ${escapeHtml(data.storage || 'generated/images')}</span>
+    <span class="chip">目录 ${escapeHtml(galleryStorage || 'generated/users/<uid>/images')}</span>
   `;
 }
 
@@ -107,7 +147,9 @@ function renderGallery() {
   const list = $('savedGallery');
   if (!galleryItems.length) {
     list.dataset.empty = 'true';
-    list.innerHTML = emptyHtml();
+    list.innerHTML = galleryScope === 'public'
+      ? emptyHtml('还没有公开图片。可以先在“我的图库”中公开一张生成图。')
+      : emptyHtml();
     return;
   }
 
@@ -124,24 +166,45 @@ function renderGallery() {
       item.outputFormat
     ].filter(Boolean).join(' · ');
     const downloadName = item.filename || `gallery-${index + 1}`;
+    const likeCount = Number(item.likeCount || 0);
+    const isPublic = Boolean(item.isPublic);
+    const hasLikeBadge = isPublic || galleryScope === 'public';
+    const ownerText = item.ownerUsername ? `作者 ${item.ownerUsername}` : (galleryScope === 'public' ? `用户 ${String(item.userId || '').slice(0, 8)}` : '');
+    const publicControls = galleryScope === 'public';
+    const cardClass = `image-card gallery-card${publicControls ? ' public-gallery-card' : ''}${hasLikeBadge ? ' has-like-badge' : ''}`;
+    const likeLimitReached = publicControls && !item.likedByMe && Number(likeQuota.remaining || 0) <= 0;
+    const likeDisabled = item.likedByMe || likeLimitReached;
+    const likeText = item.likedByMe ? '已赞' : (likeLimitReached ? '今日用完' : '点赞');
+    const actionButtons = publicControls
+      ? `
+        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
+        <button type="button" data-gallery-like aria-pressed="${item.likedByMe ? 'true' : 'false'}" ${likeDisabled ? 'disabled' : ''}>${likeText}</button>
+      `
+      : `
+        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
+        ${item.id ? `<button type="button" data-gallery-toggle-public>${isPublic ? '取消公开' : '公开'}</button>` : ''}
+        ${item.id ? `<button type="button" data-gallery-delete>删除</button>` : ''}
+      `;
 
-    return `<article class="image-card gallery-card" data-gallery-id="${escapeHtml(item.id || '')}" data-gallery-index="${index}">
+    return `<article class="${cardClass}" data-gallery-id="${escapeHtml(item.id || '')}" data-gallery-index="${index}" data-scope="${galleryScope}">
+      ${hasLikeBadge ? `<span class="like-badge" title="获赞数量">♥ ${likeCount}</span>` : ''}
       <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
         <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
       </button>
       <div class="card-actions">
-        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
-        <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
-        ${item.id ? `<button type="button" data-gallery-delete>删除</button>` : ''}
+        ${actionButtons}
       </div>
       <div class="image-meta">
         <span>#${galleryItems.length - index}</span>
         <span>${escapeHtml(formatTime(item.createdAt))}</span>
       </div>
       <div class="image-meta compact-meta">
-        <span>${escapeHtml(title || item.mimeType || '本地图片')}</span>
+        <span>${escapeHtml(ownerText || title || item.mimeType || '本地图片')}</span>
         <span>${escapeHtml(formatBytes(item.bytes))}</span>
       </div>
+      ${galleryScope === 'mine' && isPublic ? '<div class="image-meta compact-meta"><span class="public-state">已公开到公开图库</span><span>♥ ' + likeCount + '</span></div>' : ''}
       ${promptPreview}
     </article>`;
   }).join('');
@@ -158,7 +221,8 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
       list.innerHTML = emptyHtml('正在加载本地图库…');
     }
 
-    const resp = await apiFetch('/api/gallery?limit=500', { headers: { accept: 'application/json' } });
+    const params = new URLSearchParams({ limit: '500', scope: galleryScope });
+    const resp = await apiFetch(`/api/gallery?${params}`, { headers: { accept: 'application/json' } });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
@@ -193,6 +257,62 @@ async function handleDeleteFromCard(card) {
     await refreshGalleryPanel({ silent: true });
   } catch (err) {
     setStatus(`删除失败：${err?.message || err}`, 'err', 2000);
+  }
+}
+
+async function handleTogglePublic(card) {
+  const id = card?.dataset?.galleryId;
+  const index = Number(card?.dataset?.galleryIndex);
+  const item = Number.isInteger(index) ? galleryItems[index] : null;
+  if (!id || !item) return;
+  const nextPublic = !item.isPublic;
+  if (!nextPublic) {
+    const ok = await dialog.confirm({
+      title: '取消公开',
+      message: '取消公开后，其他用户将无法在公开图库看到这张图片。继续？',
+      confirmText: '取消公开'
+    });
+    if (!ok) return;
+  }
+
+  try {
+    const resp = await apiFetch(`/api/gallery/${encodeURIComponent(id)}/visibility`, {
+      method: 'POST',
+      body: { isPublic: nextPublic }
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    setStatus(nextPublic ? '图片已公开' : '已取消公开', 'ok', 1400);
+    await refreshGalleryPanel({ silent: true });
+  } catch (err) {
+    setStatus(`操作失败：${err?.message || err}`, 'err', 2000);
+  }
+}
+
+async function handleLikeFromCard(card) {
+  const id = card?.dataset?.galleryId;
+  const index = Number(card?.dataset?.galleryIndex);
+  if (!id || !Number.isInteger(index)) return;
+
+  try {
+    const resp = await apiFetch(`/api/gallery/${encodeURIComponent(id)}/like`, { method: 'POST' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    galleryItems[index] = {
+      ...galleryItems[index],
+      likeCount: data.likeCount,
+      likedByMe: true
+    };
+    likeQuota = {
+      ...likeQuota,
+      ...(data.likeQuota || {})
+    };
+    renderSummary({ counts: galleryCounts, likeQuota, count: galleryItems.length });
+    renderGallery();
+    setStatus(data.alreadyLiked ? '你已经赞过这张图片' : '点赞成功', 'ok', 1200);
+  } catch (err) {
+    const message = err?.message || String(err);
+    setStatus(message.includes('daily like limit') ? '今日点赞次数已用完' : `点赞失败：${message}`, 'err', 2000);
   }
 }
 
@@ -235,6 +355,15 @@ async function handleCopyPromptFromCard(card) {
 export function mountGalleryPanel() {
   mounted = true;
   $('refreshGallery').addEventListener('click', () => refreshGalleryPanel());
+  $('galleryScopeTabs')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-gallery-scope]');
+    if (!btn) return;
+    const next = btn.dataset.galleryScope === 'public' ? 'public' : 'mine';
+    if (next === galleryScope) return;
+    galleryScope = next;
+    renderScopeTabs();
+    refreshGalleryPanel();
+  });
   $('savedGallery').addEventListener('click', (ev) => {
     const copyBtn = ev.target.closest('[data-gallery-copy-prompt]');
     if (copyBtn) {
@@ -251,6 +380,24 @@ export function mountGalleryPanel() {
       ev.stopPropagation();
       const card = delBtn.closest('.image-card');
       handleDeleteFromCard(card);
+      return;
+    }
+
+    const publicBtn = ev.target.closest('[data-gallery-toggle-public]');
+    if (publicBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const card = publicBtn.closest('.image-card');
+      handleTogglePublic(card);
+      return;
+    }
+
+    const likeBtn = ev.target.closest('[data-gallery-like]');
+    if (likeBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const card = likeBtn.closest('.image-card');
+      handleLikeFromCard(card);
       return;
     }
     const trigger = ev.target.closest('.image-preview-trigger');

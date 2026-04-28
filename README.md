@@ -41,11 +41,12 @@ TRUST_PROXY=1   # 仅当反向代理会清洗转发头时开启
 - `⌘/Ctrl + Enter` 触发生成
 - 根据 size / quality / n 显示预估耗时
 - 当前配置 chip（名称 · Base URL · 连通性点），一键切到 Profiles
-- 生成成功后自动保存图片到本地 `generated/images`
+- 生成成功后自动保存图片到当前用户本地图库 `generated/users/<uid>/images`
 
-**Gallery（本地图库）**
-- 程序启动时自动读取 `generated/gallery.json`
-- 展示本地已保存图片、生成时间、模型参数、文件大小与 Prompt
+**Gallery（图库）**
+- 生成图片默认保存到当前用户的 `generated/users/<uid>/images`
+- 支持“我的图库 / 公开图库”切换；用户可自行公开或取消公开自己的图片
+- 公开图库支持点赞，图片角标展示获赞数量；每个用户每日最多点赞 10 次
 - 支持刷新、打开原图、下载本地文件
 
 **Profiles（接口配置）**

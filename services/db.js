@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS images (
   path            TEXT NOT NULL,
   mime_type       TEXT NOT NULL,
   bytes           INTEGER NOT NULL,
+  is_public       INTEGER NOT NULL DEFAULT 0,
+  published_at    TEXT,
   prompt          TEXT,
   revised_prompt  TEXT,
   model           TEXT,
@@ -86,6 +88,16 @@ CREATE TABLE IF NOT EXISTS images (
 CREATE INDEX IF NOT EXISTS idx_images_user_created ON images(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_created      ON images(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_model        ON images(model);
+
+CREATE TABLE IF NOT EXISTS image_likes (
+  image_id    TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL,
+  day         TEXT NOT NULL,
+  PRIMARY KEY (image_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_image_likes_user_day ON image_likes(user_id, day);
+CREATE INDEX IF NOT EXISTS idx_image_likes_image    ON image_likes(image_id);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id          TEXT PRIMARY KEY,
@@ -152,6 +164,7 @@ export function migrate() {
   const db = open();
   db.exec(SCHEMA);
   migrateUserAbuseColumns(db);
+  migrateImagePublicColumns(db);
   migratePromptSquareNullableOwner(db);
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
@@ -167,6 +180,23 @@ function migrateUserAbuseColumns(db) {
   addColumnIfMissing(db, 'users', 'signup_ip', 'signup_ip TEXT');
   addColumnIfMissing(db, 'users', 'signup_user_agent', 'signup_user_agent TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_users_signup_ip ON users(signup_ip);');
+}
+
+function migrateImagePublicColumns(db) {
+  addColumnIfMissing(db, 'images', 'is_public', 'is_public INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'images', 'published_at', 'published_at TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_images_public ON images(is_public, published_at DESC, created_at DESC);
+    CREATE TABLE IF NOT EXISTS image_likes (
+      image_id    TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at  TEXT NOT NULL,
+      day         TEXT NOT NULL,
+      PRIMARY KEY (image_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_image_likes_user_day ON image_likes(user_id, day);
+    CREATE INDEX IF NOT EXISTS idx_image_likes_image    ON image_likes(image_id);
+  `);
 }
 
 function migratePromptSquareNullableOwner(db) {
@@ -298,9 +328,10 @@ function migrateLegacyGallery(db) {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO images
     (id, user_id, created_at, filename, path, mime_type, bytes,
+     is_public, published_at,
      prompt, revised_prompt, model, size, quality, output_format,
      profile_name, source_type, image_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   let inserted = 0;
   for (const it of items) {
@@ -313,6 +344,8 @@ function migrateLegacyGallery(db) {
       it.path,
       it.mimeType || 'application/octet-stream',
       Number(it.bytes) || 0,
+      it.isPublic || it.public ? 1 : 0,
+      it.isPublic || it.public ? (it.publishedAt || it.createdAt || nowIso()) : null,
       it.prompt || null,
       it.revisedPrompt || null,
       it.model || null,
@@ -456,9 +489,10 @@ export const images = {
     db.prepare(`
       INSERT INTO images
       (id, user_id, created_at, filename, path, mime_type, bytes,
+       is_public, published_at,
        prompt, revised_prompt, model, size, quality, output_format,
        profile_name, source_type, image_index)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       meta.id,
       meta.userId,
@@ -467,6 +501,8 @@ export const images = {
       meta.path,
       meta.mimeType,
       meta.bytes,
+      meta.isPublic ? 1 : 0,
+      meta.isPublic ? (meta.publishedAt || meta.createdAt || nowIso()) : null,
       meta.prompt || null,
       meta.revisedPrompt || null,
       meta.model || null,
@@ -491,11 +527,38 @@ export const images = {
       ORDER BY created_at DESC LIMIT ?
     `).all(userId, limit);
   },
+  listPublic(limit = 500) {
+    return open().prepare(`
+      SELECT i.*, u.username AS owner_username
+      FROM images i
+      LEFT JOIN users u ON u.id = i.user_id
+      WHERE i.is_public = 1
+      ORDER BY COALESCE(i.published_at, i.created_at) DESC, i.created_at DESC
+      LIMIT ?
+    `).all(limit);
+  },
   listAll(limit = 500) {
     return open().prepare(`
       SELECT * FROM images
       ORDER BY created_at DESC LIMIT ?
     `).all(limit);
+  },
+  countByUser(userId) {
+    return open().prepare('SELECT COUNT(*) AS n FROM images WHERE user_id = ?').get(userId)?.n || 0;
+  },
+  countPublic() {
+    return open().prepare('SELECT COUNT(*) AS n FROM images WHERE is_public = 1').get()?.n || 0;
+  },
+  countPublicByUser(userId) {
+    return open().prepare('SELECT COUNT(*) AS n FROM images WHERE user_id = ? AND is_public = 1').get(userId)?.n || 0;
+  },
+  setPublic(id, isPublic, publishedAt = null) {
+    open().prepare(`
+      UPDATE images
+      SET is_public = ?, published_at = ?
+      WHERE id = ?
+    `).run(isPublic ? 1 : 0, isPublic ? (publishedAt || nowIso()) : null, id);
+    return this.findById(id);
   },
   deleteByUser(userId) {
     open().prepare('DELETE FROM images WHERE user_id = ?').run(userId);
@@ -511,6 +574,71 @@ export const images = {
         MAX(created_at) AS last_at
       FROM images WHERE user_id = ?
     `).get(userId) || { count: 0, bytes: 0, last_at: null };
+  }
+};
+
+// ---- image_likes ----
+
+export const imageLikes = {
+  hasLiked(imageId, userId) {
+    if (!imageId || !userId) return false;
+    const row = open().prepare(
+      'SELECT 1 AS ok FROM image_likes WHERE image_id = ? AND user_id = ? LIMIT 1'
+    ).get(imageId, userId);
+    return Boolean(row);
+  },
+  countForImage(imageId) {
+    if (!imageId) return 0;
+    return open().prepare(
+      'SELECT COUNT(*) AS n FROM image_likes WHERE image_id = ?'
+    ).get(imageId)?.n || 0;
+  },
+  countForImages(imageIds = []) {
+    const ids = [...new Set((imageIds || []).filter(Boolean))];
+    if (!ids.length) return new Map();
+    const out = new Map();
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk = ids.slice(i, i + 900);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = open().prepare(`
+        SELECT image_id, COUNT(*) AS n
+        FROM image_likes
+        WHERE image_id IN (${placeholders})
+        GROUP BY image_id
+      `).all(...chunk);
+      for (const row of rows) out.set(row.image_id, Number(row.n) || 0);
+    }
+    return out;
+  },
+  likedImageIds(userId, imageIds = []) {
+    const ids = [...new Set((imageIds || []).filter(Boolean))];
+    if (!userId || !ids.length) return new Set();
+    const out = new Set();
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk = ids.slice(i, i + 900);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = open().prepare(`
+        SELECT image_id
+        FROM image_likes
+        WHERE user_id = ? AND image_id IN (${placeholders})
+      `).all(userId, ...chunk);
+      for (const row of rows) out.add(row.image_id);
+    }
+    return out;
+  },
+  countByUserDay(userId, day) {
+    if (!userId || !day) return 0;
+    return open().prepare(
+      'SELECT COUNT(*) AS n FROM image_likes WHERE user_id = ? AND day = ?'
+    ).get(userId, day)?.n || 0;
+  },
+  create({ imageId, userId, day, createdAt }) {
+    const now = createdAt || nowIso();
+    const res = open().prepare(`
+      INSERT OR IGNORE INTO image_likes (image_id, user_id, created_at, day)
+      VALUES (?, ?, ?, ?)
+    `).run(imageId, userId, now, day || now.slice(0, 10));
+    return { created: Boolean(res.changes), createdAt: now };
   }
 };
 

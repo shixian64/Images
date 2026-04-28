@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
-import { images as imagesTable, dbPaths } from './db.js';
+import { images as imagesTable, imageLikes, dbPaths } from './db.js';
 import { guardedFetch } from './upstream.js';
 import {
   userImageDir,
@@ -19,6 +19,7 @@ import {
 const GALLERY_ROOT = guardPaths.generatedRoot;
 const DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+const DEFAULT_DAILY_PUBLIC_LIKE_LIMIT = 10;
 
 const MIME_BY_EXT = {
   png: 'image/png',
@@ -52,12 +53,20 @@ function positiveIntFromEnv(name, fallback) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function todayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function maxImageDownloadBytes() {
   return positiveIntFromEnv('MAX_IMAGE_DOWNLOAD_BYTES', DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES);
 }
 
 function imageDownloadTimeoutMs() {
   return positiveIntFromEnv('IMAGE_DOWNLOAD_TIMEOUT_MS', DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS);
+}
+
+function dailyPublicLikeLimit() {
+  return positiveIntFromEnv('PUBLIC_GALLERY_DAILY_LIKE_LIMIT', DEFAULT_DAILY_PUBLIC_LIKE_LIMIT);
 }
 
 function imageTypeFromMagic(buffer) {
@@ -270,6 +279,9 @@ function rowToItem(row) {
     path: row.path,
     mimeType: row.mime_type,
     bytes: Number(row.bytes) || 0,
+    isPublic: Boolean(row.is_public),
+    publishedAt: row.published_at || null,
+    ownerUsername: row.owner_username || '',
     prompt: row.prompt || '',
     revisedPrompt: row.revised_prompt || '',
     model: row.model || '',
@@ -331,6 +343,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         path: relPath,
         mimeType: asset.mimeType,
         bytes: asset.buffer.length,
+        isPublic: false,
         prompt: context.prompt || '',
         revisedPrompt: item?.revised_prompt || '',
         model: context.model || '',
@@ -352,6 +365,10 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         url: publicUrl,
         mimeType: asset.mimeType,
         bytes: asset.buffer.length,
+        isPublic: false,
+        publishedAt: null,
+        likeCount: 0,
+        likedByMe: false,
         prompt: context.prompt || '',
         revisedPrompt: item?.revised_prompt || '',
         model: context.model || '',
@@ -381,16 +398,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
   return { items: nextItems, saved };
 }
 
-// 读取当前用户（或 admin 全量）的图库；过滤物理文件不存在的条目。
-export async function listGallery({ userId, isAdmin = false, limit = 500 } = {}) {
-  if (!isAdmin && !userId) {
-    throw new Error('listGallery requires userId or isAdmin');
-  }
-  const cap = Math.max(1, Number(limit) || 500);
-  const rows = isAdmin
-    ? imagesTable.listAll(cap)
-    : imagesTable.listByUser(userId, cap);
-
+async function itemsFromRows(rows, { viewerId = null } = {}) {
   const items = [];
   for (const row of rows) {
     const item = rowToItem(row);
@@ -412,13 +420,107 @@ export async function listGallery({ userId, isAdmin = false, limit = 500 } = {})
     }
   }
 
+  const ids = items.map((item) => item.id).filter(Boolean);
+  const likeCounts = imageLikes.countForImages(ids);
+  const likedIds = viewerId ? imageLikes.likedImageIds(viewerId, ids) : new Set();
+  for (const item of items) {
+    item.likeCount = likeCounts.get(item.id) || 0;
+    item.likedByMe = likedIds.has(item.id);
+  }
+
+  return items;
+}
+
+export function galleryCounts(userId) {
+  return {
+    mine: userId ? imagesTable.countByUser(userId) : 0,
+    myPublic: userId ? imagesTable.countPublicByUser(userId) : 0,
+    public: imagesTable.countPublic()
+  };
+}
+
+export function publicLikeQuota(userId) {
+  const limit = dailyPublicLikeLimit();
+  const used = userId ? imageLikes.countByUserDay(userId, todayUtc()) : 0;
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, limit - used)
+  };
+}
+
+// 读取当前用户（或 admin 全量 / 公开图库）的图库；过滤物理文件不存在的条目。
+export async function listGallery({ userId, isAdmin = false, limit = 500, scope = 'mine' } = {}) {
+  if (!userId && !isAdmin) {
+    throw new Error('listGallery requires userId or isAdmin');
+  }
+  const cap = Math.max(1, Number(limit) || 500);
+  const normalizedScope = scope === 'public' ? 'public' : 'mine';
+  const rows = normalizedScope === 'public'
+    ? imagesTable.listPublic(cap)
+    : (isAdmin && !userId ? imagesTable.listAll(cap) : imagesTable.listByUser(userId, cap));
+
+  const items = await itemsFromRows(rows, { viewerId: userId });
+
   // db 已按 created_at DESC 返回；再兜底排序一次。
-  items.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  items.sort((a, b) => {
+    const aTime = normalizedScope === 'public' ? (a.publishedAt || a.createdAt || '') : (a.createdAt || '');
+    const bTime = normalizedScope === 'public' ? (b.publishedAt || b.createdAt || '') : (b.createdAt || '');
+    return String(bTime).localeCompare(String(aTime));
+  });
 
   return {
     items,
     count: items.length,
-    storage: isAdmin ? 'generated/users/* + legacy' : `generated/${userImageRel(userId)}`
+    scope: normalizedScope,
+    counts: galleryCounts(userId),
+    likeQuota: publicLikeQuota(userId),
+    storage: normalizedScope === 'public'
+      ? 'generated/users/*/images (public)'
+      : (isAdmin && !userId ? 'generated/users/* + legacy' : `generated/${userImageRel(userId)}`)
+  };
+}
+
+export async function setImagePublic(id, { userId, isAdmin = false, isPublic = false } = {}) {
+  if (!id) throw new Error('image id required');
+  if (!userId && !isAdmin) throw new Error('unauthorized');
+  const row = imagesTable.findById(id);
+  if (!row) throw new Error('image not found');
+  if (!isAdmin && row.user_id !== userId) throw new Error('forbidden');
+
+  const updated = imagesTable.setPublic(id, Boolean(isPublic), new Date().toISOString());
+  const [item] = await itemsFromRows([updated], { viewerId: userId });
+  return item || rowToItem(updated);
+}
+
+export async function likePublicImage(id, { userId } = {}) {
+  if (!id) throw new Error('image id required');
+  if (!userId) throw new Error('unauthorized');
+  const row = imagesTable.findById(id);
+  if (!row) throw new Error('image not found');
+  if (!row.is_public) throw new Error('image not public');
+
+  const now = new Date().toISOString();
+  const day = todayUtc();
+  const alreadyLiked = imageLikes.hasLiked(id, userId);
+  if (!alreadyLiked) {
+    const used = imageLikes.countByUserDay(userId, day);
+    const limit = dailyPublicLikeLimit();
+    if (used >= limit) {
+      const err = new Error('daily like limit exceeded');
+      err.code = 'daily_like_limit_exceeded';
+      err.status = 429;
+      throw err;
+    }
+    imageLikes.create({ imageId: id, userId, day, createdAt: now });
+  }
+
+  return {
+    id,
+    likedByMe: true,
+    alreadyLiked,
+    likeCount: imageLikes.countForImage(id),
+    likeQuota: publicLikeQuota(userId)
   };
 }
 

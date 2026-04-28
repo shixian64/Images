@@ -142,3 +142,58 @@ test('saveGeneratedImages rejects explicit non-image content-type', async () => 
   assert.equal(result.saved.length, 0);
   assert.match(result.items[0].save_error, /content-type is not allowed/);
 });
+
+test('users can publish an own image and see like counts in public gallery', async () => {
+  const result = await gallery.saveGeneratedImages(
+    [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+    { prompt: 'public test', outputFormat: 'png' },
+    { userId: user.id }
+  );
+  const id = result.saved[0].id;
+
+  let publicList = await gallery.listGallery({ userId: user.id, scope: 'public' });
+  assert.equal(publicList.items.some((item) => item.id === id), false);
+
+  const published = await gallery.setImagePublic(id, { userId: user.id, isPublic: true });
+  assert.equal(published.isPublic, true);
+
+  publicList = await gallery.listGallery({ userId: user.id, scope: 'public' });
+  const item = publicList.items.find((it) => it.id === id);
+  assert.ok(item);
+  assert.equal(item.likeCount, 0);
+  assert.equal(item.likedByMe, false);
+
+  const liked = await gallery.likePublicImage(id, { userId: user.id });
+  assert.equal(liked.likeCount, 1);
+  assert.equal(liked.likedByMe, true);
+
+  const duplicate = await gallery.likePublicImage(id, { userId: user.id });
+  assert.equal(duplicate.alreadyLiked, true);
+  assert.equal(duplicate.likeCount, 1);
+});
+
+test('public gallery likes enforce per-user daily limit', async () => {
+  await withEnv({ PUBLIC_GALLERY_DAILY_LIKE_LIMIT: '1' }, async () => {
+    const viewer = auth.register({ username: 'viewer', email: 'viewer@x.com', password: 'longenough1' });
+    const first = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'limit one', outputFormat: 'png' },
+      { userId: user.id }
+    );
+    const second = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'limit two', outputFormat: 'png' },
+      { userId: user.id }
+    );
+    await gallery.setImagePublic(first.saved[0].id, { userId: user.id, isPublic: true });
+    await gallery.setImagePublic(second.saved[0].id, { userId: user.id, isPublic: true });
+
+    const liked = await gallery.likePublicImage(first.saved[0].id, { userId: viewer.id });
+    assert.equal(liked.likeQuota.remaining, 0);
+
+    await assert.rejects(
+      () => gallery.likePublicImage(second.saved[0].id, { userId: viewer.id }),
+      /daily like limit exceeded/
+    );
+  });
+});
