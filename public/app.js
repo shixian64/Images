@@ -42,12 +42,7 @@ mountPromptPanel({
     switchTab('studioPanel');
   }
 });
-mountLogsPanel({
-  onReusePrompt: (prompt) => {
-    loadPromptFromLog(prompt);
-    switchTab('studioPanel');
-  }
-});
+mountLogsPanel();
 
 if (me.role === 'admin') {
   mountUsersPanel();

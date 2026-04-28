@@ -1,4 +1,4 @@
-// 日志面板：分级 / 搜索 / 导出 / 清空 / 复制 / 复用 prompt / 错误徽章。
+// 日志面板：分级 / 搜索 / 导出 / 清空 / 复制 / 错误徽章。
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
 import { $, escapeHtml, maskKey } from './dom.js';
@@ -284,7 +284,7 @@ function renderSummary(filtered, activeLevel = 'all') {
   }
 }
 
-function renderList(filtered, { onReusePrompt } = {}) {
+function renderList(filtered) {
   const list = $('logList');
   if (!filtered.length) {
     list.dataset.empty = 'true';
@@ -298,12 +298,8 @@ function renderList(filtered, { onReusePrompt } = {}) {
   list.dataset.empty = 'false';
 
   list.innerHTML = filtered.map((log) => {
-    const promptInMeta = log.meta?.prompt;
     const metaText = log.meta && Object.keys(log.meta).length
       ? `<span class="log-meta">${escapeHtml(JSON.stringify(log.meta))}</span>`
-      : '';
-    const reuseBtn = promptInMeta
-      ? `<button data-action="reuse" data-id="${escapeHtml(log.id)}">复用 Prompt</button>`
       : '';
     const shortTs = log.ts.slice(11, 19);
     return `
@@ -313,7 +309,6 @@ function renderList(filtered, { onReusePrompt } = {}) {
         <span class="log-msg">${escapeHtml(log.message)}${metaText}</span>
         <span class="log-actions">
           <button data-action="copy" data-id="${escapeHtml(log.id)}">复制</button>
-          ${reuseBtn}
         </span>
       </article>`;
   }).join('');
@@ -326,13 +321,11 @@ function renderList(filtered, { onReusePrompt } = {}) {
     if (!entry) return;
     if (btn.dataset.action === 'copy') {
       navigator.clipboard?.writeText(JSON.stringify(entry, null, 2));
-    } else if (btn.dataset.action === 'reuse' && entry.meta?.prompt) {
-      onReusePrompt?.(entry.meta.prompt);
     }
   };
 }
 
-export function mountLogsPanel({ onReusePrompt } = {}) {
+export function mountLogsPanel() {
   ensureLogsLoaded();
   ensureSyncQueueLoaded();
   mountClientErrorLogging();
@@ -345,7 +338,7 @@ export function mountLogsPanel({ onReusePrompt } = {}) {
     const keyword = (searchEl.value || '').trim();
     const filtered = filterLogs(activeLevel, keyword);
     renderSummary(filtered, activeLevel);
-    renderList(filtered, { onReusePrompt });
+    renderList(filtered);
   }
 
   searchEl.addEventListener('input', rerender);
