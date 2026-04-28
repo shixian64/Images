@@ -112,6 +112,12 @@ npm test
 
 覆盖 `maskApiKey`（防止 Key 回显回归）、`resolveApiUrl` / `resolveModelsUrl` / `resolveChatCompletionsUrl`（Base URL 规范化）、`buildImagePayload` / `buildChatPayload`（必填校验、白名单透传、不泄漏配置字段）。
 
+## 贡献
+
+欢迎提交 Issue 和 Pull Request。参与前请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+如果发现安全问题，请优先查看 [SECURITY.md](./SECURITY.md)，不要在公开 Issue 中直接披露可利用细节。
+
 ## 下一步
 
 见 `docs/PRODUCT_DESIGN.md` §13.2（迁 Next.js + Prisma + Auth.js + S3）。当前仓库仍是单用户本地工具；云端多用户、订阅、团队空间、服务端 KMS 都是后续阶段。
@@ -185,3 +191,7 @@ GET /healthz
 - 上游请求使用已校验 DNS 结果发起连接，生产严格模式下避免校验后重新解析导致 DNS rebinding/TOCTOU。
 - Docker compose 默认限制内存、CPU、PID，启用只读根文件系统，并仅把 `/app/generated` 作为持久化写入点。
 - 服务支持 `SIGTERM` / `SIGINT` 优雅关闭，便于 Docker 更新或停止容器。
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
