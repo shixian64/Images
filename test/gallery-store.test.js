@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -196,4 +196,29 @@ test('public gallery likes enforce per-user daily limit', async () => {
       /daily like limit exceeded/
     );
   });
+});
+
+test('removeDanglingFile only deletes files under a user images directory', async () => {
+  const userRoot = join(workDir, 'generated', 'users', user.id);
+  const profilePath = join(userRoot, 'profile.txt');
+  mkdirSync(userRoot, { recursive: true });
+  writeFileSync(profilePath, 'not an image');
+
+  await assert.rejects(
+    () => gallery.removeDanglingFile(`users/${user.id}/profile.txt`),
+    /only user-scoped image files/
+  );
+  await assert.rejects(
+    () => gallery.removeDanglingFile(`users/${user.id}/images/../../profile.txt`),
+    /invalid path/
+  );
+  assert.equal(existsSync(profilePath), true);
+
+  const orphanPath = join(userRoot, 'images', 'dangling', 'orphan.png');
+  mkdirSync(join(userRoot, 'images', 'dangling'), { recursive: true });
+  writeFileSync(orphanPath, Buffer.from(PNG_BYTES));
+
+  const removed = await gallery.removeDanglingFile(`users/${user.id}/images/dangling/orphan.png`);
+  assert.equal(removed.path, `users/${user.id}/images/dangling/orphan.png`);
+  assert.equal(existsSync(orphanPath), false);
 });

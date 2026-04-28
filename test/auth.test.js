@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { DatabaseSync } from 'node:sqlite';
 
 let workDir;
 let prevCwd;
@@ -15,6 +16,7 @@ let authRoutes;
 let rateLimit;
 let users;
 let db;
+let sessionMiddleware;
 let prevBootstrapToken;
 
 before(async () => {
@@ -29,6 +31,7 @@ before(async () => {
   authRoutes = await import('../routes/auth.js');
   rateLimit = await import('../services/rate-limit.js');
   users = await import('../services/users.js');
+  sessionMiddleware = await import('../middleware/session.js');
   db.migrate();
 });
 
@@ -209,6 +212,36 @@ test('login + getSessionUser + destroySession round-trip', () => {
 
   auth.destroySession(sessionId);
   assert.equal(auth.getSessionUser(sessionId), null);
+});
+
+test('attachSession refreshes browser cookie when sliding session is extended', () => {
+  const { user, sessionId } = auth.login({
+    login: 'alice',
+    password: 'longenough1',
+    ua: 'sliding-session',
+    ip: '127.0.0.1'
+  });
+  const nearExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    sqlite.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(nearExpiry, sessionId);
+  } finally {
+    sqlite.close();
+  }
+
+  const req = {
+    headers: { cookie: `sid=${encodeURIComponent(sessionId)}` },
+    socket: { remoteAddress: '127.0.0.1' }
+  };
+  const res = captureRes();
+  sessionMiddleware.default(req, res);
+
+  assert.equal(req.session?.user?.id, user.id);
+  const setCookie = res.headers['set-cookie'];
+  const cookieText = Array.isArray(setCookie) ? setCookie.join('\n') : String(setCookie || '');
+  assert.match(cookieText, /sid=/);
+  assert.match(cookieText, /Max-Age=604800/);
+  assert.match(cookieText, /HttpOnly/);
 });
 
 test('login fails uniformly on wrong password / unknown user / disabled', () => {

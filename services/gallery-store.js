@@ -700,10 +700,13 @@ export async function removeDanglingFile(relPath) {
   if (!relPath || typeof relPath !== 'string') throw new Error('invalid path');
   const segs = relPath.split(/[\\/]+/).filter(Boolean);
   if (!segs.length) throw new Error('invalid path');
-  if (segs[0] !== 'users') throw new Error('only user-scoped files can be removed');
+  if (segs.some((part) => part === '.' || part === '..')) throw new Error('invalid path');
+  if (segs[0] !== 'users' || !segs[1] || segs[2] !== 'images' || segs.length < 4) {
+    throw new Error('only user-scoped image files can be removed');
+  }
 
   const abs = resolve(GALLERY_ROOT, ...segs);
-  if (!isUnderUserImages(abs)) throw new Error('path outside user dir');
+  assertUserPath(abs, segs[1]);
   // 再次确认 DB 中没人认领该文件
   const row = imagesTable.findByPath(segs.join('/'));
   if (row) throw new Error('file is referenced by db row, refuse to delete');

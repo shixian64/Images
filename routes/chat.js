@@ -10,8 +10,8 @@ import { hit as rateLimitHit } from '../services/rate-limit.js';
 import { clientIp } from '../utils/request.js';
 import {
   assertCanGenerate,
+  recordAttempt,
   recordFailure,
-  recordSuccess
 } from '../services/quota.js';
 
 const DEFAULT_CHAT_RATE_LIMIT_MAX_PER_MINUTE = 20;
@@ -205,14 +205,14 @@ function checkChatQuota(userInfo, { model } = {}) {
   return { ...check, cost: CHAT_QUOTA_COST };
 }
 
-function recordChatQuotaSuccess(userInfo) {
+function recordChatQuotaAttempt(userInfo) {
   if (!userInfo?.id) return;
-  recordSuccess(userInfo.id, { calls: CHAT_QUOTA_COST, images: 0, bytes: 0 });
+  recordAttempt(userInfo.id, { calls: CHAT_QUOTA_COST });
 }
 
-function recordChatQuotaFailure(userInfo) {
+function recordChatQuotaFailure(userInfo, { reserved = false } = {}) {
   if (!userInfo?.id) return;
-  recordFailure(userInfo.id, { calls: CHAT_QUOTA_COST });
+  recordFailure(userInfo.id, { calls: reserved ? 0 : CHAT_QUOTA_COST });
 }
 
 export async function handleChat(req, res) {
@@ -222,6 +222,7 @@ export async function handleChat(req, res) {
   }
   let body = {};
   let releaseChatSlot = null;
+  let quotaReserved = false;
   try {
     body = await readJsonBody(req);
     body = prepareChatRequestBody(body);
@@ -249,6 +250,8 @@ export async function handleChat(req, res) {
       return sendJson(res, 429, { error: slot.message, code: 'chat_concurrent_limit_exceeded' });
     }
     releaseChatSlot = slot.release;
+    recordChatQuotaAttempt(req.session.user);
+    quotaReserved = true;
 
     logger.info('chat.completion.request', {
       targetUrl,
@@ -272,16 +275,18 @@ export async function handleChat(req, res) {
       logger.error('chat.completion.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
-      recordChatQuotaFailure(req.session.user);
+      recordChatQuotaFailure(req.session.user, { reserved: quotaReserved });
       return sendJson(res, status, { error: errMsg });
     }
 
     logger.info('chat.completion.success', {
       status, durationMs, model: payload.model
     });
-    recordChatQuotaSuccess(req.session.user);
     return sendJson(res, 200, data);
   } catch (error) {
+    if (quotaReserved) {
+      recordChatQuotaFailure(req.session.user, { reserved: true });
+    }
     logger.warn('chat.completion.rejected', {
       durationMs: Date.now() - started,
       model: body?.model || body?.chatModel,

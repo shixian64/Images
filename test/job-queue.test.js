@@ -97,6 +97,31 @@ test('queued jobs persist only safe worker payload fields', async () => {
   jobQueue.cancelJob(job.id, u);
 });
 
+test('compactGenerationResult strips inline b64_json from failed save items', () => {
+  const input = {
+    data: [
+      {
+        b64_json: 'a'.repeat(4096),
+        save_error: 'decoded image too large',
+        revised_prompt: 'kept'
+      },
+      {
+        b64_json: 'b'.repeat(4096),
+        local_url: '/gallery-files/users/u/images/x.png',
+        gallery_id: 'img-1'
+      }
+    ]
+  };
+
+  const compacted = jobQueue.compactGenerationResult(input);
+
+  assert.equal(Object.hasOwn(compacted.data[0], 'b64_json'), false);
+  assert.equal(compacted.data[0].save_error, 'decoded image too large');
+  assert.equal(compacted.data[0].revised_prompt, 'kept');
+  assert.equal(Object.hasOwn(compacted.data[1], 'b64_json'), false);
+  assert.equal(input.data[0].b64_json.length, 4096, 'source object should not be mutated');
+});
+
 test('enqueue quota check counts already queued calls', async () => {
   const u = user('queued_quota');
 

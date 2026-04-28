@@ -144,11 +144,13 @@ export function getSessionUser(sessionId) {
     return null;
   }
   // 剩余不足一天时滑动续期，避免活跃用户被登出
+  let renewed = false;
   if (expiresTs - now < ONE_DAY_MS) {
     const newExpires = sessions.extend(sessionId);
     session.expires_at = newExpires;
+    renewed = true;
   }
-  return { user: sanitizeUser(user), session };
+  return { user: sanitizeUser(user), session, renewed };
 }
 
 export function destroySession(sessionId) {

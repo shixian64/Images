@@ -98,15 +98,16 @@ function priorityForUser(userInfo = {}, settings = getQueueSettings()) {
   return Number(settings.role_priorities?.[role]) || 0;
 }
 
-function compactGenerationResult(body = {}) {
+export function compactGenerationResult(body = {}) {
   const out = { ...(body || {}) };
   if (Array.isArray(out.data)) {
     out.data = out.data.map((item) => {
       if (!item || typeof item !== 'object') return item;
       const next = { ...item };
-      if (next.local_url || next.localUrl || next.gallery_id || next.file_name) {
-        delete next.b64_json;
-      }
+      // Never persist inline image payloads in the job table.  A failed save can
+      // still leave save_error next to the original b64_json item, and storing
+      // that blob would inflate SQLite/SSE payloads dramatically.
+      delete next.b64_json;
       return next;
     });
   }

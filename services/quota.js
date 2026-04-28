@@ -311,6 +311,11 @@ export function recordSuccess(userId, { calls = 1, images = 1, bytes = 0 } = {})
   usageDaily.bump(userId, todayUtc(), { calls, images, bytes });
 }
 
+export function recordAttempt(userId, { calls = 1 } = {}) {
+  if (!userId) return;
+  usageDaily.bump(userId, todayUtc(), { calls, images: 0, bytes: 0 });
+}
+
 export function recordFailure(userId, { calls = 1 } = {}) {
   if (!userId) return;
   usageDaily.bump(userId, todayUtc(), { calls, fails: 1 });

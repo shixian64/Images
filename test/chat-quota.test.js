@@ -57,6 +57,17 @@ async function callChat(handleChat, body, user) {
   };
 }
 
+async function waitFor(fn, { timeoutMs = 1000, intervalMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await fn();
+    if (last) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return last;
+}
+
 test('prompt optimization chat requests share the image generation quota count', async (t) => {
   const prevCwd = process.cwd();
   const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -75,14 +86,26 @@ test('prompt optimization chat requests share the image generation quota count',
   });
 
   let upstreamHits = 0;
+  let heldChatResponse = null;
+  let heldChatSeen = false;
+  function sendChatOk(res) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: '优化后提示词' } }] }));
+  }
   const upstream = http.createServer(async (req, res) => {
     upstreamHits += 1;
     assert.equal(req.url, '/v1/chat/completions');
+    const chunks = [];
     for await (const _chunk of req) {
-      // drain body
+      chunks.push(_chunk);
     }
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: '优化后提示词' } }] }));
+    const rawBody = Buffer.concat(chunks).toString('utf8');
+    if (rawBody.includes('hold concurrency') && !heldChatSeen) {
+      heldChatSeen = true;
+      heldChatResponse = res;
+      return;
+    }
+    sendChatOk(res);
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 
@@ -123,4 +146,29 @@ test('prompt optimization chat requests share the image generation quota count',
   assert.equal(second.statusCode, 429);
   assert.equal(second.body.code, 'daily_limit_exceeded');
   assert.equal(upstreamHits, 1);
+
+  const concurrentUser = auth.register({
+    username: 'chat_quota_race',
+    email: 'chat_quota_race@example.com',
+    password: 'longenough1'
+  });
+  const concurrentBody = {
+    ...body,
+    messages: [{ role: 'user', content: 'hold concurrency' }]
+  };
+  const firstConcurrent = callChat(handleChat, concurrentBody, concurrentUser);
+  const held = await waitFor(() => heldChatResponse);
+  assert.ok(held, 'first concurrent request should reach upstream and stay pending');
+
+  const secondConcurrent = await callChat(handleChat, concurrentBody, concurrentUser);
+  assert.equal(secondConcurrent.statusCode, 429);
+  assert.equal(secondConcurrent.body.code, 'daily_limit_exceeded');
+  assert.equal(upstreamHits, 2);
+
+  sendChatOk(heldChatResponse);
+  heldChatResponse = null;
+  const firstConcurrentResult = await firstConcurrent;
+  assert.equal(firstConcurrentResult.statusCode, 200);
+  assert.equal(quota.usageSnapshot(concurrentUser.id).today.calls, 1);
+  assert.equal(upstreamHits, 2);
 });
