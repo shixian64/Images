@@ -1058,6 +1058,30 @@ button.danger:hover { background: var(--danger-soft); }
   background: var(--surface-3);
 }
 
+.result-gallery:not([data-empty="true"]) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+}
+.result-gallery .image-card {
+  width: min(100%, 420px);
+}
+.result-gallery .image-card .image-preview-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+}
+.result-gallery .image-card img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(72vh, 720px);
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
 .image-card .image-preview-trigger {
   display: block;
   flex: 0 0 auto;
