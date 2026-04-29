@@ -19,10 +19,11 @@ import { mountJobQueue } from './modules/jobs.js';
 const me = await getMe();
 if (!me) {
   location.href = '/login.html';
-  // 终止后续初始化；location 赋值后新页面即将接管。
+  // 终止后续初始化；location 赋值后新页面即将接管，body 保持隐藏避免主界面闪现。
   throw new Error('unauthenticated');
 }
 setCurrentUser(me);
+document.documentElement.classList.remove('auth-pending');
 
 mountTheme();
 mountProfileMenu(me);

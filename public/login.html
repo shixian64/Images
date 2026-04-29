@@ -6,6 +6,16 @@
   <title>登录 · 图像工作台</title>
   <meta name="color-scheme" content="light dark" />
   <link rel="stylesheet" href="./styles.css" />
+  <script>
+    // why：与主界面一致地同步应用 localStorage 中保存的主题，避免登录页永远跟随系统色。
+    // 默认 'light' 必须与 modules/theme.js 保持一致。
+    try {
+      var t = localStorage.getItem('image-key-manager.theme');
+      if (t !== 'dark' && t !== 'light' && t !== 'system') t = 'light';
+      if (t === 'system') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
   <style>
     body.auth-body {
       min-height: 100vh;

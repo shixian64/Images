@@ -6,6 +6,21 @@
   <title>图像工作台 · BYOK 在线生图</title>
   <meta name="color-scheme" content="light dark" />
   <link rel="stylesheet" href="./styles.css" />
+  <style>html.auth-pending body { visibility: hidden; }</style>
+  <script>
+    // why：HTML 解析阶段就同步应用主题与隐藏 body，避免两类闪烁：
+    //   1) 主题闪烁：CSS 默认无 data-theme 跟随系统色，会先以系统色渲染一帧再被 JS 改色；
+    //   2) 主界面闪现：未登录时 location.href 跳转前主界面已经画到屏幕。
+    // 默认 'light' 必须与 modules/theme.js 保持一致。
+    try {
+      var t = localStorage.getItem('image-key-manager.theme');
+      if (t !== 'dark' && t !== 'light' && t !== 'system') t = 'light';
+      if (t === 'system') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+    document.documentElement.classList.add('auth-pending');
+    setTimeout(function () { document.documentElement.classList.remove('auth-pending'); }, 3000);
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主内容</a>
