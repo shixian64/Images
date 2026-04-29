@@ -327,6 +327,9 @@ pre::-webkit-scrollbar-corner,
   gap: 20px;
   align-items: start;
 }
+.shell.app-layout:has(#usersPanel.active) {
+  max-width: min(1600px, calc(100vw - 64px));
+}
 body.job-queue-visible .shell.app-layout,
 .shell.app-layout.job-queue-visible {
   max-width: 1480px;
@@ -3144,8 +3147,13 @@ body.drawer-open { overflow: hidden; }
 }
 .admin-gallery-bulk span { font-weight: 600; }
 
+#adminGalleryTableWrap {
+  overflow-x: auto;
+}
+
 .admin-gallery-table {
   table-layout: auto;
+  min-width: 1080px;
 }
 .admin-gallery-table .admin-gallery-check {
   width: 40px;
