@@ -15,39 +15,57 @@ import { mountUsersPanel } from './modules/users.js';
 import { mountSelectEnhancer } from './modules/selects.js';
 import { mountJobQueue } from './modules/jobs.js';
 
-// why：入口先确认登录态，未登录立即跳转，避免后续模块触发 401 噪音。
-const me = await getMe();
-if (!me) {
-  location.replace('/login.html');
-  // 如果跳转被浏览器/插件拦截，避免页面永久停留在隐藏态。
-  setTimeout(() => document.documentElement.classList.remove('auth-pending'), 800);
-  await new Promise(() => {});
+function setAuthPendingState(state) {
+  if (state) document.documentElement.setAttribute('data-auth-state', state);
+  else document.documentElement.removeAttribute('data-auth-state');
 }
-setCurrentUser(me);
-document.documentElement.classList.remove('auth-pending');
 
-mountTheme();
-mountProfileMenu(me);
-if (me.role === 'admin') {
-  document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = false; });
+function clearAuthPending() {
+  document.documentElement.classList.remove('auth-pending');
+  setAuthPendingState('');
 }
-mountNav();
-mountProfilesPanel();
-mountGalleryPanel();
-mountStudioPanel({
-  onSavedImages: () => refreshGalleryPanel({ silent: true })
-});
-mountJobQueue();
-mountPromptPanel({
-  onUsePrompt: (prompt) => {
-    loadPromptFromLog(prompt);
-    switchTab('studioPanel');
+
+async function main() {
+  // why：入口先确认登录态，未登录立即跳转，避免后续模块触发 401 噪音。
+  const me = await getMe();
+  if (!me) {
+    setAuthPendingState('redirecting');
+    location.replace('/login.html');
+    return;
   }
-});
-mountLogsPanel();
 
-if (me.role === 'admin') {
-  mountUsersPanel();
+  setCurrentUser(me);
+  clearAuthPending();
+
+  mountTheme();
+  mountProfileMenu(me);
+  if (me.role === 'admin') {
+    document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = false; });
+  }
+  mountNav();
+  mountProfilesPanel();
+  mountGalleryPanel();
+  mountStudioPanel({
+    onSavedImages: () => refreshGalleryPanel({ silent: true })
+  });
+  mountJobQueue();
+  mountPromptPanel({
+    onUsePrompt: (prompt) => {
+      loadPromptFromLog(prompt);
+      switchTab('studioPanel');
+    }
+  });
+  mountLogsPanel();
+
+  if (me.role === 'admin') {
+    mountUsersPanel();
+  }
+
+  mountSelectEnhancer();
 }
 
-mountSelectEnhancer();
+main().catch((err) => {
+  console.error('app boot failed', err);
+  document.documentElement.classList.add('auth-pending');
+  setAuthPendingState('error');
+});

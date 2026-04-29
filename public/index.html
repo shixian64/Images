@@ -5,8 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>图像工作台 · BYOK 在线生图</title>
   <meta name="color-scheme" content="light dark" />
-  <link rel="stylesheet" href="./styles.css?v=c5902f1-hotfix1" />
-  <style>html.auth-pending body { visibility: hidden; }</style>
+  <link rel="stylesheet" href="./styles.css?v=c5902f1-hotfix2" />
+  <style>
+    html.auth-pending body > * { visibility: hidden; }
+    html.auth-pending body::before {
+      content: "正在确认登录状态…";
+      visibility: visible;
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: Canvas;
+      color: CanvasText;
+      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      z-index: 2147483647;
+    }
+    html.auth-pending[data-auth-state="redirecting"] body::before {
+      content: "登录态已失效，正在跳转登录页…";
+    }
+    html.auth-pending[data-auth-state="error"] body::before {
+      content: "页面加载失败，请刷新重试";
+    }
+  </style>
   <script>
     // why：HTML 解析阶段就同步应用主题与隐藏 body，避免两类闪烁：
     //   1) 主题闪烁：CSS 默认无 data-theme 跟随系统色，会先以系统色渲染一帧再被 JS 改色；
@@ -20,6 +40,13 @@
     } catch (e) {}
     // 只在 app.js 确认已登录后移除；未登录/慢网络时不能用超时兜底显示主界面。
     document.documentElement.classList.add('auth-pending');
+    // 如果 app.js 或其子模块加载失败，至少给出错误提示而不是一直显示“确认中”。
+    setTimeout(function () {
+      if (document.documentElement.classList.contains('auth-pending') &&
+          !document.documentElement.getAttribute('data-auth-state')) {
+        document.documentElement.setAttribute('data-auth-state', 'error');
+      }
+    }, 10000);
   </script>
 </head>
 <body>
@@ -640,7 +667,7 @@
               <button class="ghost small" id="quotaRefresh">刷新</button>
             </div>
           </header>
-          <p class="quota-defaults-hint">普通用户默认额度（管理员生成豁免；留空 = 不限，失焦自动保存）</p>
+          <p class="quota-defaults-hint">普通用户使用系统默认接口时的额度（管理员生成豁免；个人自定义接口不占用；留空 = 不限，失焦自动保存）</p>
           <div id="quotaDefaultsCard" class="quota-defaults-card"></div>
 
           <div id="quotaBulkBar" class="admin-gallery-bulk quota-bulk" hidden>
@@ -853,6 +880,6 @@
     </section>
   </aside>
 
-  <script type="module" src="./app.js?v=c5902f1-hotfix1"></script>
+  <script type="module" src="./app.js?v=c5902f1-hotfix2"></script>
 </body>
 </html>
