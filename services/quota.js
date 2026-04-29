@@ -1,4 +1,4 @@
-// 额度服务：默认配额、用户覆盖、生成入口拦截、用量记录与汇总。
+// 额度服务：系统默认接口的默认配额、用户覆盖、生成入口拦截、用量记录与汇总。
 // TAG: hmt---
 
 import {
@@ -152,7 +152,9 @@ export function assertCanGenerate(userId, { n = 1, includeQueued = false } = {})
   if (!userId) return { ok: true };
   const { quota, usage } = summary(userId);
   const callsRequested = Math.max(1, Number(n) || 1);
-  const queuedCalls = includeQueued ? Number(generationJobs.pendingCallCount(userId)) || 0 : 0;
+  const queuedCalls = includeQueued
+    ? Number(generationJobs.pendingCallCount(userId, { quotaManagedOnly: true })) || 0
+    : 0;
   const todayCalls = usage.today.calls + queuedCalls;
   const monthCalls = usage.month.calls + queuedCalls;
 
@@ -174,7 +176,9 @@ export function assertCanGenerate(userId, { n = 1, includeQueued = false } = {})
   const signupIpLimits = getSignupIpQuotaLimits();
   if (user?.role !== 'admin' && user?.signup_ip) {
     const pooled = usageBySignupIpSnapshot(user.signup_ip);
-    const pooledQueued = includeQueued ? Number(generationJobs.pendingCallCountBySignupIp(user.signup_ip)) || 0 : 0;
+    const pooledQueued = includeQueued
+      ? Number(generationJobs.pendingCallCountBySignupIp(user.signup_ip, { quotaManagedOnly: true })) || 0
+      : 0;
     if (
       signupIpLimits.daily_limit &&
       pooled.today.calls + pooledQueued + callsRequested > signupIpLimits.daily_limit

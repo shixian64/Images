@@ -275,7 +275,9 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
       error: errMsg,
       upstreamRequestCount
     });
-    recordFailure(userInfo?.id, { calls: requestedImages });
+    if (usingSystemDefault) {
+      recordFailure(userInfo?.id, { calls: requestedImages });
+    }
     return { status, body: { error: errMsg } };
   }
 
@@ -311,13 +313,15 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     });
   }
 
-  // 用量记账：多图请求按请求张数消耗额度，同时记录实际返回/入库图数与字节数。
+  // 系统默认接口用量记账：多图请求按请求张数消耗额度，同时记录实际返回/入库图数与字节数。
   const savedBytes = saved.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
-  recordSuccess(userInfo?.id, {
-    calls: requestedImages,
-    images: saved.length || imageItems.length || 0,
-    bytes: savedBytes
-  });
+  if (usingSystemDefault) {
+    recordSuccess(userInfo?.id, {
+      calls: requestedImages,
+      images: saved.length || imageItems.length || 0,
+      bytes: savedBytes
+    });
+  }
 
   logger.info('image.generate.success', {
     userId: userInfo?.id,

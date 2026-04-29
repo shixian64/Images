@@ -68,7 +68,7 @@ async function waitFor(fn, { timeoutMs = 1000, intervalMs = 10 } = {}) {
   return last;
 }
 
-test('prompt optimization chat requests share the image generation quota count', async (t) => {
+test('system default chat requests use managed quota while custom chat bypasses it', async (t) => {
   const prevCwd = process.cwd();
   const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const workDir = mkdtempSync(join(tmpdir(), 'image-studio-chat-quota-'));
@@ -122,18 +122,29 @@ test('prompt optimization chat requests share the image generation quota count',
   const db = await import('../services/db.js');
   const auth = await import('../services/auth.js');
   const quota = await import('../services/quota.js');
+  const interfaceDefaults = await import('../services/interface-defaults.js');
   const { handleChat } = await import('../routes/chat.js');
   db.migrate();
+
+  const { port } = upstream.address();
+  interfaceDefaults.setGlobalInterfaceConfig({
+    enabled: true,
+    name: 'System Chat Test',
+    image: { apiKey: 'sk-system-image' },
+    chat: {
+      baseUrl: `http://127.0.0.1:${port}`,
+      apiKey: 'sk-system-chat',
+      defaultModel: 'gpt-test'
+    }
+  }, 'test');
 
   const user = auth.register({
     username: 'chat_quota_user',
     email: 'chat_quota_user@example.com',
     password: 'longenough1'
   });
-  const { port } = upstream.address();
   const body = {
-    chatBaseUrl: `http://127.0.0.1:${port}`,
-    chatApiKey: 'sk-test',
+    useSystemDefault: true,
     model: 'gpt-test',
     messages: [{ role: 'user', content: '请优化提示词' }]
   };
@@ -171,4 +182,20 @@ test('prompt optimization chat requests share the image generation quota count',
   assert.equal(firstConcurrentResult.statusCode, 200);
   assert.equal(quota.usageSnapshot(concurrentUser.id).today.calls, 1);
   assert.equal(upstreamHits, 2);
+
+  const customUser = auth.register({
+    username: 'chat_custom_bypass',
+    email: 'chat_custom_bypass@example.com',
+    password: 'longenough1'
+  });
+  quota.recordSuccess(customUser.id, { calls: 1, images: 1 });
+  const custom = await callChat(handleChat, {
+    chatBaseUrl: `http://127.0.0.1:${port}`,
+    chatApiKey: 'sk-custom',
+    model: 'gpt-test',
+    messages: [{ role: 'user', content: '自定义接口不占用平台额度' }]
+  }, customUser);
+  assert.equal(custom.statusCode, 200);
+  assert.equal(quota.usageSnapshot(customUser.id).today.calls, 1);
+  assert.equal(upstreamHits, 3);
 });

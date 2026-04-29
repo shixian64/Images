@@ -411,10 +411,10 @@ function renderDefaultsCard() {
     `;
   };
   host.innerHTML = `
-    ${card('daily_limit', '每日生成上限', '次/天')}
-    ${card('monthly_limit', '每月生成上限', '次/月')}
-    ${card('storage_limit_mb', '存储上限', 'MB')}
-    ${card('concurrent_limit', '并发上限', '次')}
+    ${card('daily_limit', '系统默认每日上限', '次/天')}
+    ${card('monthly_limit', '系统默认每月上限', '次/月')}
+    ${card('storage_limit_mb', '系统默认存储上限', 'MB')}
+    ${card('concurrent_limit', '系统默认并发上限', '次')}
   `;
 }
 

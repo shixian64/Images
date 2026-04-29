@@ -255,6 +255,10 @@ function checkQueueCapacity(userInfo, settings) {
   }
 }
 
+function isSystemDefaultPayload(payload = {}) {
+  return payload?.useSystemDefault === true || payload?.interfaceMode === 'system';
+}
+
 export async function enqueueImageGeneration(body, userInfo) {
   if (!userInfo?.id) throw httpError(401, 'unauthorized');
   const freshUser = users.findById(userInfo.id) || userInfo;
@@ -266,7 +270,7 @@ export async function enqueueImageGeneration(body, userInfo) {
   const prepared = await prepareImageGenerationJob(body || {});
   checkQueueCapacity(freshUser, settings);
 
-  if (freshUser.role !== 'admin') {
+  if (prepared.usingSystemDefault && freshUser.role !== 'admin') {
     const check = assertCanGenerate(freshUser.id, { n: prepared.requestedImages, includeQueued: true });
     if (!check.ok) {
       logger.warn('image.queue.quota_exceeded', {
@@ -310,7 +314,7 @@ function acquireSlotsForJob(job, userInfo) {
   if (!globalSlot.ok) return { ok: false, reason: 'global', detail: globalSlot };
 
   let userSlot = { ok: true, release: () => {} };
-  if (userInfo?.role !== 'admin') {
+  if (isSystemDefaultPayload(job.payload) && userInfo?.role !== 'admin') {
     userSlot = tryAcquireConcurrentSlot(job.user_id);
     if (!userSlot.ok) {
       globalSlot.release?.();

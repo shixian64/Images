@@ -192,7 +192,8 @@ function resolveChatRequest(body = {}) {
   };
 }
 
-function checkChatQuota(userInfo, { model } = {}) {
+function checkChatQuota(userInfo, { model, usingSystemDefault = false } = {}) {
+  if (!usingSystemDefault) return { ok: true, cost: 0 };
   if (!userInfo?.id || userInfo.role === 'admin') return { ok: true, cost: CHAT_QUOTA_COST };
   const check = assertCanGenerate(userInfo.id, { n: CHAT_QUOTA_COST });
   if (!check.ok) {
@@ -205,13 +206,13 @@ function checkChatQuota(userInfo, { model } = {}) {
   return { ...check, cost: CHAT_QUOTA_COST };
 }
 
-function recordChatQuotaAttempt(userInfo) {
-  if (!userInfo?.id) return;
+function recordChatQuotaAttempt(userInfo, { usingSystemDefault = false } = {}) {
+  if (!usingSystemDefault || !userInfo?.id) return;
   recordAttempt(userInfo.id, { calls: CHAT_QUOTA_COST });
 }
 
-function recordChatQuotaFailure(userInfo, { reserved = false } = {}) {
-  if (!userInfo?.id) return;
+function recordChatQuotaFailure(userInfo, { reserved = false, usingSystemDefault = false } = {}) {
+  if (!usingSystemDefault || !userInfo?.id) return;
   recordFailure(userInfo.id, { calls: reserved ? 0 : CHAT_QUOTA_COST });
 }
 
@@ -233,9 +234,9 @@ export async function handleChat(req, res) {
     await assertAllowedUpstreamUrl(targetUrl);
     const payload = buildChatPayload(bodyForPayload);
 
-    // 提示词优化走 /api/chat，同样占用“生图次数”额度：普通用户按 1 次检查，
-    // 管理员延续生图接口语义（不拦截，但仍记录用量便于审计）。
-    const quotaCheck = checkChatQuota(req.session.user, { model: payload.model });
+    // 仅系统默认接口占用平台额度；个人自定义接口使用用户自己的 Key，不受管理端额度限制。
+    // 管理员延续生图接口语义（不拦截系统默认接口请求，但仍记录用量便于审计）。
+    const quotaCheck = checkChatQuota(req.session.user, { model: payload.model, usingSystemDefault });
     if (!quotaCheck.ok) {
       return sendJson(res, 429, { error: quotaCheck.message, code: quotaCheck.code });
     }
@@ -250,8 +251,8 @@ export async function handleChat(req, res) {
       return sendJson(res, 429, { error: slot.message, code: 'chat_concurrent_limit_exceeded' });
     }
     releaseChatSlot = slot.release;
-    recordChatQuotaAttempt(req.session.user);
-    quotaReserved = true;
+    recordChatQuotaAttempt(req.session.user, { usingSystemDefault });
+    quotaReserved = usingSystemDefault;
 
     logger.info('chat.completion.request', {
       targetUrl,
@@ -275,7 +276,7 @@ export async function handleChat(req, res) {
       logger.error('chat.completion.failed', {
         status, durationMs, model: payload.model, error: errMsg
       });
-      recordChatQuotaFailure(req.session.user, { reserved: quotaReserved });
+      recordChatQuotaFailure(req.session.user, { reserved: quotaReserved, usingSystemDefault });
       return sendJson(res, status, { error: errMsg });
     }
 
@@ -285,7 +286,7 @@ export async function handleChat(req, res) {
     return sendJson(res, 200, data);
   } catch (error) {
     if (quotaReserved) {
-      recordChatQuotaFailure(req.session.user, { reserved: true });
+      recordChatQuotaFailure(req.session.user, { reserved: true, usingSystemDefault: true });
     }
     logger.warn('chat.completion.rejected', {
       durationMs: Date.now() - started,

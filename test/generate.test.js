@@ -14,6 +14,7 @@ let auth;
 let quota;
 let generate;
 let jobQueue;
+let interfaceDefaults;
 let user;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
@@ -78,6 +79,7 @@ before(async () => {
   quota = await import('../services/quota.js');
   generate = await import('../routes/generate.js');
   jobQueue = await import('../services/job-queue.js');
+  interfaceDefaults = await import('../services/interface-defaults.js');
 
   db.migrate();
   jobQueue.startJobQueue();
@@ -103,11 +105,13 @@ async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
   return last;
 }
 
-test('handleGenerate fans out n>1 into individual upstream requests and records matching quota cost', async () => {
+test('handleGenerate fans out custom interface n>1 without consuming managed quota', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',
     ALLOW_PRIVATE_UPSTREAMS: '1',
     DEFAULT_DAILY_LIMIT: '4',
+    DEFAULT_MONTHLY_LIMIT: undefined,
+    DEFAULT_STORAGE_LIMIT_MB: undefined,
     IMAGE_GENERATION_BATCH_CONCURRENCY: '3'
   }, async () => {
     const upstreamPayloads = [];
@@ -158,10 +162,89 @@ test('handleGenerate fans out n>1 into individual upstream requests and records 
       assert.deepEqual(upstreamPayloads.map((payload) => payload.n), [1, 1, 1]);
       assert.equal(done.result.data.length, 3);
       const usage = quota.usageSnapshot(user.id);
+      assert.equal(usage.today.calls, 0);
+      assert.equal(usage.today.images, 0);
+      assert.equal(quota.assertCanGenerate(user.id, { n: 4 }).ok, true);
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+test('handleGenerate records managed quota only for system default interface', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '4',
+    DEFAULT_MONTHLY_LIMIT: undefined,
+    DEFAULT_STORAGE_LIMIT_MB: undefined,
+    IMAGE_GENERATION_BATCH_CONCURRENCY: '3'
+  }, async () => {
+    const upstreamPayloads = [];
+    const server = http.createServer((req, res) => {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/v1/images/generations');
+
+      let raw = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const payload = JSON.parse(raw);
+        upstreamPayloads.push(payload);
+        const image = {
+          b64_json: Buffer.from(PNG_BYTES).toString('base64'),
+          revised_prompt: `system image ${upstreamPayloads.length}`
+        };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [image] }));
+      });
+    });
+    await listen(server);
+
+    try {
+      const { port } = server.address();
+      interfaceDefaults.setGlobalInterfaceConfig({
+        enabled: true,
+        name: 'System Test',
+        image: {
+          baseUrl: `http://127.0.0.1:${port}`,
+          apiKey: skLike('system-image'),
+          defaultModel: 'test-image-model'
+        },
+        chat: { apiKey: skLike('system-chat') }
+      }, 'test');
+
+      const routeUser = auth.register({
+        username: 'gen_system_quota_user',
+        email: 'gen_system_quota_user@example.com',
+        password: 'longenough1'
+      });
+      const req = jsonReq({
+        useSystemDefault: true,
+        prompt: 'three system pngs',
+        model: 'test-image-model',
+        n: 3
+      }, routeUser);
+      const res = captureRes();
+
+      await generate.handleGenerate(req, res);
+
+      assert.equal(res.statusCode, 202);
+      const queued = JSON.parse(res.body);
+      assert.ok(queued.jobId);
+
+      const done = await waitFor(() => {
+        const [job] = jobQueue.getUserJobs(routeUser.id).filter((item) => item.id === queued.jobId);
+        return job?.status === 'succeeded' ? job : null;
+      });
+      assert.equal(done?.status, 'succeeded');
+      assert.equal(upstreamPayloads.length, 3);
+      assert.deepEqual(upstreamPayloads.map((payload) => payload.n), [1, 1, 1]);
+      const usage = quota.usageSnapshot(routeUser.id);
       assert.equal(usage.today.calls, 3);
       assert.equal(usage.today.images, 3);
-      assert.equal(quota.assertCanGenerate(user.id, { n: 2 }).ok, false);
-      assert.equal(quota.assertCanGenerate(user.id, { n: 1 }).ok, true);
+      assert.equal(quota.assertCanGenerate(routeUser.id, { n: 2 }).ok, false);
+      assert.equal(quota.assertCanGenerate(routeUser.id, { n: 1 }).ok, true);
     } finally {
       await close(server);
     }

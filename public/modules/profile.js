@@ -279,7 +279,7 @@ async function openUsageDrawer() {
           ${storageBar(storage.bytes || 0, q.storage_limit_mb)}
           <p class="hint">本地图库共 ${storage.images || 0} 张</p>
         </section>
-        <p class="hint">额度由管理员维护；生图与提示词优化都会占用次数。如需提升上限，请联系管理员。</p>
+        <p class="hint">额度由管理员维护；仅使用系统默认接口的生图与提示词优化会占用次数，个人自定义接口不占用。</p>
       </div>
     `;
     drawer.update({ body: html });

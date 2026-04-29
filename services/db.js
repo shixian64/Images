@@ -989,6 +989,20 @@ function jobPayload(value, fallback = null) {
   return JSON.stringify(value);
 }
 
+function parseJobPayloadJson(value) {
+  if (value === null || value === undefined || value === '') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isQuotaManagedJobPayload(payload = {}) {
+  return payload?.useSystemDefault === true || payload?.interfaceMode === 'system';
+}
+
 export const generationJobs = {
   create({ id, userId, status = 'queued', priority = 0, payload, promptPreview, profileName, model, n }) {
     const db = open();
@@ -1193,22 +1207,30 @@ export const generationJobs = {
     }
     return open().prepare(`SELECT COUNT(*) AS n FROM generation_jobs WHERE ${where}`).get(...args)?.n || 0;
   },
-  pendingCallCount(userId) {
+  pendingCallCount(userId, { quotaManagedOnly = false } = {}) {
     if (!userId) return 0;
-    return open().prepare(`
-      SELECT COALESCE(SUM(n), 0) AS n
+    const rows = open().prepare(`
+      SELECT n, payload_json
       FROM generation_jobs
       WHERE user_id = ? AND status IN ('queued', 'running')
-    `).get(userId)?.n || 0;
+    `).all(userId);
+    return rows.reduce((sum, row) => {
+      if (quotaManagedOnly && !isQuotaManagedJobPayload(parseJobPayloadJson(row.payload_json))) return sum;
+      return sum + (Number(row.n) || 0);
+    }, 0);
   },
-  pendingCallCountBySignupIp(signupIp) {
+  pendingCallCountBySignupIp(signupIp, { quotaManagedOnly = false } = {}) {
     if (!signupIp) return 0;
-    return open().prepare(`
-      SELECT COALESCE(SUM(j.n), 0) AS n
+    const rows = open().prepare(`
+      SELECT j.n, j.payload_json
       FROM generation_jobs j
       JOIN users u ON u.id = j.user_id
       WHERE u.signup_ip = ? AND u.role != 'admin' AND j.status IN ('queued', 'running')
-    `).get(signupIp)?.n || 0;
+    `).all(signupIp);
+    return rows.reduce((sum, row) => {
+      if (quotaManagedOnly && !isQuotaManagedJobPayload(parseJobPayloadJson(row.payload_json))) return sum;
+      return sum + (Number(row.n) || 0);
+    }, 0);
   },
   queuePosition(id) {
     const job = this.findById(id);

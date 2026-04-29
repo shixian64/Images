@@ -11,12 +11,21 @@ let db;
 let auth;
 let quota;
 let jobQueue;
+let interfaceDefaults;
 
-const ENV_KEYS = ['ALLOW_INSECURE_UPSTREAMS', 'ALLOW_PRIVATE_UPSTREAMS', 'DEFAULT_DAILY_LIMIT'];
+const ENV_KEYS = [
+  'ALLOW_INSECURE_UPSTREAMS',
+  'ALLOW_PRIVATE_UPSTREAMS',
+  'DEFAULT_DAILY_LIMIT',
+  'DEFAULT_MONTHLY_LIMIT',
+  'DEFAULT_STORAGE_LIMIT_MB',
+  'DEFAULT_CONCURRENT_LIMIT'
+];
 
 before(async () => {
   prevCwd = process.cwd();
   prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+  for (const key of ENV_KEYS) delete process.env[key];
   process.env.ALLOW_INSECURE_UPSTREAMS = '1';
   process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
   process.env.DEFAULT_DAILY_LIMIT = '3';
@@ -26,7 +35,18 @@ before(async () => {
   auth = await import('../services/auth.js');
   quota = await import('../services/quota.js');
   jobQueue = await import('../services/job-queue.js');
+  interfaceDefaults = await import('../services/interface-defaults.js');
   db.migrate();
+  interfaceDefaults.setGlobalInterfaceConfig({
+    enabled: true,
+    name: 'System Test',
+    image: {
+      baseUrl: 'http://127.0.0.1:8787',
+      apiKey: 'sk-system-image',
+      defaultModel: 'test-image-model'
+    },
+    chat: { apiKey: 'sk-system-chat' }
+  }, 'test');
 });
 
 after(() => {
@@ -50,6 +70,15 @@ function payload(n = 1) {
     apiKey: 'sk-test',
     model: 'test-image-model',
     prompt: `test prompt ${n}`,
+    n
+  };
+}
+
+function systemPayload(n = 1) {
+  return {
+    useSystemDefault: true,
+    model: 'test-image-model',
+    prompt: `system test prompt ${n}`,
     n
   };
 }
@@ -122,20 +151,32 @@ test('compactGenerationResult strips inline b64_json from failed save items', ()
   assert.equal(input.data[0].b64_json.length, 4096, 'source object should not be mutated');
 });
 
-test('enqueue quota check counts already queued calls', async () => {
+test('enqueue quota check counts already queued system-default calls', async () => {
   const u = user('queued_quota');
 
-  const first = await jobQueue.enqueueImageGeneration(payload(2), u);
+  const first = await jobQueue.enqueueImageGeneration(systemPayload(2), u);
   assert.equal(first.status, 'queued');
 
   await assert.rejects(
-    () => jobQueue.enqueueImageGeneration(payload(2), u),
+    () => jobQueue.enqueueImageGeneration(systemPayload(2), u),
     (err) => err.statusCode === 429 && err.code === 'daily_limit_exceeded'
   );
 
   const check = quota.assertCanGenerate(u.id, { n: 2, includeQueued: true });
   assert.equal(check.ok, false);
   jobQueue.cancelJob(first.id, u);
+});
+
+test('custom interface jobs bypass managed quota checks', async () => {
+  const u = user('custom_quota_bypass');
+  quota.recordSuccess(u.id, { calls: 3, images: 3 });
+
+  const job = await jobQueue.enqueueImageGeneration(payload(2), u);
+
+  assert.equal(job.status, 'queued');
+  assert.equal(job.payload.interfaceMode, 'custom');
+  assert.equal(quota.usageSnapshot(u.id).today.calls, 3);
+  jobQueue.cancelJob(job.id, u);
 });
 
 test('queued jobs can be cancelled before execution without usage', async () => {
