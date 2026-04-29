@@ -18,9 +18,10 @@ import { mountJobQueue } from './modules/jobs.js';
 // why：入口先确认登录态，未登录立即跳转，避免后续模块触发 401 噪音。
 const me = await getMe();
 if (!me) {
-  location.href = '/login.html';
-  // 终止后续初始化；location 赋值后新页面即将接管，body 保持隐藏避免主界面闪现。
-  throw new Error('unauthenticated');
+  location.replace('/login.html');
+  // 如果跳转被浏览器/插件拦截，避免页面永久停留在隐藏态。
+  setTimeout(() => document.documentElement.classList.remove('auth-pending'), 800);
+  await new Promise(() => {});
 }
 setCurrentUser(me);
 document.documentElement.classList.remove('auth-pending');
