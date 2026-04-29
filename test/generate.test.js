@@ -103,13 +103,14 @@ async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
   return last;
 }
 
-test('handleGenerate enqueues and worker records multi-image requests with the same quota cost used by precheck', async () => {
+test('handleGenerate fans out n>1 into individual upstream requests and records matching quota cost', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',
     ALLOW_PRIVATE_UPSTREAMS: '1',
-    DEFAULT_DAILY_LIMIT: '4'
+    DEFAULT_DAILY_LIMIT: '4',
+    IMAGE_GENERATION_BATCH_CONCURRENCY: '3'
   }, async () => {
-    let upstreamPayload = null;
+    const upstreamPayloads = [];
     const server = http.createServer((req, res) => {
       assert.equal(req.method, 'POST');
       assert.equal(req.url, '/v1/images/generations');
@@ -118,10 +119,14 @@ test('handleGenerate enqueues and worker records multi-image requests with the s
       req.setEncoding('utf8');
       req.on('data', (chunk) => { raw += chunk; });
       req.on('end', () => {
-        upstreamPayload = JSON.parse(raw);
-        const image = { b64_json: Buffer.from(PNG_BYTES).toString('base64') };
+        const payload = JSON.parse(raw);
+        upstreamPayloads.push(payload);
+        const image = {
+          b64_json: Buffer.from(PNG_BYTES).toString('base64'),
+          revised_prompt: `image ${upstreamPayloads.length}`
+        };
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ data: [image, image, image] }));
+        res.end(JSON.stringify({ data: [image] }));
       });
     });
     await listen(server);
@@ -149,7 +154,9 @@ test('handleGenerate enqueues and worker records multi-image requests with the s
         return job?.status === 'succeeded' ? job : null;
       });
       assert.equal(done?.status, 'succeeded');
-      assert.equal(upstreamPayload.n, 3);
+      assert.equal(upstreamPayloads.length, 3);
+      assert.deepEqual(upstreamPayloads.map((payload) => payload.n), [1, 1, 1]);
+      assert.equal(done.result.data.length, 3);
       const usage = quota.usageSnapshot(user.id);
       assert.equal(usage.today.calls, 3);
       assert.equal(usage.today.images, 3);

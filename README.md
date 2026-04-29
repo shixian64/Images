@@ -157,6 +157,7 @@ GET /healthz
 | `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限；应低于容器内存，给 `Buffer`、SQLite、native 内存留余量。 |
 | `MAX_JSON_BODY_BYTES` | `1048576` | 单个 JSON 请求体最大字节数，超过返回 `413`，避免大 body 占满内存。 |
 | `MAX_IMAGES_PER_REQUEST` | `1` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
+| `IMAGE_GENERATION_BATCH_CONCURRENCY` | `2` | 当 `n>1` 时，服务端拆成多个 `n=1` 上游请求的单任务内并发路数。 |
 | `GLOBAL_CONCURRENT_GENERATIONS` | `4` | 全站同时生图任务上限；小机器建议 3-5。 |
 | `DEFAULT_DAILY_LIMIT` | `10` | 普通用户默认每日额度调用上限；生图与提示词优化共享次数，管理员可在额度管理覆盖。 |
 | `DEFAULT_MONTHLY_LIMIT` | `200` | 普通用户默认每月额度调用上限；生图与提示词优化共享次数，留空/`null` 表示不限。 |

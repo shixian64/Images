@@ -16,6 +16,7 @@ function positiveIntFromEnv(name, fallback) {
 const DEFAULT_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_HEARTBEAT_MS = 15 * 1000;
 const DEFAULT_MAX_IMAGES_PER_REQUEST = 4;
+const DEFAULT_IMAGE_BATCH_CONCURRENCY = 2;
 
 const PERSISTED_IMAGE_FIELDS = [
   'model',
@@ -37,6 +38,10 @@ export function getImageGenerationTimeoutMs() {
 
 export function getGenerateStreamHeartbeatMs() {
   return positiveIntFromEnv('GENERATE_STREAM_HEARTBEAT_MS', DEFAULT_STREAM_HEARTBEAT_MS);
+}
+
+export function getImageGenerationBatchConcurrency() {
+  return positiveIntFromEnv('IMAGE_GENERATION_BATCH_CONCURRENCY', DEFAULT_IMAGE_BATCH_CONCURRENCY);
 }
 
 export function shouldUseSystemDefault(body = {}) {
@@ -100,6 +105,102 @@ function promptPreview(prompt) {
   return String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 50);
 }
 
+function errorMessageFromUpstream(data, status, apiKey) {
+  return redactSecrets(data?.error?.message || data?.message || `Request failed with ${status}`, [apiKey]);
+}
+
+function callErrorResult(err, started) {
+  return {
+    ok: false,
+    status: err?.statusCode || 500,
+    data: { error: { message: err?.message || String(err) } },
+    durationMs: Date.now() - started
+  };
+}
+
+async function runLimited(count, concurrency, worker) {
+  const results = new Array(count);
+  let next = 0;
+  const workerCount = Math.min(count, Math.max(1, concurrency));
+
+  async function runWorker() {
+    while (next < count) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+  return results;
+}
+
+async function callImageUpstream({ targetUrl, apiKey, payload, requestedImages, signal, timeoutMs, onProgress, started }) {
+  if (requestedImages <= 1) {
+    const result = await callUpstream({
+      targetUrl,
+      apiKey,
+      payload,
+      signal,
+      timeoutMs: timeoutMs || getImageGenerationTimeoutMs()
+    });
+    return { ...result, upstreamRequestCount: 1 };
+  }
+
+  const concurrency = Math.min(requestedImages, getImageGenerationBatchConcurrency());
+  let completed = 0;
+  onProgress?.({
+    stage: 'upstream',
+    message: `正在并发生图：${payload.model} · 0/${requestedImages}（最多 ${concurrency} 路）`,
+    elapsedMs: Date.now() - started
+  });
+
+  const results = await runLimited(requestedImages, concurrency, async (index) => {
+    const callStarted = Date.now();
+    const itemPayload = { ...payload, n: 1 };
+    const result = await callUpstream({
+      targetUrl,
+      apiKey,
+      payload: itemPayload,
+      signal,
+      timeoutMs: timeoutMs || getImageGenerationTimeoutMs()
+    }).catch((err) => callErrorResult(err, callStarted));
+
+    completed += 1;
+    onProgress?.({
+      stage: 'upstream',
+      message: `正在并发生图：${payload.model} · ${completed}/${requestedImages}`,
+      elapsedMs: Date.now() - started
+    });
+    return result;
+  });
+
+  const failed = results.find((item) => !item?.ok);
+  if (failed) {
+    return {
+      ...failed,
+      durationMs: Date.now() - started,
+      upstreamRequestCount: results.length
+    };
+  }
+
+  const firstData = results.find((item) => item?.data && typeof item.data === 'object')?.data || {};
+  const data = {
+    ...firstData,
+    data: results
+      .flatMap((item) => Array.isArray(item?.data?.data) ? item.data.data : [])
+      .slice(0, requestedImages)
+  };
+
+  return {
+    ok: true,
+    status: 200,
+    data,
+    durationMs: Date.now() - started,
+    upstreamRequestCount: results.length
+  };
+}
+
 export async function prepareImageGenerationJob(body = {}) {
   const requestConfig = resolveImageRequest(body);
   const { targetUrl, bodyForPayload } = requestConfig;
@@ -153,22 +254,26 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     elapsedMs: Date.now() - started
   });
 
-  const { ok, status, data, durationMs } = await callUpstream({
+  const { ok, status, data, durationMs, upstreamRequestCount } = await callImageUpstream({
     targetUrl,
     apiKey,
     payload,
+    requestedImages,
     signal,
-    timeoutMs: timeoutMs || getImageGenerationTimeoutMs()
+    timeoutMs,
+    onProgress,
+    started
   });
 
   if (!ok) {
-    const errMsg = redactSecrets(data?.error?.message || data?.message || `Request failed with ${status}`, [apiKey]);
+    const errMsg = errorMessageFromUpstream(data, status, apiKey);
     logger.error('image.generate.failed', {
       userId: userInfo?.id,
       status,
       durationMs,
       model: payload.model,
-      error: errMsg
+      error: errMsg,
+      upstreamRequestCount
     });
     recordFailure(userInfo?.id, { calls: requestedImages });
     return { status, body: { error: errMsg } };
@@ -220,7 +325,8 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     durationMs,
     model: payload.model,
     imageCount: imageItems.length,
-    savedCount: saved.length
+    savedCount: saved.length,
+    upstreamRequestCount
   });
 
   return { status: 200, body: { ...data, saved } };
