@@ -2,7 +2,6 @@
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
-import { estimateDurationMs } from '../../shared/constants.js';
 
 let jobs = [];
 let mounted = false;
@@ -44,13 +43,6 @@ function formatTimeMs(ms) {
   const sec = Math.max(1, Math.round(n / 1000));
   if (sec < 60) return `${sec}s`;
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
-}
-
-function estimatedMs(job) {
-  const payload = job?.payload || {};
-  const n = Math.max(1, Number(job.n || payload.n) || 1);
-  try { return estimateDurationMs(payload.size, payload.quality) * n; }
-  catch { return 90_000 * n; }
 }
 
 function imageSrcFromItem(item = {}) {
@@ -124,19 +116,17 @@ function emptyLine(text) {
 }
 
 function progressInfo(job) {
-  if (job.status !== 'running') return { width: 0, text: '' };
+  if (job.status !== 'running') return { text: '' };
   const elapsed = Math.max(0, now() - (Number(job.startedAt) || now()));
-  const estimate = Math.max(15_000, estimatedMs(job));
-  const width = Math.min(94, Math.max(8, Math.round(elapsed / estimate * 100)));
-  const remain = Math.max(0, estimate - elapsed);
-  return {
-    width,
-    text: `${formatTimeMs(elapsed)} / 约剩 ${formatTimeMs(remain)}`
-  };
+  return { text: `已运行 ${formatTimeMs(elapsed)}` };
 }
 
 function hasActiveJobs() {
   return jobs.some((job) => ACTIVE.has(job.status));
+}
+
+function hasVisibleRecentJobs() {
+  return jobs.some((job) => FINAL.has(job.status) && !dismissedDone.has(job.id));
 }
 
 function isStudioTabActive() {
@@ -144,7 +134,8 @@ function isStudioTabActive() {
 }
 
 function updateQueueVisibility() {
-  const visible = isStudioTabActive() && (pendingSubmissions > 0 || hasActiveJobs());
+  const hasVisibleQueue = pendingSubmissions > 0 || hasActiveJobs() || hasVisibleRecentJobs();
+  const visible = isStudioTabActive() && hasVisibleQueue;
   const dock = $('jobQueueDock');
   const mobileBtn = $('jobQueueMobileButton');
   const main = $('main');
@@ -177,7 +168,7 @@ function renderJobCard(job, kind) {
   const position = job.status === 'queued' && job.position ? `<span>前面还有 ${Math.max(0, job.position - 1)} 位</span>` : '';
   const error = job.error ? `<p class="job-card-error">${escapeHtml(job.error)}</p>` : '';
   const progress = job.status === 'running'
-    ? `<div class="job-progress"><i style="width:${info.width}%"></i></div><div class="job-card-time">${escapeHtml(info.text)}</div>`
+    ? `<div class="job-card-time">${escapeHtml(info.text)}</div>`
     : '';
   const resultThumb = thumb
     ? `<button class="job-thumb" type="button" data-job-act="preview" title="查看结果"><img src="${escapeHtml(thumb)}" alt="" /></button>`
