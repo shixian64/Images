@@ -2,6 +2,13 @@
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
+import {
+  doneJobDismissalKey,
+  isDoneJobDismissed,
+  readDismissedDoneJobs,
+  removeDismissalsForJobIds,
+  writeDismissedDoneJobs
+} from './job-dismissal.js';
 
 let jobs = [];
 let mounted = false;
@@ -10,7 +17,8 @@ let fallbackTimer = null;
 let currentTabId = 'studioPanel';
 let pendingSubmissions = 0;
 let jobsInitialized = false;
-const dismissedDone = new Set();
+let dismissedDone = new Set();
+let dismissedDoneLoaded = false;
 const notifiedFinal = new Set();
 
 const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
@@ -73,6 +81,29 @@ function sortJobs(list) {
   });
 }
 
+function ensureDismissedDoneLoaded() {
+  if (dismissedDoneLoaded) return;
+  dismissedDoneLoaded = true;
+  dismissedDone = readDismissedDoneJobs();
+}
+
+function persistDismissedDone() {
+  dismissedDone = writeDismissedDoneJobs(dismissedDone);
+}
+
+function resetDismissedDoneForActiveJobs(list) {
+  ensureDismissedDoneLoaded();
+  const activeIds = (Array.isArray(list) ? list : [])
+    .filter((job) => job?.id && !FINAL.has(job.status))
+    .map((job) => job.id);
+  if (activeIds.length) dismissedDone = removeDismissalsForJobIds(dismissedDone, activeIds);
+}
+
+function isVisibleRecentJob(job) {
+  ensureDismissedDoneLoaded();
+  return FINAL.has(job.status) && !isDoneJobDismissed(job, dismissedDone);
+}
+
 function notifyFinalJob(job) {
   if (!job?.id || !FINAL.has(job.status) || notifiedFinal.has(job.id)) return;
   notifiedFinal.add(job.id);
@@ -92,6 +123,7 @@ function shouldNotifySnapshotJob(job, previous) {
 function setJobs(next) {
   const previousById = new Map(jobs.map((job) => [job.id, job]));
   const nextJobs = sortJobs(Array.isArray(next) ? next : []);
+  resetDismissedDoneForActiveJobs(nextJobs);
   for (const job of nextJobs) {
     if (shouldNotifySnapshotJob(job, previousById.get(job.id))) notifyFinalJob(job);
   }
@@ -102,6 +134,7 @@ function setJobs(next) {
 
 function upsertJob(job, { notify = false } = {}) {
   if (!job?.id) return;
+  resetDismissedDoneForActiveJobs([job]);
   const index = jobs.findIndex((item) => item.id === job.id);
   if (index >= 0) jobs[index] = { ...jobs[index], ...job };
   else jobs.push(job);
@@ -126,7 +159,7 @@ function hasActiveJobs() {
 }
 
 function hasVisibleRecentJobs() {
-  return jobs.some((job) => FINAL.has(job.status) && !dismissedDone.has(job.id));
+  return jobs.some((job) => isVisibleRecentJob(job));
 }
 
 function isStudioTabActive() {
@@ -197,7 +230,7 @@ function renderJobCard(job, kind) {
 function renderQueue() {
   const running = jobs.filter((job) => job.status === 'running');
   const queued = jobs.filter((job) => job.status === 'queued');
-  const recent = jobs.filter((job) => FINAL.has(job.status) && !dismissedDone.has(job.id)).slice(0, 6);
+  const recent = jobs.filter((job) => isVisibleRecentJob(job)).slice(0, 6);
 
   const summary = $('jobQueueSummary');
   if (summary) {
@@ -301,7 +334,12 @@ function bindQueueEvents() {
     if (btn.dataset.jobAct === 'preview') openResultPreview(jobId);
   });
   $('jobQueueClearDone')?.addEventListener('click', () => {
-    jobs.filter((job) => FINAL.has(job.status)).forEach((job) => dismissedDone.add(job.id));
+    ensureDismissedDoneLoaded();
+    jobs.filter((job) => FINAL.has(job.status)).forEach((job) => {
+      const key = doneJobDismissalKey(job);
+      if (key) dismissedDone.add(key);
+    });
+    persistDismissedDone();
     renderQueue();
   });
   const mobileBtn = $('jobQueueMobileButton');

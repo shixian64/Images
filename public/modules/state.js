@@ -12,6 +12,7 @@ const KEYS = Object.freeze({
   logs: 'image-key-manager.logs.v1',
   logErrorSeenAt: 'image-key-manager.logErrorSeenAt.v1',
   clientLogSyncQueue: 'image-key-manager.clientLogSyncQueue.v1',
+  jobQueueDismissedDone: 'image-key-manager.jobQueueDismissedDone.v1',
   promptBuilderDraft: 'image-key-manager.promptBuilderDraft.v1',
   promptDraft: 'image-key-manager.promptDraft',
   promptHistory: 'image-key-manager.promptHistory.v1',
@@ -65,7 +66,7 @@ export function removeKey(key) {
 
 // ---- scoped 变体：自动附加 :<userId> 后缀 ----
 // 适用于：profiles / activeProfile / promptDraft / promptHistory /
-// promptBuilderDraft / logs / promptManagerTab
+// promptBuilderDraft / logs / promptManagerTab / jobQueueDismissedDone
 // 不适用于：activeTab / theme（全局偏好）
 
 export function readJsonScoped(baseKey, fallback) {
