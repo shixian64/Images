@@ -193,7 +193,7 @@ test('system default chat requests use managed quota while custom chat bypasses 
     chatBaseUrl: `http://127.0.0.1:${port}`,
     chatApiKey: 'sk-custom',
     model: 'gpt-test',
-    messages: [{ role: 'user', content: '自定义接口不占用平台额度' }]
+    messages: [{ role: 'user', content: '自定义接口不占用日月次数' }]
   }, customUser);
   assert.equal(custom.statusCode, 200);
   assert.equal(quota.usageSnapshot(customUser.id).today.calls, 1);

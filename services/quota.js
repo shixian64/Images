@@ -148,59 +148,69 @@ export function summary(userId) {
 }
 
 // 调用 generate 之前检查。返回 { ok, code, message } —— ok=false 时路由层抛 429。
-export function assertCanGenerate(userId, { n = 1, includeQueued = false } = {}) {
+// checkCallLimits=false 用于个人自定义接口：不消耗/不拦截日月调用次数，但仍检查存储上限。
+export function assertCanGenerate(userId, {
+  n = 1,
+  includeQueued = false,
+  checkCallLimits = true,
+  checkStorage = true
+} = {}) {
   if (!userId) return { ok: true };
   const { quota, usage } = summary(userId);
   const callsRequested = Math.max(1, Number(n) || 1);
-  const queuedCalls = includeQueued
-    ? Number(generationJobs.pendingCallCount(userId, { quotaManagedOnly: true })) || 0
-    : 0;
-  const todayCalls = usage.today.calls + queuedCalls;
-  const monthCalls = usage.month.calls + queuedCalls;
 
-  if (quota.daily_limit && todayCalls + callsRequested > quota.daily_limit) {
-    return {
-      ok: false,
-      code: 'daily_limit_exceeded',
-      message: `今日额度已用完（${todayCalls}/${quota.daily_limit}）`
-    };
-  }
-  if (quota.monthly_limit && monthCalls + callsRequested > quota.monthly_limit) {
-    return {
-      ok: false,
-      code: 'monthly_limit_exceeded',
-      message: `本月额度已用完（${monthCalls}/${quota.monthly_limit}）`
-    };
-  }
-  const user = users.findById(userId);
-  const signupIpLimits = getSignupIpQuotaLimits();
-  if (user?.role !== 'admin' && user?.signup_ip) {
-    const pooled = usageBySignupIpSnapshot(user.signup_ip);
-    const pooledQueued = includeQueued
-      ? Number(generationJobs.pendingCallCountBySignupIp(user.signup_ip, { quotaManagedOnly: true })) || 0
+  if (checkCallLimits) {
+    const queuedCalls = includeQueued
+      ? Number(generationJobs.pendingCallCount(userId, { quotaManagedOnly: true })) || 0
       : 0;
-    if (
-      signupIpLimits.daily_limit &&
-      pooled.today.calls + pooledQueued + callsRequested > signupIpLimits.daily_limit
-    ) {
+    const todayCalls = usage.today.calls + queuedCalls;
+    const monthCalls = usage.month.calls + queuedCalls;
+
+    if (quota.daily_limit && todayCalls + callsRequested > quota.daily_limit) {
       return {
         ok: false,
-        code: 'signup_ip_daily_limit_exceeded',
-        message: `该注册来源今日额度已用完（${pooled.today.calls + pooledQueued}/${signupIpLimits.daily_limit}）`
+        code: 'daily_limit_exceeded',
+        message: `今日额度已用完（${todayCalls}/${quota.daily_limit}）`
       };
     }
-    if (
-      signupIpLimits.monthly_limit &&
-      pooled.month.calls + pooledQueued + callsRequested > signupIpLimits.monthly_limit
-    ) {
+    if (quota.monthly_limit && monthCalls + callsRequested > quota.monthly_limit) {
       return {
         ok: false,
-        code: 'signup_ip_monthly_limit_exceeded',
-        message: `该注册来源本月额度已用完（${pooled.month.calls + pooledQueued}/${signupIpLimits.monthly_limit}）`
+        code: 'monthly_limit_exceeded',
+        message: `本月额度已用完（${monthCalls}/${quota.monthly_limit}）`
       };
+    }
+    const user = users.findById(userId);
+    const signupIpLimits = getSignupIpQuotaLimits();
+    if (user?.role !== 'admin' && user?.signup_ip) {
+      const pooled = usageBySignupIpSnapshot(user.signup_ip);
+      const pooledQueued = includeQueued
+        ? Number(generationJobs.pendingCallCountBySignupIp(user.signup_ip, { quotaManagedOnly: true })) || 0
+        : 0;
+      if (
+        signupIpLimits.daily_limit &&
+        pooled.today.calls + pooledQueued + callsRequested > signupIpLimits.daily_limit
+      ) {
+        return {
+          ok: false,
+          code: 'signup_ip_daily_limit_exceeded',
+          message: `该注册来源今日额度已用完（${pooled.today.calls + pooledQueued}/${signupIpLimits.daily_limit}）`
+        };
+      }
+      if (
+        signupIpLimits.monthly_limit &&
+        pooled.month.calls + pooledQueued + callsRequested > signupIpLimits.monthly_limit
+      ) {
+        return {
+          ok: false,
+          code: 'signup_ip_monthly_limit_exceeded',
+          message: `该注册来源本月额度已用完（${pooled.month.calls + pooledQueued}/${signupIpLimits.monthly_limit}）`
+        };
+      }
     }
   }
-  if (quota.storage_limit_mb) {
+
+  if (checkStorage && quota.storage_limit_mb) {
     const limitBytes = Number(quota.storage_limit_mb) * 1024 * 1024;
     if (usage.storage.bytes >= limitBytes) {
       return {

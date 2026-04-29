@@ -167,7 +167,7 @@ test('enqueue quota check counts already queued system-default calls', async () 
   jobQueue.cancelJob(first.id, u);
 });
 
-test('custom interface jobs bypass managed quota checks', async () => {
+test('custom interface jobs bypass daily/monthly call quota checks', async () => {
   const u = user('custom_quota_bypass');
   quota.recordSuccess(u.id, { calls: 3, images: 3 });
 
@@ -177,6 +177,30 @@ test('custom interface jobs bypass managed quota checks', async () => {
   assert.equal(job.payload.interfaceMode, 'custom');
   assert.equal(quota.usageSnapshot(u.id).today.calls, 3);
   jobQueue.cancelJob(job.id, u);
+});
+
+test('custom interface jobs still respect storage quota', async () => {
+  const u = user('custom_storage_managed');
+  quota.patchUserQuota(u.id, { storage_limit_mb: 1 }, 'test');
+  db.images.insert({
+    id: 'custom-storage-existing',
+    userId: u.id,
+    createdAt: new Date().toISOString(),
+    filename: 'existing.png',
+    path: `users/${u.id}/images/2026-04-29/existing.png`,
+    mimeType: 'image/png',
+    bytes: 1024 * 1024,
+    isPublic: false,
+    prompt: 'existing storage',
+    model: 'test-image-model',
+    sourceType: 'b64_json',
+    index: 1
+  });
+
+  await assert.rejects(
+    () => jobQueue.enqueueImageGeneration(payload(1), u),
+    (err) => err.statusCode === 429 && err.code === 'storage_limit_exceeded'
+  );
 });
 
 test('queued jobs can be cancelled before execution without usage', async () => {

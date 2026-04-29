@@ -161,8 +161,8 @@ GET /healthz
 | `GLOBAL_CONCURRENT_GENERATIONS` | `4` | 全站同时生图任务上限；小机器建议 3-5。 |
 | `DEFAULT_DAILY_LIMIT` | `10` | 普通用户使用系统默认接口时的每日额度调用上限；系统默认生图与提示词优化共享次数，管理员可在额度管理覆盖。 |
 | `DEFAULT_MONTHLY_LIMIT` | `200` | 普通用户使用系统默认接口时的每月额度调用上限；系统默认生图与提示词优化共享次数，留空/`null` 表示不限。 |
-| `DEFAULT_STORAGE_LIMIT_MB` | `500` | 普通用户使用系统默认接口提交前检查的本地图库存储上限；留空/`null` 表示不限。 |
-| `DEFAULT_CONCURRENT_LIMIT` | `1` | 普通用户使用系统默认接口时的单用户并发生图上限。 |
+| `DEFAULT_STORAGE_LIMIT_MB` | `500` | 普通用户默认本地图库存储上限；系统默认与个人自定义接口都会检查，留空/`null` 表示不限。 |
+| `DEFAULT_CONCURRENT_LIMIT` | `1` | 普通用户默认单用户并发生图上限；系统默认与个人自定义接口都会检查。 |
 | `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | `60000` | 上游返回 URL 图片时，服务端下载该图片的超时。 |
 | `MAX_IMAGE_DOWNLOAD_BYTES` | `26214400` | 上游返回 URL 图片时，服务端最多下载 25 MiB，超过拒绝保存。 |
@@ -186,7 +186,7 @@ GET /healthz
 - 静态文件和图库文件改为流式发送，避免大图下载时整文件进入内存。
 - 上游返回 URL 图片时会校验 URL 安全边界、下载超时、最大字节数与图片 magic bytes，避免服务端无边界抓取。
 - `/api/generate` 和 `/api/generate/stream` 增加 `MAX_IMAGES_PER_REQUEST` 校验。
-- 普通用户使用系统默认接口生成时会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积系统默认任务。
+- 普通用户生成请求会占用并发槽位，配合用户 quota 的 `concurrent_limit` 防止同一用户堆积长任务。
 - `/api/generate` 和 `/api/generate/stream` 增加 `GLOBAL_CONCURRENT_GENERATIONS` 全站并发槽位，保护 2C/4G 小机器。
 - `/api/chat` 增加每用户/IP 限频、全站并发槽位、输入长度、输出 token 上限；仅系统默认对话接口按 1 次/请求占用同一套生图额度，避免系统默认 Chat Key 被无限代理消耗。
 - 上游请求使用已校验 DNS 结果发起连接，生产严格模式下避免校验后重新解析导致 DNS rebinding/TOCTOU。

@@ -251,6 +251,98 @@ test('handleGenerate records managed quota only for system default interface', a
   });
 });
 
+test('custom interface image jobs still respect user concurrency quota', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '1',
+    DEFAULT_CONCURRENT_LIMIT: '1'
+  }, async () => {
+    let upstreamHits = 0;
+    let heldResponse = null;
+
+    function sendImageOk(res) {
+      const image = {
+        b64_json: Buffer.from(PNG_BYTES).toString('base64'),
+        revised_prompt: `concurrency image ${upstreamHits}`
+      };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [image] }));
+    }
+
+    const server = http.createServer(async (req, res) => {
+      upstreamHits += 1;
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      if (raw.includes('hold first custom job')) {
+        heldResponse = res;
+        return;
+      }
+      sendImageOk(res);
+    });
+    await listen(server);
+
+    try {
+      const { port } = server.address();
+      const routeUser = auth.register({
+        username: 'gen_custom_concurrent_user',
+        email: 'gen_custom_concurrent_user@example.com',
+        password: 'longenough1'
+      });
+      const basePayload = {
+        imageBaseUrl: `http://127.0.0.1:${port}`,
+        imageApiKey: skLike('custom-concurrency'),
+        model: 'test-image-model',
+        n: 1
+      };
+
+      const firstRes = captureRes();
+      await generate.handleGenerate(jsonReq({
+        ...basePayload,
+        prompt: 'hold first custom job'
+      }, routeUser), firstRes);
+      assert.equal(firstRes.statusCode, 202);
+      const first = JSON.parse(firstRes.body);
+
+      const held = await waitFor(() => heldResponse);
+      assert.ok(held, 'first custom job should reach upstream and stay running');
+
+      const secondRes = captureRes();
+      await generate.handleGenerate(jsonReq({
+        ...basePayload,
+        prompt: 'second custom job waits'
+      }, routeUser), secondRes);
+      assert.equal(secondRes.statusCode, 202);
+      const second = JSON.parse(secondRes.body);
+
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.equal(upstreamHits, 1, 'second custom job must wait for the user concurrency slot');
+      const queuedSecond = jobQueue.getJobForUser(second.jobId, routeUser);
+      assert.equal(queuedSecond.status, 'queued');
+
+      sendImageOk(heldResponse);
+      heldResponse = null;
+
+      const firstDone = await waitFor(() => {
+        const job = jobQueue.getJobForUser(first.jobId, routeUser);
+        return job.status === 'succeeded' ? job : null;
+      });
+      assert.equal(firstDone?.status, 'succeeded');
+
+      const secondDone = await waitFor(() => {
+        const job = jobQueue.getJobForUser(second.jobId, routeUser);
+        return job.status === 'succeeded' ? job : null;
+      });
+      assert.equal(secondDone?.status, 'succeeded');
+      assert.equal(upstreamHits, 2);
+    } finally {
+      if (heldResponse) sendImageOk(heldResponse);
+      await close(server);
+    }
+  });
+});
+
 test('handleGenerate redacts upstream errors that echo API keys', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',
