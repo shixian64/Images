@@ -21,6 +21,7 @@ export const FALLBACK_DEFAULTS = Object.freeze({
 });
 
 const activeGenerations = new Map();
+const activeStorageReservations = new Map();
 let activeGlobalGenerations = 0;
 
 function envLimit(name, fallback) {
@@ -260,6 +261,66 @@ export function tryAcquireConcurrentSlot(userId) {
       const current = activeGenerations.get(userId) || 0;
       if (current <= 1) activeGenerations.delete(userId);
       else activeGenerations.set(userId, current - 1);
+    }
+  };
+}
+
+export function tryReserveStorageBytes(userId, additionalBytes = 0) {
+  if (!userId) return { ok: true, usedBytes: 0, reservedBytes: 0, limitBytes: null, release: () => {} };
+
+  const user = users.findById(userId);
+  if (user?.role === 'admin') {
+    return { ok: true, usedBytes: 0, reservedBytes: 0, limitBytes: null, release: () => {} };
+  }
+
+  const { quota, usage } = summary(userId);
+  const limitMb = Number(quota.storage_limit_mb);
+  if (!Number.isFinite(limitMb) || limitMb <= 0) {
+    return {
+      ok: true,
+      usedBytes: usage.storage.bytes,
+      reservedBytes: activeStorageReservations.get(userId) || 0,
+      limitBytes: null,
+      release: () => {}
+    };
+  }
+
+  const requestedBytes = Math.max(0, Math.ceil(Number(additionalBytes) || 0));
+  const usedBytes = Number(usage.storage.bytes) || 0;
+  const reservedBytes = activeStorageReservations.get(userId) || 0;
+  const limitBytes = limitMb * 1024 * 1024;
+
+  if (usedBytes >= limitBytes || usedBytes + reservedBytes + requestedBytes > limitBytes) {
+    return {
+      ok: false,
+      code: 'storage_limit_exceeded',
+      message: `存储空间不足（已用 ${formatMb(usedBytes + reservedBytes)} / ${limitMb} MB，新增 ${formatMb(requestedBytes)} MB）`,
+      usedBytes,
+      reservedBytes,
+      requestedBytes,
+      limitBytes
+    };
+  }
+
+  if (!requestedBytes) {
+    return { ok: true, usedBytes, reservedBytes, requestedBytes, limitBytes, release: () => {} };
+  }
+
+  activeStorageReservations.set(userId, reservedBytes + requestedBytes);
+  let released = false;
+  return {
+    ok: true,
+    usedBytes,
+    reservedBytes,
+    requestedBytes,
+    limitBytes,
+    release: () => {
+      if (released) return;
+      released = true;
+      const current = activeStorageReservations.get(userId) || 0;
+      const next = Math.max(0, current - requestedBytes);
+      if (!next) activeStorageReservations.delete(userId);
+      else activeStorageReservations.set(userId, next);
     }
   };
 }

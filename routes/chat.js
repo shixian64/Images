@@ -195,7 +195,10 @@ function resolveChatRequest(body = {}) {
 function checkChatQuota(userInfo, { model, usingSystemDefault = false } = {}) {
   if (!usingSystemDefault) return { ok: true, cost: 0 };
   if (!userInfo?.id || userInfo.role === 'admin') return { ok: true, cost: CHAT_QUOTA_COST };
-  const check = assertCanGenerate(userInfo.id, { n: CHAT_QUOTA_COST });
+  const check = assertCanGenerate(userInfo.id, {
+    n: CHAT_QUOTA_COST,
+    checkStorage: false
+  });
   if (!check.ok) {
     logger.warn('chat.completion.quota_exceeded', {
       userId: userInfo.id,

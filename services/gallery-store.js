@@ -7,6 +7,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 import { images as imagesTable, imageLikes, dbPaths } from './db.js';
+import { tryReserveStorageBytes } from './quota.js';
 import { guardedFetch } from './upstream.js';
 import {
   userImageDir,
@@ -314,6 +315,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
   const saved = [];
 
   for (const [imageIndex, item] of items.entries()) {
+    let storageReservation = null;
     try {
       const asset = await assetFromItem(item, {
         fetchImpl: options.fetchImpl || fetch,
@@ -323,6 +325,11 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       if (!asset?.buffer?.length) {
         nextItems.push({ ...item, save_error: 'No image payload found.' });
         continue;
+      }
+
+      storageReservation = tryReserveStorageBytes(userId, asset.buffer.length);
+      if (!storageReservation.ok) {
+        throw new Error(storageReservation.message || 'storage limit exceeded');
       }
 
       const createdAt = new Date().toISOString();
@@ -398,6 +405,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       });
     } catch (err) {
       nextItems.push({ ...item, save_error: err.message || String(err) });
+    } finally {
+      storageReservation?.release?.();
     }
   }
 

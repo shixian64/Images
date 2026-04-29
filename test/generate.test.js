@@ -21,6 +21,12 @@ const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
 const skLike = (suffix) => ['sk', suffix].join('-');
 
+function pngBytesOfSize(size) {
+  const buffer = Buffer.alloc(size, 0);
+  buffer.set(PNG_BYTES, 0);
+  return buffer;
+}
+
 function jsonReq(body, sessionUser) {
   const req = Readable.from([Buffer.from(JSON.stringify(body))]);
   req.session = { user: sessionUser };
@@ -338,6 +344,66 @@ test('custom interface image jobs still respect user concurrency quota', async (
       assert.equal(upstreamHits, 2);
     } finally {
       if (heldResponse) sendImageOk(heldResponse);
+      await close(server);
+    }
+  });
+});
+
+test('image saving enforces storage quota using actual decoded bytes', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '1',
+    DEFAULT_MONTHLY_LIMIT: undefined,
+    DEFAULT_STORAGE_LIMIT_MB: '1',
+    IMAGE_GENERATION_BATCH_CONCURRENCY: '2'
+  }, async () => {
+    const imageBytes = pngBytesOfSize(700 * 1024);
+    const server = http.createServer((req, res) => {
+      req.resume();
+      const image = {
+        b64_json: imageBytes.toString('base64'),
+        revised_prompt: 'storage quota image'
+      };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [image] }));
+    });
+    await listen(server);
+
+    try {
+      const { port } = server.address();
+      const routeUser = auth.register({
+        username: 'gen_storage_actual_user',
+        email: 'gen_storage_actual_user@example.com',
+        password: 'longenough1'
+      });
+      const res = captureRes();
+      await generate.handleGenerate(jsonReq({
+        imageBaseUrl: `http://127.0.0.1:${port}`,
+        imageApiKey: skLike('storage-actual'),
+        prompt: 'two large custom pngs',
+        model: 'test-image-model',
+        n: 2
+      }, routeUser), res);
+
+      assert.equal(res.statusCode, 202);
+      const queued = JSON.parse(res.body);
+      assert.ok(queued.jobId);
+
+      const done = await waitFor(() => {
+        const job = jobQueue.getJobForUser(queued.jobId, routeUser);
+        return job.status === 'succeeded' ? job : null;
+      });
+      assert.equal(done?.status, 'succeeded');
+      assert.equal(done.result.data.length, 2);
+      assert.ok(done.result.data[0].local_url, 'first image should fit in storage quota');
+      assert.match(done.result.data[1].save_error, /存储空间不足|storage/i);
+
+      const usage = quota.usageSnapshot(routeUser.id);
+      assert.equal(usage.storage.images, 1);
+      assert.ok(usage.storage.bytes <= 1024 * 1024);
+      assert.equal(usage.today.calls, 0);
+    } finally {
       await close(server);
     }
   });
