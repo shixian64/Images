@@ -2886,6 +2886,10 @@ body.drawer-open { overflow: hidden; }
   flex-wrap: wrap;
   align-items: center;
 }
+.users-actions-cell > button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 /* 用户详情抽屉 */
 .user-detail {
@@ -3146,6 +3150,10 @@ body.drawer-open { overflow: hidden; }
 .admin-gallery-table .admin-gallery-check {
   width: 40px;
   text-align: center;
+}
+.admin-gallery-table .users-actions-cell {
+  white-space: nowrap;
+  min-width: 120px;
 }
 .admin-gallery-table .admin-gallery-check input[type="checkbox"] {
   margin: auto;
