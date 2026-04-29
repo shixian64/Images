@@ -18,8 +18,8 @@
       if (t === 'system') document.documentElement.removeAttribute('data-theme');
       else document.documentElement.setAttribute('data-theme', t);
     } catch (e) {}
+    // 只在 app.js 确认已登录后移除；未登录/慢网络时不能用超时兜底显示主界面。
     document.documentElement.classList.add('auth-pending');
-    setTimeout(function () { document.documentElement.classList.remove('auth-pending'); }, 3000);
   </script>
 </head>
 <body>
