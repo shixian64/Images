@@ -152,6 +152,25 @@
           </div>
           <p class="hint" id="promptHint">草稿会自动保存到本地；默认使用手动输入，可用下方左右切换选择生成来源；优化完成后会自动切到优化后提示词。</p>
 
+          <section class="reference-panel" aria-labelledby="referenceHeading">
+            <div class="reference-head">
+              <div>
+                <h3 id="referenceHeading">参考图</h3>
+                <p class="hint">可上传图片，或把生成结果/我的图库图片加入参考图池；有参考图时会自动走图片编辑。</p>
+              </div>
+              <div class="reference-actions">
+                <label class="ghost small reference-upload-button">
+                  上传图片
+                  <input id="referenceUpload" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+                </label>
+                <button id="clearReferences" class="ghost small" type="button" disabled>清空</button>
+              </div>
+            </div>
+            <div id="referenceList" class="reference-list" data-empty="true">
+              <div class="reference-empty">还没有参考图。生成结果卡片可点“加入参考图”。</div>
+            </div>
+          </section>
+
           <details class="advanced">
             <summary>高级参数</summary>
             <div class="options">

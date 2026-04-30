@@ -12,6 +12,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES = 64 * 1024 * 1024;
 
@@ -380,6 +381,11 @@ export function resolveImageGenerationsUrl(baseUrl) {
 // 兼容旧测试与旧调用名。
 export const resolveApiUrl = resolveImageGenerationsUrl;
 
+// 同样规则下的 /v1/images/edits 端点，用于带参考图的图片编辑/再创作。
+export function resolveImageEditsUrl(baseUrl) {
+  return resolveV1Url(baseUrl, '/images/edits');
+}
+
 // 同样规则下的 /v1/chat/completions 端点，用于对话模型适配。
 export function resolveChatCompletionsUrl(baseUrl) {
   return resolveV1Url(baseUrl, '/chat/completions');
@@ -543,6 +549,125 @@ export async function callUpstream({
         'accept': 'application/json'
       },
       body: JSON.stringify(payload),
+      redirect: 'manual',
+      signal: controller.signal
+    }, { fetchImpl });
+    const text = await readResponseTextLimited(response, getMaxUpstreamResponseBytes(), {
+      signal: controller.signal
+    });
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { ok: response.ok, status: response.status, data, durationMs: Date.now() - started };
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      return {
+        ok: false,
+        status: timedOut ? 504 : 499,
+        data: { error: { message: timedOut ? timeoutMessage : 'Client closed request.' } },
+        durationMs: Date.now() - started
+      };
+    }
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    signal?.removeEventListener?.('abort', abortFromCaller);
+  }
+}
+
+function multipartEscape(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '');
+}
+
+function multipartFieldBuffer(boundary, key, value) {
+  return Buffer.from([
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="${multipartEscape(key)}"`,
+    '',
+    String(value ?? '')
+  ].join('\r\n') + '\r\n', 'utf8');
+}
+
+function multipartFileBuffer(boundary, file) {
+  const fieldName = file.fieldName || 'image[]';
+  const filename = file.filename || 'reference.png';
+  const contentType = file.contentType || file.mimeType || 'application/octet-stream';
+  return Buffer.concat([
+    Buffer.from([
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="${multipartEscape(fieldName)}"; filename="${multipartEscape(filename)}"`,
+      `Content-Type: ${contentType}`,
+      '',
+      ''
+    ].join('\r\n'), 'utf8'),
+    Buffer.from(file.buffer || Buffer.alloc(0)),
+    Buffer.from('\r\n', 'utf8')
+  ]);
+}
+
+export function buildMultipartBody({ fields = {}, files = [] } = {}) {
+  const boundary = `----image-studio-${randomUUID()}`;
+  const chunks = [];
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value)) {
+      for (const item of value) chunks.push(multipartFieldBuffer(boundary, key, item));
+    } else {
+      chunks.push(multipartFieldBuffer(boundary, key, value));
+    }
+  }
+  for (const file of files || []) {
+    chunks.push(multipartFileBuffer(boundary, file));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`, 'utf8'));
+  return {
+    boundary,
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`
+  };
+}
+
+// 调用 multipart 上游（Images Edits）。返回结构与 callUpstream 保持一致。
+export async function callUpstreamMultipart({
+  targetUrl,
+  apiKey,
+  fields,
+  files,
+  fetchImpl = fetch,
+  timeoutMs = 180000,
+  timeoutMessage = 'Upstream request timed out.',
+  signal
+}) {
+  const started = Date.now();
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutValue = Number(timeoutMs);
+  const hasTimeout = Number.isFinite(timeoutValue) && timeoutValue > 0;
+  const timeoutId = hasTimeout
+    ? setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, Math.floor(timeoutValue))
+    : null;
+  const abortFromCaller = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) abortFromCaller();
+    else signal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  try {
+    const multipart = buildMultipartBody({ fields, files });
+    const response = await guardedFetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'authorization': `Bearer ${apiKey}`,
+        'content-type': multipart.contentType,
+        'accept': 'application/json'
+      },
+      body: multipart.body,
       redirect: 'manual',
       signal: controller.signal
     }, { fetchImpl });

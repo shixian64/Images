@@ -3,10 +3,23 @@
 
 import { logger } from '../utils/logger.js';
 import { maskApiKey, redactSecrets } from '../utils/mask.js';
-import { assertAllowedUpstreamUrl, buildImagePayload, callUpstream, resolveApiUrl } from './upstream.js';
+import {
+  assertAllowedUpstreamUrl,
+  buildImagePayload,
+  callUpstream,
+  callUpstreamMultipart,
+  resolveImageEditsUrl,
+  resolveImageGenerationsUrl
+} from './upstream.js';
 import { saveGeneratedImages } from './gallery-store.js';
 import { getSystemEndpoint } from './interface-defaults.js';
 import { recordSuccess, recordFailure } from './quota.js';
+import {
+  publicReferencePayload,
+  runnableReferenceImages,
+  stageReferenceImages
+} from './reference-images.js';
+import { readFile } from 'node:fs/promises';
 
 function positiveIntFromEnv(name, fallback) {
   const n = Number(process.env[name]);
@@ -25,7 +38,12 @@ const PERSISTED_IMAGE_FIELDS = [
   'size',
   'quality',
   'output_format',
-  'moderation'
+  'moderation',
+  'input_fidelity'
+];
+
+const EDIT_ONLY_PASSTHROUGH_FIELDS = [
+  'input_fidelity'
 ];
 
 export function getMaxImagesPerRequest() {
@@ -64,15 +82,22 @@ export function sanitizeGenerationPayload(body = {}) {
     out.useSystemDefault = false;
     out.interfaceMode = 'custom';
   }
+  if (body.mode === 'edit') out.mode = 'edit';
+  if (Array.isArray(body.referenceImages) && body.referenceImages.length) {
+    out.referenceImages = body.referenceImages.map((item) => ({ ...item }));
+    out.referenceImageCount = out.referenceImages.length;
+  }
   return out;
 }
 
 export function resolveImageRequest(body = {}) {
   if (shouldUseSystemDefault(body)) {
     const endpoint = getSystemEndpoint('image');
+    const baseUrl = endpoint.baseUrl;
     return {
       apiKey: endpoint.apiKey,
-      targetUrl: resolveApiUrl(endpoint.baseUrl),
+      baseUrl,
+      targetUrl: resolveImageGenerationsUrl(baseUrl),
       profileName: endpoint.name || '系统默认接口',
       bodyForPayload: {
         ...body,
@@ -84,13 +109,27 @@ export function resolveImageRequest(body = {}) {
 
   const apiKey = String(body.imageApiKey || body.apiKey || '').trim();
   if (!apiKey) throw new Error('API key is required.');
+  const baseUrl = body.imageBaseUrl || body.baseUrl;
   return {
     apiKey,
-    targetUrl: resolveApiUrl(body.imageBaseUrl || body.baseUrl),
+    baseUrl,
+    targetUrl: resolveImageGenerationsUrl(baseUrl),
     profileName: body.name,
     bodyForPayload: body,
     usingSystemDefault: false
   };
+}
+
+function imageTargetUrl(baseUrl, mode) {
+  return mode === 'edit' ? resolveImageEditsUrl(baseUrl) : resolveImageGenerationsUrl(baseUrl);
+}
+
+function applyEditOnlyOptions(payload, body = {}, mode = 'generate') {
+  if (mode !== 'edit') return payload;
+  for (const key of EDIT_ONLY_PASSTHROUGH_FIELDS) {
+    if (body[key] && body[key] !== 'auto') payload[key] = body[key];
+  }
+  return payload;
 }
 
 function validateRequestedImages(n) {
@@ -201,17 +240,115 @@ async function callImageUpstream({ targetUrl, apiKey, payload, requestedImages, 
   };
 }
 
-export async function prepareImageGenerationJob(body = {}) {
+function editFieldsFromPayload(payload) {
+  const fields = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    fields[key] = value;
+  }
+  return fields;
+}
+
+async function editFilesFromReferences(referenceImages = []) {
+  const runnable = runnableReferenceImages(referenceImages);
+  return Promise.all(runnable.map(async (item) => ({
+    fieldName: 'image[]',
+    filename: item.originalFilename || item.filename || `reference-${item.index || 1}.png`,
+    contentType: item.mimeType || 'application/octet-stream',
+    buffer: await readFile(item.absPath)
+  })));
+}
+
+async function callImageEditUpstream({
+  targetUrl,
+  apiKey,
+  payload,
+  referenceImages,
+  requestedImages,
+  signal,
+  timeoutMs,
+  onProgress,
+  started
+}) {
+  const callEdit = async (itemPayload) => callUpstreamMultipart({
+    targetUrl,
+    apiKey,
+    fields: editFieldsFromPayload(itemPayload),
+    files: await editFilesFromReferences(referenceImages),
+    signal,
+    timeoutMs: timeoutMs || getImageGenerationTimeoutMs()
+  });
+
+  if (requestedImages <= 1) {
+    const result = await callEdit(payload);
+    return { ...result, upstreamRequestCount: 1 };
+  }
+
+  const concurrency = Math.min(requestedImages, getImageGenerationBatchConcurrency());
+  let completed = 0;
+  onProgress?.({
+    stage: 'upstream',
+    message: `正在并发编辑图片：${payload.model} · 0/${requestedImages}（最多 ${concurrency} 路）`,
+    elapsedMs: Date.now() - started
+  });
+
+  const results = await runLimited(requestedImages, concurrency, async () => {
+    const callStarted = Date.now();
+    const itemPayload = { ...payload, n: 1 };
+    const result = await callEdit(itemPayload).catch((err) => callErrorResult(err, callStarted));
+
+    completed += 1;
+    onProgress?.({
+      stage: 'upstream',
+      message: `正在并发编辑图片：${payload.model} · ${completed}/${requestedImages}`,
+      elapsedMs: Date.now() - started
+    });
+    return result;
+  });
+
+  const failed = results.find((item) => !item?.ok);
+  if (failed) {
+    return {
+      ...failed,
+      durationMs: Date.now() - started,
+      upstreamRequestCount: results.length
+    };
+  }
+
+  const firstData = results.find((item) => item?.data && typeof item.data === 'object')?.data || {};
+  const data = {
+    ...firstData,
+    data: results
+      .flatMap((item) => Array.isArray(item?.data?.data) ? item.data.data : [])
+      .slice(0, requestedImages)
+  };
+
+  return {
+    ok: true,
+    status: 200,
+    data,
+    durationMs: Date.now() - started,
+    upstreamRequestCount: results.length
+  };
+}
+
+export async function prepareImageGenerationJob(body = {}, { jobId = '', userInfo = null } = {}) {
   const requestConfig = resolveImageRequest(body);
-  const { targetUrl, bodyForPayload } = requestConfig;
-  await assertAllowedUpstreamUrl(targetUrl);
+  const { bodyForPayload } = requestConfig;
   const payload = buildImagePayload(bodyForPayload);
   const requestedImages = validateRequestedImages(payload.n);
+  const referenceImages = await stageReferenceImages({ body, jobId, userInfo });
+  const mode = referenceImages.length ? 'edit' : 'generate';
+  applyEditOnlyOptions(payload, bodyForPayload, mode);
+  const targetUrl = imageTargetUrl(requestConfig.baseUrl, mode);
+  await assertAllowedUpstreamUrl(targetUrl);
   const sanitizedPayload = sanitizeGenerationPayload({
     ...body,
     model: payload.model,
     prompt: payload.prompt,
-    n: requestedImages
+    n: requestedImages,
+    mode,
+    referenceImages
   });
 
   const transientSecret = requestConfig.usingSystemDefault ? null : {
@@ -228,42 +365,63 @@ export async function prepareImageGenerationJob(body = {}) {
     promptPreview: promptPreview(payload.prompt),
     profileName: requestConfig.profileName || body.name || (requestConfig.usingSystemDefault ? '系统默认接口' : ''),
     usingSystemDefault: requestConfig.usingSystemDefault,
-    transientSecret
+    transientSecret,
+    referenceImageCount: referenceImages.length
   };
 }
 
 export async function runImageGeneration(body, userInfo, { signal, onProgress, timeoutMs } = {}) {
   const started = Date.now();
   const requestConfig = resolveImageRequest(body);
-  const { apiKey, targetUrl, bodyForPayload, usingSystemDefault } = requestConfig;
+  const { apiKey, bodyForPayload, usingSystemDefault } = requestConfig;
+  const referenceImages = Array.isArray(bodyForPayload.referenceImages) ? bodyForPayload.referenceImages : [];
+  const mode = referenceImages.length ? 'edit' : 'generate';
+  const targetUrl = imageTargetUrl(requestConfig.baseUrl, mode);
   await assertAllowedUpstreamUrl(targetUrl);
   const payload = buildImagePayload(bodyForPayload);
+  applyEditOnlyOptions(payload, bodyForPayload, mode);
   const requestedImages = validateRequestedImages(payload.n);
 
   logger.info('image.generate.request', {
     userId: userInfo?.id,
     targetUrl,
     model: payload.model,
+    mode,
+    referenceImageCount: referenceImages.length,
     profileName: requestConfig.profileName,
     usingSystemDefault,
     apiKey: maskApiKey(apiKey)
   });
   onProgress?.({
     stage: 'upstream',
-    message: `正在调用 ${payload.model}，连接会持续保活…`,
+    message: mode === 'edit'
+      ? `正在调用 ${payload.model} 编辑参考图（${referenceImages.length} 张），连接会持续保活…`
+      : `正在调用 ${payload.model}，连接会持续保活…`,
     elapsedMs: Date.now() - started
   });
 
-  const { ok, status, data, durationMs, upstreamRequestCount } = await callImageUpstream({
-    targetUrl,
-    apiKey,
-    payload,
-    requestedImages,
-    signal,
-    timeoutMs,
-    onProgress,
-    started
-  });
+  const { ok, status, data, durationMs, upstreamRequestCount } = mode === 'edit'
+    ? await callImageEditUpstream({
+      targetUrl,
+      apiKey,
+      payload,
+      referenceImages,
+      requestedImages,
+      signal,
+      timeoutMs,
+      onProgress,
+      started
+    })
+    : await callImageUpstream({
+      targetUrl,
+      apiKey,
+      payload,
+      requestedImages,
+      signal,
+      timeoutMs,
+      onProgress,
+      started
+    });
 
   if (!ok) {
     const errMsg = errorMessageFromUpstream(data, status, apiKey);
@@ -272,6 +430,7 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
       status,
       durationMs,
       model: payload.model,
+      mode,
       error: errMsg,
       upstreamRequestCount
     });
@@ -298,7 +457,11 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
         size: bodyForPayload.size || body.size || '',
         quality: bodyForPayload.quality || body.quality || '',
         outputFormat: bodyForPayload.output_format || body.output_format || '',
-        profileName: requestConfig.profileName || body.name || ''
+        profileName: requestConfig.profileName || body.name || '',
+        generationMode: mode,
+        referenceImageIds: publicReferencePayload(referenceImages)
+          .map((item) => item.originalId)
+          .filter(Boolean)
       },
       { userId: userInfo?.id }
     );
@@ -328,6 +491,7 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     status,
     durationMs,
     model: payload.model,
+    mode,
     imageCount: imageItems.length,
     savedCount: saved.length,
     upstreamRequestCount

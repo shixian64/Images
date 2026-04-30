@@ -13,6 +13,11 @@ import {
   tryAcquireGlobalGenerationSlot,
   getGlobalConcurrentLimit
 } from './quota.js';
+import {
+  cleanupExpiredReferenceJobFiles,
+  cleanupReferenceJobFiles,
+  publicReferencePayload
+} from './reference-images.js';
 import { logger } from '../utils/logger.js';
 
 const SETTINGS_KEY = 'queue.settings';
@@ -117,6 +122,7 @@ export function compactGenerationResult(body = {}) {
 function publicJob(job, { includeUser = false } = {}) {
   if (!job) return null;
   const result = job.result ?? null;
+  const payload = publicPayload(job.payload || {});
   const out = {
     id: job.id,
     userId: job.user_id,
@@ -126,7 +132,7 @@ function publicJob(job, { includeUser = false } = {}) {
     profileName: job.profile_name || '',
     model: job.model || '',
     n: Number(job.n) || 1,
-    payload: job.payload || {},
+    payload,
     result,
     error: job.error_message || '',
     progress: job.progress || null,
@@ -145,6 +151,14 @@ function publicJob(job, { includeUser = false } = {}) {
       email: job.user_email || '',
       role: job.user_role || ''
     };
+  }
+  return out;
+}
+
+function publicPayload(payload = {}) {
+  const out = { ...(payload || {}) };
+  if (Array.isArray(out.referenceImages)) {
+    out.referenceImages = publicReferencePayload(out.referenceImages);
   }
   return out;
 }
@@ -263,39 +277,51 @@ export async function enqueueImageGeneration(body, userInfo) {
     throw httpError(503, '生成队列维护中，请稍后再试。', 'queue_maintenance');
   }
 
-  const prepared = await prepareImageGenerationJob(body || {});
-  checkQueueCapacity(freshUser, settings);
+  const id = randomUUID();
+  let prepared;
+  try {
+    prepared = await prepareImageGenerationJob(body || {}, { jobId: id, userInfo: freshUser });
+    checkQueueCapacity(freshUser, settings);
 
-  if (freshUser.role !== 'admin') {
-    const check = assertCanGenerate(freshUser.id, {
-      n: prepared.requestedImages,
-      includeQueued: prepared.usingSystemDefault,
-      checkCallLimits: prepared.usingSystemDefault,
-      checkStorage: true
-    });
-    if (!check.ok) {
-      logger.warn('image.queue.quota_exceeded', {
-        userId: freshUser.id,
-        code: check.code,
-        model: prepared.model
+    if (freshUser.role !== 'admin') {
+      const check = assertCanGenerate(freshUser.id, {
+        n: prepared.requestedImages,
+        includeQueued: prepared.usingSystemDefault,
+        checkCallLimits: prepared.usingSystemDefault,
+        checkStorage: true
       });
-      throw httpError(429, check.message, check.code);
+      if (!check.ok) {
+        logger.warn('image.queue.quota_exceeded', {
+          userId: freshUser.id,
+          code: check.code,
+          model: prepared.model
+        });
+        throw httpError(429, check.message, check.code);
+      }
     }
+  } catch (err) {
+    await cleanupReferenceJobFiles(id);
+    throw err;
   }
 
-  const id = randomUUID();
-  const job = generationJobs.create({
-    id,
-    userId: freshUser.id,
-    status: 'queued',
-    priority: priorityForUser(freshUser, settings),
-    payload: prepared.payload,
-    promptPreview: prepared.promptPreview,
-    profileName: prepared.profileName,
-    model: prepared.model,
-    n: prepared.requestedImages
-  });
-  rememberTransientSecret(id, prepared.transientSecret);
+  let job;
+  try {
+    job = generationJobs.create({
+      id,
+      userId: freshUser.id,
+      status: 'queued',
+      priority: priorityForUser(freshUser, settings),
+      payload: prepared.payload,
+      promptPreview: prepared.promptPreview,
+      profileName: prepared.profileName,
+      model: prepared.model,
+      n: prepared.requestedImages
+    });
+    rememberTransientSecret(id, prepared.transientSecret);
+  } catch (err) {
+    await cleanupReferenceJobFiles(id);
+    throw err;
+  }
 
   logger.info('job.enqueued', {
     jobId: job.id,
@@ -475,6 +501,9 @@ async function executeJob(job, slot, userInfo) {
     activeJobs.delete(job.id);
     slot.release?.();
     if (!requeued) transientJobSecrets.delete(job.id);
+    if (!requeued) cleanupReferenceJobFiles(job.id).catch((err) => {
+      logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
+    });
     kickScheduler();
   }
 }
@@ -496,6 +525,9 @@ function queuedWaitCleanup(settings = getQueueSettings()) {
       cancelRequested: true
     });
     transientJobSecrets.delete(job.id);
+    cleanupReferenceJobFiles(job.id).catch((err) => {
+      logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
+    });
     changed += 1;
     emitJob(cancelled, 'job');
   }
@@ -572,6 +604,11 @@ export function startJobQueue() {
   stopped = false;
   const recovered = generationJobs.recoverRunningAsFailed('server_restart');
   if (recovered) logger.warn('job.recovered_running_as_failed', { recovered });
+  cleanupExpiredReferenceJobFiles(recovered ? { ttlMs: 0 } : undefined).then((removed) => {
+    if (removed) logger.info('job.reference_cleanup_expired', { removed });
+  }).catch((err) => {
+    logger.warn('job.reference_cleanup_expired_failed', { error: err?.message || String(err) });
+  });
   schedulerTimer = setInterval(kickScheduler, TICK_MS);
   schedulerTimer.unref?.();
   kickScheduler();
@@ -641,6 +678,9 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
       cancelRequested: true
     });
     transientJobSecrets.delete(job.id);
+    cleanupReferenceJobFiles(job.id).catch((err) => {
+      logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
+    });
     logger.info('job.cancelled', { jobId: job.id, userId: job.user_id, running: false, by: userInfo?.id });
     emitJob(cancelled, 'job');
     kickScheduler();
@@ -657,6 +697,9 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
         errorMessage: 'cancelled',
         progress: { stage: 'cancelled', message: '任务已取消' },
         cancelRequested: true
+      });
+      cleanupReferenceJobFiles(job.id).catch((err) => {
+        logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
       });
       emitJob(cancelled, 'job');
       return publicJob(cancelled, { includeUser: admin });
@@ -676,6 +719,9 @@ export function retryJob(jobId, userInfo) {
   if (!TERMINAL_STATUSES.has(job.status)) throw httpError(409, 'job is not finished');
   if (job.payload?.interfaceMode === 'custom' || job.payload?.useSystemDefault === false) {
     throw httpError(400, '个人接口任务需要从 Studio 重新提交，以便重新提供 API Key。');
+  }
+  if (Array.isArray(job.payload?.referenceImages) && job.payload.referenceImages.length) {
+    throw httpError(400, '参考图任务需要从 Studio 重新提交，以便重新校验并暂存参考图。');
   }
   const freshUser = users.findById(userInfo.id) || userInfo;
   if (freshUser.role !== 'admin') {

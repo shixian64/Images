@@ -156,6 +156,7 @@ GET /healthz
 | `CONTAINER_CPUS` | `1.25` | Docker 容器 CPU 上限。当前服务是 Node 单进程，通常 1 核左右够用。 |
 | `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限；应低于容器内存，给 `Buffer`、SQLite、native 内存留余量。 |
 | `MAX_JSON_BODY_BYTES` | `1048576` | 单个 JSON 请求体最大字节数，超过返回 `413`，避免大 body 占满内存。 |
+| `MAX_MULTIPART_BODY_BYTES` | `104857600` | 单个 multipart 请求体最大字节数，用于上传参考图编辑。 |
 | `MAX_IMAGES_PER_REQUEST` | `1` | 单次生图最大 `n`，避免一次请求返回过多图片导致内存/磁盘瞬时升高。 |
 | `IMAGE_GENERATION_BATCH_CONCURRENCY` | `2` | 当 `n>1` 时，服务端拆成多个 `n=1` 上游请求的单任务内并发路数。 |
 | `GLOBAL_CONCURRENT_GENERATIONS` | `4` | 全站同时生图任务上限；小机器建议 3-5。 |
@@ -166,6 +167,10 @@ GET /healthz
 | `IMAGE_GENERATION_TIMEOUT_MS` | `600000` | 上游图片生成超时，单位毫秒。 |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | `60000` | 上游返回 URL 图片时，服务端下载该图片的超时。 |
 | `MAX_IMAGE_DOWNLOAD_BYTES` | `26214400` | 上游返回 URL 图片时，服务端最多下载 25 MiB，超过拒绝保存。 |
+| `MAX_REFERENCE_IMAGES` | `4` | 单次图片编辑最多参考图数量；参考图来自上传或我的图库/生成结果。 |
+| `MAX_REFERENCE_IMAGE_BYTES` | `20971520` | 单张参考图最大字节数。 |
+| `MAX_REFERENCE_IMAGE_TOTAL_BYTES` | `83886080` | 单次任务全部参考图总字节数上限。 |
+| `REFERENCE_JOB_FILE_TTL_HOURS` | `24` | 参考图 job 临时目录的过期清理时间。 |
 | `GENERATE_STREAM_HEARTBEAT_MS` | `15000` | SSE 生图接口心跳间隔，单位毫秒。 |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Docker 停止时的优雅关闭等待时间，单位毫秒。 |
 | `CHAT_RATE_LIMIT_MAX_PER_MINUTE` | `20` | `/api/chat` 每用户与每 IP 每分钟请求上限；`0`/`disabled` 可关闭。 |

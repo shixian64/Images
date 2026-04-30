@@ -165,6 +165,7 @@ function renderGallery() {
       `
       : `
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        ${item.id ? `<button type="button" data-gallery-add-reference>加入参考图</button>` : ''}
         <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
         ${item.id ? `<button type="button" data-gallery-toggle-public>${isPublic ? '取消公开' : '公开'}</button>` : ''}
         ${item.id ? `<button type="button" data-gallery-delete>删除</button>` : ''}
@@ -335,6 +336,16 @@ async function handleCopyPromptFromCard(card) {
   }
 }
 
+function handleAddReferenceFromCard(card) {
+  const index = Number(card?.dataset?.galleryIndex);
+  const item = Number.isInteger(index) ? galleryItems[index] : null;
+  if (!item?.id) return;
+  window.dispatchEvent(new CustomEvent('studio-add-reference-image', {
+    detail: { item, focusPrompt: false }
+  }));
+  setStatus('已加入 Studio 参考图', 'ok', 1400);
+}
+
 export function mountGalleryPanel() {
   mounted = true;
   $('refreshGallery').addEventListener('click', () => refreshGalleryPanel());
@@ -354,6 +365,15 @@ export function mountGalleryPanel() {
       ev.stopPropagation();
       const card = copyBtn.closest('.image-card');
       handleCopyPromptFromCard(card);
+      return;
+    }
+
+    const addReferenceBtn = ev.target.closest('[data-gallery-add-reference]');
+    if (addReferenceBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const card = addReferenceBtn.closest('.image-card');
+      handleAddReferenceFromCard(card);
       return;
     }
 

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,7 @@ let auth;
 let quota;
 let jobQueue;
 let interfaceDefaults;
+let referenceImages;
 
 const ENV_KEYS = [
   'ALLOW_INSECURE_UPSTREAMS',
@@ -36,6 +37,7 @@ before(async () => {
   quota = await import('../services/quota.js');
   jobQueue = await import('../services/job-queue.js');
   interfaceDefaults = await import('../services/interface-defaults.js');
+  referenceImages = await import('../services/reference-images.js');
   db.migrate();
   interfaceDefaults.setGlobalInterfaceConfig({
     enabled: true,
@@ -242,16 +244,42 @@ test('queue wait timeout emits a terminal job update', async () => {
   jobQueue.setQueueSettings({ max_wait_ms: 0, maintenance_mode: false });
 });
 
+test('expired reference cleanup preserves queued job files', async () => {
+  const u = user('reference_cleanup_queued');
+  const job = await jobQueue.enqueueImageGeneration(payload(1), u);
+  const queuedDir = join(workDir, 'generated', 'tmp', 'jobs', job.id, 'references');
+  const orphanDir = join(workDir, 'generated', 'tmp', 'jobs', 'orphan-reference-job', 'references');
+  mkdirSync(queuedDir, { recursive: true });
+  mkdirSync(orphanDir, { recursive: true });
+  writeFileSync(join(queuedDir, 'reference.png'), 'queued');
+  writeFileSync(join(orphanDir, 'reference.png'), 'orphan');
+
+  const removed = await referenceImages.cleanupExpiredReferenceJobFiles({
+    now: Date.now() + 60_000,
+    ttlMs: 1
+  });
+
+  assert.equal(removed, 1);
+  assert.equal(existsSync(queuedDir), true);
+  assert.equal(existsSync(orphanDir), false);
+  jobQueue.cancelJob(job.id, u);
+});
+
 test('startup recovery marks stale running jobs as failed', async () => {
   const u = user('recover_running');
   const job = await jobQueue.enqueueImageGeneration(payload(1), u);
   db.generationJobs.updateStatus(job.id, 'running', { startedAt: Date.now(), attempts: 1 });
+  const recoveredDir = join(workDir, 'generated', 'tmp', 'jobs', job.id, 'references');
+  mkdirSync(recoveredDir, { recursive: true });
+  writeFileSync(join(recoveredDir, 'reference.png'), 'running');
 
   jobQueue.setQueueSettings({ maintenance_mode: true });
   jobQueue.startJobQueue();
   const recovered = jobQueue.getJobForUser(job.id, u);
   assert.equal(recovered.status, 'failed');
   assert.equal(recovered.error, 'server_restart');
+  const cleaned = await waitFor(() => !existsSync(recoveredDir));
+  assert.equal(cleaned, true);
   jobQueue.stopJobQueue();
   jobQueue.setQueueSettings({ maintenance_mode: false });
 });

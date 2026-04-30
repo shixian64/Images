@@ -2,7 +2,7 @@
 // POST /api/generate now enqueues a persistent job and returns immediately.
 // POST /api/generate/stream keeps legacy semantics: enqueue, stream status, end with result/error.
 
-import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
+import { readJsonBody, readMultipartFormData, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import {
   getMaxImagesPerRequest,
@@ -39,6 +39,40 @@ function statusFromError(error) {
   return error?.statusCode || bodyErrorStatus(error);
 }
 
+function parseMaybeJson(value, fallback = {}) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+async function readGenerateBody(req) {
+  const contentType = String(req.headers?.['content-type'] || req.headers?.['Content-Type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) return readJsonBody(req);
+
+  const form = await readMultipartFormData(req);
+  const payload = parseMaybeJson(form.fields.payload, {});
+  const body = {
+    ...(payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}),
+    ...form.fields
+  };
+  delete body.payload;
+  if (typeof body.useSystemDefault === 'string') body.useSystemDefault = body.useSystemDefault === 'true';
+  if (typeof body.references === 'string') {
+    const parsed = parseMaybeJson(body.references, null);
+    if (Array.isArray(parsed)) body.references = parsed;
+  }
+  if (typeof body.referenceImageIds === 'string') {
+    const parsed = parseMaybeJson(body.referenceImageIds, null);
+    if (Array.isArray(parsed)) body.referenceImageIds = parsed;
+  }
+  body._uploadedReferenceFiles = form.files;
+  return body;
+}
+
 export async function handleGenerate(req, res) {
   const started = Date.now();
   if (!req.session?.user) {
@@ -46,7 +80,7 @@ export async function handleGenerate(req, res) {
   }
   let body = {};
   try {
-    body = await readJsonBody(req);
+    body = await readGenerateBody(req);
     const job = await enqueueImageGeneration(body, req.session.user);
     return sendJson(res, 202, {
       jobId: job.id,
@@ -111,7 +145,7 @@ export async function handleGenerateStream(req, res) {
   let body = {};
   let job;
   try {
-    body = await readJsonBody(req);
+    body = await readGenerateBody(req);
     job = await enqueueImageGeneration(body, req.session.user);
   } catch (error) {
     logger.warn('image.generate.rejected', {

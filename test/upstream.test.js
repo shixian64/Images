@@ -4,9 +4,11 @@ import {
   assertAllowedUpstreamUrl,
   buildChatPayload,
   buildImagePayload,
+  buildMultipartBody,
   callUpstream,
   resolveApiUrl,
   resolveChatCompletionsUrl,
+  resolveImageEditsUrl,
   resolveModelsUrl
 } from '../services/upstream.js';
 
@@ -45,11 +47,31 @@ test('resolveApiUrl 对自定义网关也生效', () => {
   );
 });
 
+test('resolveImageEditsUrl 追加 /v1/images/edits', () => {
+  assert.equal(resolveImageEditsUrl('https://api.openai.com'), 'https://api.openai.com/v1/images/edits');
+  assert.equal(resolveImageEditsUrl('https://api.openai.com/v1'), 'https://api.openai.com/v1/images/edits');
+});
+
 test('resolveApiUrl 空值 / 非法 URL 抛错', () => {
   assert.throws(() => resolveApiUrl(''), /Base URL is required/);
   assert.throws(() => resolveApiUrl('   '), /Base URL is required/);
   assert.throws(() => resolveApiUrl('not a url'));
   assert.throws(() => resolveApiUrl('file:///tmp/socket'), /http or https/);
+});
+
+test('buildMultipartBody serializes repeated image files', () => {
+  const multipart = buildMultipartBody({
+    fields: { model: 'gpt-image-2', prompt: 'edit me' },
+    files: [
+      { fieldName: 'image[]', filename: 'a.png', contentType: 'image/png', buffer: Buffer.from('a') },
+      { fieldName: 'image[]', filename: 'b.png', contentType: 'image/png', buffer: Buffer.from('b') }
+    ]
+  });
+  const raw = multipart.body.toString('latin1');
+  assert.match(multipart.contentType, /^multipart\/form-data; boundary=/);
+  assert.match(raw, /name="model"/);
+  assert.match(raw, /gpt-image-2/);
+  assert.equal((raw.match(/name="image\[\]"/g) || []).length, 2);
 });
 
 // --- SSRF guard ---

@@ -26,6 +26,152 @@ let lastPreviewTrigger = null;
 let selectedPromptSource = PROMPT_SOURCE.manual;
 const renderedQueueJobIds = new Set();
 const loggedQueueFinalJobIds = new Set();
+let referenceItems = [];
+let referenceSeq = 0;
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function referenceId(prefix = 'ref') {
+  referenceSeq += 1;
+  return `${prefix}-${Date.now()}-${referenceSeq}`;
+}
+
+function revokeReferencePreview(item) {
+  if (item?.type === 'upload' && item.previewUrl) {
+    try { URL.revokeObjectURL(item.previewUrl); } catch { /* noop */ }
+  }
+}
+
+function referencePreview(item = {}) {
+  return item.previewUrl || item.url || item.local_url || item.localUrl || '';
+}
+
+function renderReferences() {
+  const list = $('referenceList');
+  const clearBtn = $('clearReferences');
+  if (!list) return;
+  if (clearBtn) clearBtn.disabled = referenceItems.length === 0;
+  if (!referenceItems.length) {
+    list.dataset.empty = 'true';
+    list.innerHTML = '<div class="reference-empty">还没有参考图。生成结果卡片可点“加入参考图”。</div>';
+    return;
+  }
+  list.dataset.empty = 'false';
+  list.innerHTML = referenceItems.map((item, index) => {
+    const src = referencePreview(item);
+    const name = item.filename || item.name || (item.type === 'upload' ? '上传图片' : '图库图片');
+    const source = item.type === 'upload' ? '上传' : '图库';
+    const bytes = formatBytes(item.bytes);
+    return `<article class="reference-item" data-reference-id="${escapeHtml(item.clientId)}">
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(`参考图 ${index + 1}`)}" />
+      <button class="reference-remove" type="button" data-reference-remove aria-label="移除参考图 ${index + 1}">移除</button>
+      <div class="reference-item-meta">
+        <span title="${escapeHtml(name)}">#${index + 1} ${escapeHtml(source)}</span>
+        <span>${escapeHtml(bytes)}</span>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function addUploadReferences(files) {
+  const images = Array.from(files || []).filter((file) => (
+    /^image\/(png|jpeg|jpg|webp)$/i.test(file.type || '')
+    || /\.(png|jpe?g|webp)$/i.test(file.name || '')
+  ));
+  if (!images.length) {
+    showError('请选择 PNG、JPEG 或 WebP 图片作为参考图。');
+    return;
+  }
+  for (const file of images) {
+    referenceItems.push({
+      clientId: referenceId('upload'),
+      type: 'upload',
+      file,
+      previewUrl: URL.createObjectURL(file),
+      filename: file.name || 'upload.png',
+      mimeType: file.type || '',
+      bytes: file.size || 0
+    });
+  }
+  showError('');
+  renderReferences();
+  setStatus(`已加入 ${images.length} 张上传参考图`, 'ok', 1400);
+}
+
+function addGalleryReference(item = {}, { focusPrompt = false } = {}) {
+  const galleryId = item.gallery_id || item.galleryId || item.id;
+  if (!galleryId) {
+    showError('这张图片还没有保存到本地图库，无法作为参考图。');
+    return false;
+  }
+  if (referenceItems.some((ref) => ref.type === 'gallery' && ref.galleryId === galleryId)) {
+    setStatus('参考图已存在', 'ok', 1000);
+    if (focusPrompt) $('prompt')?.focus();
+    return true;
+  }
+  referenceItems.push({
+    clientId: referenceId('gallery'),
+    type: 'gallery',
+    galleryId,
+    previewUrl: imageSrcFromItem(item),
+    filename: item.file_name || item.filename || 'gallery-image',
+    bytes: item.bytes || 0,
+    mimeType: item.mime_type || item.mimeType || ''
+  });
+  renderReferences();
+  setStatus('已加入参考图', 'ok', 1400);
+  if (focusPrompt) {
+    $('prompt')?.focus();
+    showTaskProgress('generate', '已加入参考图，请描述要如何编辑这张图片。');
+    setTimeout(() => showTaskProgress('generate', ''), 2200);
+  }
+  return true;
+}
+
+function removeReference(clientId) {
+  const index = referenceItems.findIndex((item) => item.clientId === clientId);
+  if (index < 0) return;
+  const [removed] = referenceItems.splice(index, 1);
+  revokeReferencePreview(removed);
+  renderReferences();
+}
+
+function clearReferences() {
+  referenceItems.forEach(revokeReferencePreview);
+  referenceItems = [];
+  renderReferences();
+}
+
+function buildGenerationRequestBody(payload) {
+  if (!referenceItems.length) return payload;
+
+  const references = [];
+  const uploads = [];
+  referenceItems.forEach((item) => {
+    if (item.type === 'upload') {
+      const uploadKey = `ref_upload_${uploads.length}`;
+      references.push({ type: 'upload', uploadKey });
+      uploads.push({ key: uploadKey, file: item.file });
+    } else {
+      references.push({ type: 'gallery', id: item.galleryId });
+    }
+  });
+
+  if (!uploads.length) {
+    return { ...payload, references };
+  }
+
+  const form = new FormData();
+  form.append('payload', JSON.stringify({ ...payload, references }));
+  uploads.forEach(({ key, file }) => form.append(key, file, file.name || `${key}.png`));
+  return form;
+}
 
 function renderSelect(id, items) {
   const el = $(id);
@@ -260,12 +406,16 @@ function renderImages(items, prompt) {
     const saveError = item.save_error
       ? `<p class="revised">本地保存失败：${escapeHtml(item.save_error)}</p>`
       : '';
+    const galleryId = item.gallery_id || item.galleryId || '';
+    const refDisabled = galleryId ? '' : 'disabled';
     return `<article class="image-card">
       <button class="image-preview-trigger" type="button" data-studio-index="${index}" aria-label="放大查看第 ${index + 1} 张生成图">
         <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
       </button>
       <div class="card-actions">
         <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        <button type="button" data-studio-add-reference="${index}" ${refDisabled}>加入参考图</button>
+        <button type="button" data-studio-edit-reference="${index}" ${refDisabled}>继续编辑</button>
       </div>
       ${saveError}
     </article>`;
@@ -610,29 +760,32 @@ async function generate({ onSavedImages } = {}) {
       Math.max(1, Number($('n').value) || 1)
     )
   };
+  const referenceCount = referenceItems.length;
   if (!systemMode) {
     payload.baseUrl = image.baseUrl;
     payload.apiKey = image.apiKey;
   }
+  const requestBody = buildGenerationRequestBody(payload);
 
   addPromptHistory(prompt, {
     source: 'studio',
     title: prompt.slice(0, 28),
-    tags: ['生成'],
+    tags: referenceCount ? ['编辑', '参考图'] : ['生成'],
     model: payload.model,
     size: payload.size,
     quality: payload.quality,
     outputFormat: payload.output_format,
-    promptSource: promptInfo.source
+    promptSource: promptInfo.source,
+    referenceCount
   });
 
   $('generate').disabled = true;
   setStatus('正在加入队列…', 'busy');
-  showTaskProgress('generate', `正在提交 ${payload.model} 到生成队列…`);
+  showTaskProgress('generate', `正在提交 ${payload.model} 到${referenceCount ? '编辑' : '生成'}队列…`);
 
   const started = Date.now();
   try {
-    const data = await submitGenerationJob(payload);
+    const data = await submitGenerationJob(requestBody);
     const durationMs = Date.now() - started;
     addLog('info', 'image.generate.queued', {
       model: payload.model,
@@ -645,7 +798,9 @@ async function generate({ onSavedImages } = {}) {
       size: payload.size,
       quality: payload.quality,
       prompt,
-      promptSource: promptInfo.source
+      promptSource: promptInfo.source,
+      referenceCount,
+      mode: referenceCount ? 'edit' : 'generate'
     });
     const positionText = data.position ? `，第 ${data.position} 位` : '';
     showTaskProgress('generate', `已加入队列${positionText}。可在左侧队列面板查看进度。`);
@@ -662,7 +817,9 @@ async function generate({ onSavedImages } = {}) {
       durationMs,
       error: message,
       prompt,
-      promptSource: promptInfo.source
+      promptSource: promptInfo.source,
+      referenceCount,
+      mode: referenceCount ? 'edit' : 'generate'
     });
     setStatus('失败', 'err', 2000);
   } finally {
@@ -768,6 +925,20 @@ export function mountStudioPanel({ onSavedImages } = {}) {
 
   $('generate').addEventListener('click', () => generate({ onSavedImages }));
   $('optimizePrompt')?.addEventListener('click', optimizePrompt);
+  $('referenceUpload')?.addEventListener('change', (ev) => {
+    addUploadReferences(ev.target.files);
+    ev.target.value = '';
+  });
+  $('clearReferences')?.addEventListener('click', clearReferences);
+  $('referenceList')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-reference-remove]');
+    if (!btn) return;
+    const item = btn.closest('[data-reference-id]');
+    removeReference(item?.dataset?.referenceId || '');
+  });
+  window.addEventListener('studio-add-reference-image', (ev) => {
+    addGalleryReference(ev.detail?.item || {}, { focusPrompt: Boolean(ev.detail?.focusPrompt) });
+  });
   window.addEventListener('generation-job-succeeded', (ev) => {
     handleQueueJobSucceeded(ev.detail?.job, { onSavedImages, force: Boolean(ev.detail?.force) });
   });
@@ -775,6 +946,22 @@ export function mountStudioPanel({ onSavedImages } = {}) {
     handleQueueJobFinished(ev.detail?.job, { onSavedImages });
   });
   $('gallery').addEventListener('click', (ev) => {
+    const addBtn = ev.target.closest('[data-studio-add-reference]');
+    if (addBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const index = Number(addBtn.dataset.studioAddReference);
+      addGalleryReference(studioPreviewItems[index]);
+      return;
+    }
+    const editBtn = ev.target.closest('[data-studio-edit-reference]');
+    if (editBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const index = Number(editBtn.dataset.studioEditReference);
+      addGalleryReference(studioPreviewItems[index], { focusPrompt: true });
+      return;
+    }
     const trigger = ev.target.closest('.image-preview-trigger');
     if (!trigger) return;
     const index = Number(trigger.dataset.studioIndex);
@@ -792,4 +979,5 @@ export function mountStudioPanel({ onSavedImages } = {}) {
 
   // Profile 更新时刷新 chip 和 default model
   onProfilesChanged(updateActiveChip);
+  renderReferences();
 }

@@ -257,6 +257,79 @@ test('handleGenerate records managed quota only for system default interface', a
   });
 });
 
+test('handleGenerate sends saved gallery images to image edits as reference inputs', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '4',
+    DEFAULT_MONTHLY_LIMIT: undefined,
+    DEFAULT_STORAGE_LIMIT_MB: undefined
+  }, async () => {
+    const gallery = await import('../services/gallery-store.js');
+    const routeUser = auth.register({
+      username: 'gen_edit_ref_user',
+      email: 'gen_edit_ref_user@example.com',
+      password: 'longenough1'
+    });
+    const source = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'source image', outputFormat: 'png' },
+      { userId: routeUser.id }
+    );
+    const sourceId = source.saved[0].id;
+
+    let seenRaw = null;
+    const server = http.createServer((req, res) => {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/v1/images/edits');
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        seenRaw = Buffer.concat(chunks).toString('latin1');
+        const image = {
+          b64_json: Buffer.from(PNG_BYTES).toString('base64'),
+          revised_prompt: 'edited image'
+        };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [image] }));
+      });
+    });
+    await listen(server);
+
+    try {
+      const { port } = server.address();
+      const res = captureRes();
+      await generate.handleGenerate(jsonReq({
+        imageBaseUrl: `http://127.0.0.1:${port}`,
+        imageApiKey: skLike('edit-ref'),
+        prompt: 'turn this into a pencil sketch',
+        model: 'test-image-model',
+        references: [{ type: 'gallery', id: sourceId }],
+        n: 1
+      }, routeUser), res);
+
+      assert.equal(res.statusCode, 202);
+      const queued = JSON.parse(res.body);
+      assert.equal(queued.job.payload.mode, 'edit');
+      assert.equal(queued.job.payload.referenceImageCount, 1);
+      assert.equal(queued.job.payload.referenceImages[0].relPath, undefined);
+
+      const done = await waitFor(() => {
+        const job = jobQueue.getJobForUser(queued.jobId, routeUser);
+        return job.status === 'succeeded' ? job : null;
+      });
+      assert.equal(done?.status, 'succeeded');
+      assert.match(seenRaw, /name="prompt"/);
+      assert.match(seenRaw, /turn this into a pencil sketch/);
+      assert.match(seenRaw, /name="image\[\]"; filename=/);
+      assert.equal(done.result.data.length, 1);
+      assert.ok(done.result.data[0].local_url);
+    } finally {
+      await close(server);
+    }
+  });
+});
+
 test('custom interface image jobs still respect user concurrency quota', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',
