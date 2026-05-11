@@ -2980,13 +2980,13 @@ body.drawer-open { overflow: hidden; }
   margin-bottom: 8px;
   font-weight: 600;
 }
-.users-actions-cell {
+.users-actions-cell > .actions-wrap {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
 }
-.users-actions-cell > button {
+.users-actions-cell > .actions-wrap > button {
   white-space: nowrap;
   flex-shrink: 0;
 }

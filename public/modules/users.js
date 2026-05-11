@@ -295,10 +295,10 @@ function renderRow(user) {
       <span class="chip ${user.status === 'active' ? 'ok' : 'err'}">${statusLabel(user.status)}</span>
     </td>
     <td>${escapeHtml(formatTime(user.last_login_at || user.lastLoginAt))}</td>
-    <td class="users-actions-cell">
+    <td class="users-actions-cell"><div class="actions-wrap">
       <button class="ghost small" data-act="detail">详情</button>
       <button class="${statusBtnClass} users-status-btn"${selfTip}>${statusBtnLabel}</button>
-    </td>
+    </div></td>
   </tr>`;
 }
 
@@ -1074,9 +1074,9 @@ function renderAdminJobsTable() {
                   <small>${job.startedAt && job.finishedAt ? fmtDuration(job.finishedAt - job.startedAt) : (job.startedAt ? `已运行 ${fmtDuration(Date.now() - job.startedAt)}` : '-')}</small>
                 </div>
               </td>
-              <td class="users-actions-cell">
+              <td class="users-actions-cell"><div class="actions-wrap">
                 <button class="danger ghost small" data-admin-job-act="cancel" ${running ? '' : 'disabled'}>取消</button>
-              </td>
+              </div></td>
             </tr>
           `;
         }).join('')}
@@ -1442,10 +1442,10 @@ function renderAdminGallery() {
               </td>
               <td>${formatBytes(item.bytes)}</td>
               <td>${escapeHtml(formatTime(item.createdAt))}</td>
-              <td class="users-actions-cell">
+              <td class="users-actions-cell"><div class="actions-wrap">
                 <button class="ghost small" data-act="view">查看</button>
                 <button class="danger ghost small" data-act="delete">删除</button>
-              </td>
+              </div></td>
             </tr>
           `;
         }).join('')}
