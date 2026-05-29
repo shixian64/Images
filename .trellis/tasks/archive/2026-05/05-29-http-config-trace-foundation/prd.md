@@ -29,7 +29,7 @@ Unify backend HTTP error semantics, numeric environment parsing/validation, and 
 - [x] GitNexus `detect_changes()` was run after edits.
 - [x] Trellis check was run.
 - [x] Relevant specs were updated.
-- [ ] Commit created.
+- [x] Commit created.
 
 ## Out of Scope
 
