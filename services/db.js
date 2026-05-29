@@ -6,6 +6,7 @@ import { mkdirSync, existsSync, renameSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
+import { positiveIntFromEnv } from '../utils/config.js';
 import {
   PROMPT_SQUARE_SEED_KEY,
   PROMPT_SQUARE_SEEDS,
@@ -23,13 +24,29 @@ function open() {
   if (_db) return _db;
   if (!existsSync(DB_DIR)) mkdirSync(DB_DIR, { recursive: true });
   _db = new DatabaseSync(DB_PATH);
-  _db.exec('PRAGMA journal_mode = WAL;');
-  _db.exec('PRAGMA foreign_keys = ON;');
+  applyConnectionPragmas(_db);
   return _db;
+}
+
+function applyConnectionPragmas(db) {
+  const busyTimeoutMs = positiveIntFromEnv('SQLITE_BUSY_TIMEOUT_MS', 5_000, { allowZero: true });
+  const walAutocheckpointPages = positiveIntFromEnv('SQLITE_WAL_AUTOCHECKPOINT_PAGES', 1_000, { allowZero: true });
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA synchronous = NORMAL;');
+  db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs};`);
+  db.exec(`PRAGMA wal_autocheckpoint = ${walAutocheckpointPages};`);
+  db.exec('PRAGMA foreign_keys = ON;');
 }
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function nextUtcDayStart(day) {
+  const match = String(day || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return nowIso();
+  const [, year, month, date] = match;
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(date) + 1)).toISOString();
 }
 
 const PROMPT_SQUARE_INDEXES = `
@@ -37,6 +54,23 @@ CREATE INDEX IF NOT EXISTS idx_prompt_square_published ON prompt_square(publishe
 CREATE INDEX IF NOT EXISTS idx_prompt_square_user      ON prompt_square(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prompt_square_source    ON prompt_square(user_id, source_prompt_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_square_source_id ON prompt_square(source_prompt_id);
+`;
+
+const DATA_LIFECYCLE_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_images_public_published
+  ON images(is_public, published_at DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_images_user_model_created
+  ON images(user_id, model, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_images_profile_created
+  ON images(profile_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_images_bytes_created
+  ON images(bytes DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action_created
+  ON audit_logs(action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_logs_user_level_received
+  ON client_logs(user_id, level, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_day
+  ON usage_daily(day);
 `;
 
 const SCHEMA = `
@@ -218,6 +252,7 @@ export function migrate() {
   db.exec(SCHEMA);
   migrateUserAbuseColumns(db);
   migrateImagePublicColumns(db);
+  db.exec(DATA_LIFECYCLE_INDEXES);
   migratePromptSquareNullableOwner(db);
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
@@ -521,8 +556,8 @@ export const sessions = {
   destroyByUser(userId) {
     open().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   },
-  destroyExpired() {
-    const res = open().prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowIso());
+  destroyExpired(cutoffIso = nowIso()) {
+    const res = open().prepare('DELETE FROM sessions WHERE expires_at <= ?').run(cutoffIso);
     return res.changes;
   },
   listByUser(userId) {
@@ -679,13 +714,19 @@ export const images = {
   },
   adminStats(today) {
     const db = open();
+    const start = `${today}T00:00:00.000Z`;
+    const end = nextUtcDayStart(today);
     const summary = db.prepare(`
       SELECT
         COUNT(*) AS total,
-        COALESCE(SUM(bytes), 0) AS totalBytes,
-        COALESCE(SUM(CASE WHEN substr(created_at, 1, 10) = ? THEN 1 ELSE 0 END), 0) AS savedToday
+        COALESCE(SUM(bytes), 0) AS totalBytes
       FROM images
-    `).get(today);
+    `).get();
+    const todaySummary = db.prepare(`
+      SELECT COUNT(*) AS savedToday
+      FROM images
+      WHERE created_at >= ? AND created_at < ?
+    `).get(start, end);
     const topUsers = db.prepare(`
       SELECT
         COALESCE(user_id, 'unknown') AS userId,
@@ -708,7 +749,7 @@ export const images = {
     return {
       total: Number(summary?.total) || 0,
       totalBytes: Number(summary?.totalBytes) || 0,
-      savedToday: Number(summary?.savedToday) || 0,
+      savedToday: Number(todaySummary?.savedToday) || 0,
       topUsers: topUsers.map((row) => ({
         userId: row.userId,
         count: Number(row.count) || 0,
@@ -882,6 +923,11 @@ export const auditLogs = {
     return open().prepare(`
       SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?
     `).all(limit);
+  },
+  deleteOlderThan(cutoffIso) {
+    if (!cutoffIso) return 0;
+    const res = open().prepare('DELETE FROM audit_logs WHERE created_at < ?').run(cutoffIso);
+    return res.changes;
   }
 };
 
@@ -982,6 +1028,11 @@ export const clientLogs = {
       ORDER BY l.received_at DESC
       LIMIT ?
     `).all(...args, safeLimit).map(parseClientLog);
+  },
+  deleteOlderThan(cutoffIso) {
+    if (!cutoffIso) return 0;
+    const res = open().prepare('DELETE FROM client_logs WHERE received_at < ?').run(cutoffIso);
+    return res.changes;
   }
 };
 
@@ -1101,6 +1152,11 @@ export const usageDaily = {
     open().prepare(
       'DELETE FROM usage_daily WHERE user_id = ? AND day >= ? AND day <= ?'
     ).run(userId, fromDay, toDay);
+  },
+  deleteOlderThan(cutoffDay) {
+    if (!cutoffDay) return 0;
+    const res = open().prepare('DELETE FROM usage_daily WHERE day < ?').run(cutoffDay);
+    return res.changes;
   }
 };
 
@@ -1447,8 +1503,12 @@ function promptSquareFilterSql(options = {}) {
     params.push(filters.userId || '');
   }
   if (filters.tag) {
-    clauses.push('instr(p.tags, ?) > 0');
-    params.push(JSON.stringify(filters.tag));
+    clauses.push(`EXISTS (
+      SELECT 1
+      FROM json_each(CASE WHEN json_valid(p.tags) THEN p.tags ELSE '[]' END) AS tag
+      WHERE tag.type = 'text' AND tag.value = ?
+    )`);
+    params.push(filters.tag);
   }
   if (filters.search) {
     const like = `%${escapeSqlLike(filters.search)}%`;

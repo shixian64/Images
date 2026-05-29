@@ -23,8 +23,9 @@ import { createStaticHandler } from './routes/static.js';
 import attachSession from './middleware/session.js';
 import { requireAuth, requireCsrf } from './middleware/guard.js';
 
-import { migrate, sessions } from './services/db.js';
+import { migrate } from './services/db.js';
 import { startJobQueue, stopJobQueue } from './services/job-queue.js';
+import { startDataMaintenance } from './services/maintenance.js';
 import { sendJson } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
@@ -40,6 +41,7 @@ const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
 // 启动前先建表 + 处理 legacy gallery.json 迁移
 migrate();
 startJobQueue();
+const cleaner = startDataMaintenance({ logger });
 
 async function handleRequest(req, res) {
   // 任何请求都先尝试附会话；未登录场景下 req.session = null
@@ -125,16 +127,6 @@ const server = http.createServer((req, res) => {
   }));
 });
 
-// 每小时清一次过期 session
-const cleaner = setInterval(() => {
-  try {
-    const removed = sessions.destroyExpired();
-    if (removed) logger.info('sessions.cleanup', { removed });
-  } catch (err) {
-    logger.warn('sessions.cleanup_failed', { error: err.message });
-  }
-}, 60 * 60 * 1000);
-cleaner.unref?.();
 
 server.listen(PORT, () => {
   console.log(`Image Studio running at http://localhost:${PORT}`);
@@ -145,7 +137,7 @@ function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('server.shutdown', { signal });
-  clearInterval(cleaner);
+  if (cleaner) clearInterval(cleaner);
   stopJobQueue();
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal });

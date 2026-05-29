@@ -144,3 +144,47 @@ test('prompt square search/tag/mine filters run before the result limit', async 
   assert.deepEqual(taggedMine.items.map((item) => item.id), [match.id]);
   assert.equal(taggedMine.items[0].isMine, true);
 });
+
+test('prompt square tag filter matches JSON array elements, not tag substrings', async () => {
+  const owner = auth.register({
+    username: 'square_tag_owner',
+    email: 'square_tag_owner@example.com',
+    password: 'longenough1'
+  });
+
+  const exact = db.promptSquare.upsert({
+    userId: owner.id,
+    sourcePromptId: 'tag-exact-a',
+    title: 'Exact short tag',
+    prompt: 'contains a deliberately short tag',
+    tagsJson: JSON.stringify(['a']),
+    source: 'manual',
+    metaJson: '{}'
+  });
+  const alias = db.promptSquare.upsert({
+    userId: owner.id,
+    sourcePromptId: 'tag-alias-only',
+    title: 'Alias tag',
+    prompt: 'contains only a longer alias tag',
+    tagsJson: JSON.stringify(['alias']),
+    source: 'manual',
+    metaJson: '{}'
+  });
+  const aesthetic = db.promptSquare.upsert({
+    userId: owner.id,
+    sourcePromptId: 'tag-aesthetic-only',
+    title: 'Aesthetic tag',
+    prompt: 'contains only a longer aesthetic tag',
+    tagsJson: JSON.stringify(['aesthetic']),
+    source: 'manual',
+    metaJson: '{}'
+  });
+
+  setPublishedAt(exact.id, '2026-02-03T00:00:00.000Z');
+  setPublishedAt(alias.id, '2026-02-02T00:00:00.000Z');
+  setPublishedAt(aesthetic.id, '2026-02-01T00:00:00.000Z');
+
+  const tagged = await getSquare(owner, '?limit=10&tag=a');
+  assert.equal(tagged.filtered, 1);
+  assert.deepEqual(tagged.items.map((item) => item.id), [exact.id]);
+});

@@ -52,5 +52,8 @@ test('config center knows common positive integer env names', () => {
   const names = knownPositiveIntEnvNames();
   assert.ok(names.includes('MAX_JSON_BODY_BYTES'));
   assert.ok(names.includes('MAX_UPSTREAM_RESPONSE_BYTES'));
+  assert.ok(names.includes('AUDIT_LOG_RETENTION_DAYS'));
+  assert.ok(names.includes('DATA_CLEANUP_INTERVAL_MS'));
+  assert.ok(names.includes('SQLITE_BUSY_TIMEOUT_MS'));
   assert.ok(names.includes('SHUTDOWN_TIMEOUT_MS'));
 });

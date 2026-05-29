@@ -6,6 +6,7 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 let workDir;
 let prevCwd;
@@ -43,9 +44,82 @@ test('migrate creates schema and is idempotent', () => {
   assert.deepEqual(db.images.listAll(10), []);
 });
 
+test('migrate creates lifecycle and hot-query indexes idempotently', () => {
+  db.migrate();
+  db.migrate();
+
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    const names = sqlite.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'index'
+        AND name IN (
+          'idx_images_public_published',
+          'idx_images_user_model_created',
+          'idx_images_profile_created',
+          'idx_images_bytes_created',
+          'idx_audit_action_created',
+          'idx_client_logs_user_level_received',
+          'idx_usage_day'
+        )
+    `).all().map((row) => row.name).sort();
+    assert.deepEqual(names, [
+      'idx_audit_action_created',
+      'idx_client_logs_user_level_received',
+      'idx_images_bytes_created',
+      'idx_images_profile_created',
+      'idx_images_public_published',
+      'idx_images_user_model_created',
+      'idx_usage_day'
+    ]);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('admin stats counts today with an index-friendly day range', () => {
+  const user = auth.register({
+    username: 'stats_user',
+    email: 'stats_user@example.com',
+    password: 'longenough1'
+  });
+  db.images.insert({
+    id: 'stats-today-1',
+    userId: user.id,
+    createdAt: '2026-05-29T00:00:00.000Z',
+    filename: 'today-1.png',
+    path: 'users/stats/images/today-1.png',
+    mimeType: 'image/png',
+    bytes: 100
+  });
+  db.images.insert({
+    id: 'stats-today-2',
+    userId: user.id,
+    createdAt: '2026-05-29T23:59:59.999Z',
+    filename: 'today-2.png',
+    path: 'users/stats/images/today-2.png',
+    mimeType: 'image/png',
+    bytes: 200
+  });
+  db.images.insert({
+    id: 'stats-yesterday',
+    userId: user.id,
+    createdAt: '2026-05-28T23:59:59.999Z',
+    filename: 'yesterday.png',
+    path: 'users/stats/images/yesterday.png',
+    mimeType: 'image/png',
+    bytes: 300
+  });
+
+  const stats = db.images.adminStats('2026-05-29');
+  assert.equal(stats.savedToday, 2);
+});
+
 test('legacy gallery.json migration: deferred until admin exists, then idempotent', () => {
   const galleryPath = join(workDir, 'generated', 'gallery.json');
   const migratedPath = join(workDir, 'generated', 'gallery.json.migrated');
+  const baselineImageCount = db.images.listAll(1000).length;
 
   const legacyItems = [
     {
@@ -74,7 +148,7 @@ test('legacy gallery.json migration: deferred until admin exists, then idempoten
   // 没有 admin → 迁移延后；gallery.json 仍在
   db.migrate();
   assert.ok(existsSync(galleryPath), 'gallery.json should remain when no admin');
-  assert.equal(db.images.listAll(10).length, 0);
+  assert.equal(db.images.listAll(1000).length, baselineImageCount);
 
   // 注册首位用户 → 自动 admin
   const adminUser = auth.register({
@@ -90,11 +164,13 @@ test('legacy gallery.json migration: deferred until admin exists, then idempoten
   assert.equal(existsSync(galleryPath), false, 'gallery.json should be renamed');
   assert.ok(existsSync(migratedPath), 'gallery.json.migrated should exist');
   const all = db.images.listAll(10);
-  assert.equal(all.length, 2);
+  assert.equal(all.length, baselineImageCount + 2);
   // 都归属 admin
-  for (const row of all) assert.equal(row.user_id, adminUser.id);
+  for (const id of ['legacy-1', 'legacy-2']) {
+    assert.equal(db.images.findById(id).user_id, adminUser.id);
+  }
 
   // 第三次 migrate → 幂等（gallery.json 已被改名，不会重复插入）
   db.migrate();
-  assert.equal(db.images.listAll(10).length, 2);
+  assert.equal(db.images.listAll(1000).length, baselineImageCount + 2);
 });

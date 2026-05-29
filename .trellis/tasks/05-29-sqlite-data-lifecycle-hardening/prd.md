@@ -14,11 +14,11 @@ Fix data-layer correctness and lifecycle risks: prompt-square tag substring matc
 
 ## Acceptance Criteria
 
-- [ ] Tag filtering test proves short tags do not match substrings inside other tags.
-- [ ] Schema/index changes are idempotent.
-- [ ] Cleanup is configurable and does not delete fresh rows.
-- [ ] Session cleanup is invoked and tested.
-- [ ] `npm test` passes.
+- [x] Tag filtering test proves short tags do not match substrings inside other tags.
+- [x] Schema/index changes are idempotent.
+- [x] Cleanup is configurable and does not delete fresh rows.
+- [x] Session cleanup is invoked and tested.
+- [x] `npm test` passes.
 
 ## Out of Scope
 
