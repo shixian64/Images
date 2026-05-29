@@ -73,3 +73,38 @@ Fixed prompt-square tag filtering with JSON element matching, added SQLite PRAGM
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Runtime SSE resource hardening
+
+**Date**: 2026-05-29
+**Task**: Runtime SSE resource hardening
+**Branch**: `main`
+
+### Summary
+
+Hardened rate-limit cleanup/max-key policy, shared SSE lifecycle helper, paged gallery maintenance scans with bounded stat concurrency, immutable gallery image ETag caching, and archived the Trellis task after npm test passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `15c6ca1` | (see git log) |
+| `b5f95de` | (see git log) |
+| `33035eb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
