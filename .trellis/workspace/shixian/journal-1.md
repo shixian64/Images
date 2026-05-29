@@ -40,3 +40,36 @@ Added the Image Studio optimization roadmap, implemented the HTTP error/config/t
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: SQLite data lifecycle hardening
+
+**Date**: 2026-05-29
+**Task**: SQLite data lifecycle hardening
+**Branch**: `main`
+
+### Summary
+
+Fixed prompt-square tag filtering with JSON element matching, added SQLite PRAGMA/index hardening, introduced runtime retention cleanup, and covered the behavior with tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f9615d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
