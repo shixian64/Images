@@ -39,6 +39,61 @@ Log structured fields, not concatenated strings. Include identifiers and operati
 - Upstream URLs are allowed after `assertAllowedUpstreamUrl()` validation, but still avoid query strings containing secrets.
 - For auth/register/login, log user ID and IP when useful; do not log passwords, raw session IDs, or full cookies.
 
+## Scenario: Request Trace IDs
+
+### 1. Scope / Trigger
+
+- Trigger: Any request-scoped logging, unhandled route failure, frontend client-log correlation, or new HTTP entrypoint.
+- Trace IDs are a cross-layer diagnostic contract, not product data.
+
+### 2. Signatures
+
+- `attachTraceId(req, res)` from `utils/request-context.js` reads `x-request-id` / `x-trace-id`, normalizes it, assigns `req.traceId`, and sets response header `x-request-id`.
+- `runWithRequestContext({ traceId }, fn)` wraps the request execution in `AsyncLocalStorage`.
+- `logger.*(message, meta)` automatically injects the current `traceId` when one exists.
+- `logger.error(message, { err })` serializes `Error` objects as `{ name, message, stack }` with secret redaction and stack truncation.
+
+### 3. Contracts
+
+- Response header: every HTTP request should receive `x-request-id`.
+- Accepted incoming IDs: 1-128 chars, `[A-Za-z0-9._:-]`; invalid IDs are ignored and replaced with `crypto.randomUUID()`.
+- Backend log field: `traceId`.
+- Frontend/client-log payload field: `traceId` in the synced item and `context.traceId`.
+
+### 4. Validation & Error Matrix
+
+- Missing trace header -> generate UUID, set `req.traceId`, set response `x-request-id`.
+- Unsafe trace header -> ignore unsafe value, generate UUID.
+- Error object in logger metadata -> JSON log includes redacted `err.message` and truncated/redacted `err.stack`, not `{}`.
+- Explicit `meta.traceId` -> use explicit value instead of the async context value.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `logger.error('server.request_unhandled', { method, url, err })`.
+- Base: `logger.warn('quota.rejected', { userId, code })` gets request `traceId` automatically inside the request context.
+- Bad: `logger.error('failed ' + err.stack)` because it loses structure and may leak unredacted data.
+
+### 6. Tests Required
+
+- Request context unit tests for incoming/rejected trace IDs and response header setting.
+- Logger unit tests for async-context trace injection and `Error` serialization.
+- Logger tests must include a secret-like token in `Error.message` and verify it is redacted.
+- Frontend/client-log tests proving the latest response trace ID is synced back.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```js
+logger.error('server.request_unhandled', { error: err.message });
+```
+
+#### Correct
+
+```js
+logger.error('server.request_unhandled', { err });
+```
+
 ## Sensitive Data
 
 Never log raw API keys, authorization headers, passwords, session IDs, cookies, or unredacted provider errors.

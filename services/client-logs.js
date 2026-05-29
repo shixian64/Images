@@ -74,9 +74,27 @@ function normalizeClientTs(value) {
   return Number.isNaN(date.getTime()) ? text : date.toISOString();
 }
 
+function normalizeTraceId(value) {
+  const text = safeText(value || '', 160);
+  if (!text) return '';
+  return /^[A-Za-z0-9._:-]{1,128}$/.test(text) ? text : '';
+}
+
+function metaWithTraceId(meta, traceId) {
+  if (!traceId) return meta;
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    return { ...meta, traceId };
+  }
+  if (meta === undefined || meta === null || meta === '') {
+    return { traceId };
+  }
+  return { value: meta, traceId };
+}
+
 function normalizeLogItem(raw = {}) {
   const context = raw.context && typeof raw.context === 'object' ? raw.context : {};
   const clientId = safeText(raw.clientId || raw.id || '', 160) || null;
+  const traceId = normalizeTraceId(raw.traceId || context.traceId);
   return {
     id: randomUUID(),
     clientId,
@@ -84,7 +102,7 @@ function normalizeLogItem(raw = {}) {
     receivedAt: new Date().toISOString(),
     level: normalizeLevel(raw.level),
     message: safeText(raw.message || raw.msg || '', MAX_MESSAGE_CHARS),
-    meta: compactMeta(raw.meta),
+    meta: compactMeta(metaWithTraceId(raw.meta, traceId)),
     pageUrl: safeText(raw.pageUrl || raw.url || context.pageUrl || context.url || '', 1200) || null,
     userAgent: safeText(context.userAgent || '', 1200) || null
   };

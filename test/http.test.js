@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { Readable } from 'node:stream';
 
-import { readMultipartFormData, sendJson } from '../utils/http.js';
+import {
+  HTTP_ERROR_CODES,
+  bodyErrorStatus,
+  createHttpError,
+  readJsonBody,
+  readMultipartFormData,
+  sendJson
+} from '../utils/http.js';
 
 function captureRes() {
   return {
@@ -27,6 +34,30 @@ test('sendJson marks JSON API responses as no-store', () => {
   assert.equal(res.headers['cache-control'], 'no-store');
   assert.equal(res.headers['content-type'], 'application/json; charset=utf-8');
   assert.deepEqual(JSON.parse(res.body), { ok: true });
+});
+
+test('createHttpError keeps status/statusCode/code compatibility', () => {
+  const err = createHttpError(429, 'limited', 'rate_limited');
+
+  assert.equal(err.message, 'limited');
+  assert.equal(err.statusCode, 429);
+  assert.equal(err.status, 429);
+  assert.equal(err.code, 'rate_limited');
+  assert.equal(bodyErrorStatus(err), 429);
+});
+
+test('readJsonBody invalid JSON includes stable error code', async () => {
+  const req = Readable.from([Buffer.from('{', 'utf8')]);
+
+  await assert.rejects(
+    readJsonBody(req),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, HTTP_ERROR_CODES.INVALID_JSON);
+      return true;
+    }
+  );
 });
 
 function multipartReq(boundary, body) {

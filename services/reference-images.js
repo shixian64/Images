@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 
+import { positiveIntFromEnv } from '../utils/config.js';
 import { generationJobs, images as imagesTable } from './db.js';
 import { guardPaths } from './path-guard.js';
 
@@ -37,11 +38,6 @@ const EXT_BY_MIME = {
 };
 
 const TERMINAL_JOB_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
-
-function positiveIntFromEnv(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 export function getMaxReferenceImages() {
   return positiveIntFromEnv('MAX_REFERENCE_IMAGES', DEFAULT_MAX_REFERENCE_IMAGES);

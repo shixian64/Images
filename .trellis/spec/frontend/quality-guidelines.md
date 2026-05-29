@@ -3,6 +3,7 @@
 ## Required Patterns
 
 - Use `apiFetch()` from `public/modules/auth.js` for every API request. It centralizes credentials, CSRF headers, and JSON serialization.
+- `apiFetch()` also records the latest `x-request-id` / `x-trace-id` response header; client log sync should include that trace ID for backend correlation.
 - Escape user-controlled values with `escapeHtml()` before inserting into `innerHTML`.
 - Keep raw API keys out of localStorage and logs. Personal profile persistence must strip keys as in `profiles.js`.
 - Use `setStatus()` for short feedback and panel-local error regions for detailed failures.

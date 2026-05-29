@@ -27,8 +27,12 @@ import { migrate, sessions } from './services/db.js';
 import { startJobQueue, stopJobQueue } from './services/job-queue.js';
 import { sendJson } from './utils/http.js';
 import { logger } from './utils/logger.js';
+import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
+import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
 
-const PORT = Number(process.env.PORT || 8787);
+validateEnvConfig({ logger });
+
+const PORT = positiveIntFromEnv('PORT', 8787);
 const ROOT_DIR = process.cwd();
 const PUBLIC_DIR = join(ROOT_DIR, 'public');
 const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
@@ -106,18 +110,19 @@ async function handleRequest(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  handleRequest(req, res).catch((err) => {
+  const traceId = attachTraceId(req, res);
+  runWithRequestContext({ traceId }, () => handleRequest(req, res).catch((err) => {
     logger.error('server.request_unhandled', {
       method: req.method,
       url: req.url,
-      error: err?.message || String(err)
+      err
     });
     if (res.headersSent) {
       res.destroy?.();
       return;
     }
     sendJson(res, 500, { error: 'internal server error' });
-  });
+  }));
 });
 
 // 每小时清一次过期 session
@@ -145,7 +150,7 @@ function shutdown(signal) {
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal });
     process.exit(1);
-  }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 10_000));
+  }, positiveIntFromEnv('SHUTDOWN_TIMEOUT_MS', 10_000));
   forceExit.unref?.();
 
   server.close((err) => {

@@ -111,3 +111,28 @@ test('client logs redact secrets embedded in ordinary strings', () => {
   assert.match(row.meta.detail, /Bearer sk-m\*\*\*\*3456/);
   assert.match(row.pageUrl, /api_key=sk-u\*\*\*\*3456/);
 });
+
+test('client logs preserve request trace id in sanitized metadata', () => {
+  const user = auth.register({
+    username: 'log_trace_user',
+    email: 'log_trace_user@example.com',
+    password: 'longenough1'
+  });
+
+  const result = clientLogService.recordClientLogs(reqFor(user), {
+    items: [
+      {
+        id: 'local-log-trace',
+        level: 'error',
+        message: 'client failed after api request',
+        meta: { component: 'studio' },
+        traceId: 'trace-client-123'
+      }
+    ]
+  });
+  assert.equal(result.inserted, 1);
+
+  const [row] = clientLogService.listClientLogsForUser(user.id, { limit: 1 });
+  assert.equal(row.meta.component, 'studio');
+  assert.equal(row.meta.traceId, 'trace-client-123');
+});

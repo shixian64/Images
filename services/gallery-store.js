@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
+import { positiveIntFromEnv } from '../utils/config.js';
 import { images as imagesTable, imageLikes, dbPaths } from './db.js';
 import { tryReserveStorageBytes } from './quota.js';
 import { guardedFetch } from './upstream.js';
@@ -47,11 +48,6 @@ function normalizeFormat(format) {
 
 function normalizeMimeType(contentType) {
   return String(contentType || '').split(';')[0].trim().toLowerCase();
-}
-
-function positiveIntFromEnv(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 function todayUtc() {

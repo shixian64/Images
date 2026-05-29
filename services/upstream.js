@@ -14,6 +14,8 @@ import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 
+import { positiveIntFromEnv } from '../utils/config.js';
+
 const DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 const BLOCKED_IPV4_CIDRS = [
@@ -33,11 +35,6 @@ const BLOCKED_IPV4_CIDRS = [
   ['240.0.0.0', 4],
   ['255.255.255.255', 32]
 ];
-
-function positiveIntFromEnv(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 export function getMaxUpstreamResponseBytes() {
   return positiveIntFromEnv('MAX_UPSTREAM_RESPONSE_BYTES', DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES);

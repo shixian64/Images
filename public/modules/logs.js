@@ -2,7 +2,7 @@
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
 import { $, escapeHtml, maskKey } from './dom.js';
-import { apiFetch } from './auth.js';
+import { apiFetch, getLastRequestTraceId } from './auth.js';
 import { redactSecrets } from '../../shared/redaction.js';
 import {
   KEYS,
@@ -124,23 +124,26 @@ function persistSyncQueue() {
   writeJsonScoped(KEYS.clientLogSyncQueue, syncQueue);
 }
 
-function clientContext() {
+function clientContext(traceId = getLastRequestTraceId()) {
   return {
     pageUrl: redactLogString(location.href),
     userAgent: redactLogString(navigator.userAgent),
     language: redactLogString(navigator.language),
-    viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`
+    viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`,
+    traceId
   };
 }
 
 function entryForSync(entry) {
+  const traceId = entry.traceId || getLastRequestTraceId();
   return {
     id: entry.id,
     ts: entry.ts,
     level: entry.level,
     message: redactLogString(entry.message),
     meta: sanitizeMeta(entry.meta),
-    context: clientContext()
+    traceId,
+    context: clientContext(traceId)
   };
 }
 
@@ -202,12 +205,14 @@ export async function syncClientLogs() {
 export function addLog(level, message, meta = {}) {
   ensureLogsLoaded();
   if (!LEVEL_ORDER.includes(level)) level = 'info';
+  const traceId = getLastRequestTraceId();
   const entry = {
     id: (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random()}`,
     ts: new Date().toISOString(),
     level,
     message: redactLogString(message || ''),
-    meta: sanitizeMeta(meta)
+    meta: sanitizeMeta(meta),
+    traceId
   };
   logs.unshift(entry);
   if (logs.length > MAX_LOGS) logs.length = MAX_LOGS;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { setCurrentUser } from '../public/modules/auth.js';
+import { apiFetch, getLastRequestTraceId, setCurrentUser } from '../public/modules/auth.js';
 import { KEYS, userKey } from '../public/modules/state.js';
 
 function installLocalStorage() {
@@ -30,6 +30,22 @@ test.beforeEach(() => {
 test.afterEach(() => {
   setCurrentUser(null);
   delete globalThis.localStorage;
+  delete globalThis.fetch;
+  delete globalThis.location;
+  delete globalThis.navigator;
+  delete globalThis.window;
+});
+
+test('apiFetch caches the latest response trace id', async () => {
+  globalThis.fetch = async () => new Response('{}', {
+    status: 200,
+    headers: { 'x-request-id': 'trace-api' }
+  });
+
+  const resp = await apiFetch('/api/ping');
+
+  assert.equal(resp.ok, true);
+  assert.equal(getLastRequestTraceId(), 'trace-api');
 });
 
 test('frontend logs redact embedded secrets before localStorage persistence', async (t) => {
@@ -80,4 +96,71 @@ test('frontend log sync context redacts URL and user-agent secrets', async () =>
   assert.equal(serialized.includes(leakedAgent), false);
   assert.match(context.pageUrl, /api_key=sk-u\*\*\*\*3456/);
   assert.match(context.userAgent, /Bearer sk-a\*\*\*\*3456/);
+});
+
+test('frontend log sync includes the latest request trace id', async (t) => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = () => 1;
+  globalThis.clearTimeout = () => {};
+  globalThis.location = { href: 'http://localhost:8787/#logs' };
+  globalThis.navigator = { userAgent: 'node-test-agent', language: 'en-US' };
+  globalThis.window = { innerWidth: 1200, innerHeight: 800 };
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  let capturedBody = null;
+  globalThis.fetch = async (url, opts = {}) => {
+    if (url === '/api/ping') {
+      return new Response('{}', { status: 200, headers: { 'x-request-id': 'trace-before-sync' } });
+    }
+    capturedBody = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  await apiFetch('/api/ping');
+  const { addLog, syncClientLogs } = await import(`../public/modules/logs.js?case=trace-${Date.now()}`);
+  addLog('error', 'client failed');
+  await syncClientLogs();
+
+  assert.equal(capturedBody.items.length, 1);
+  assert.equal(capturedBody.items[0].traceId, 'trace-before-sync');
+  assert.equal(capturedBody.items[0].context.traceId, 'trace-before-sync');
+});
+
+test('frontend log sync preserves the trace id from log creation time', async (t) => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = () => 1;
+  globalThis.clearTimeout = () => {};
+  globalThis.location = { href: 'http://localhost:8787/#logs' };
+  globalThis.navigator = { userAgent: 'node-test-agent', language: 'en-US' };
+  globalThis.window = { innerWidth: 1200, innerHeight: 800 };
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  let capturedBody = null;
+  globalThis.fetch = async (url, opts = {}) => {
+    if (url === '/api/first') {
+      return new Response('{}', { status: 200, headers: { 'x-request-id': 'trace-first' } });
+    }
+    if (url === '/api/second') {
+      return new Response('{}', { status: 200, headers: { 'x-request-id': 'trace-second' } });
+    }
+    capturedBody = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  await apiFetch('/api/first');
+  const { addLog, syncClientLogs } = await import(`../public/modules/logs.js?case=fixed-trace-${Date.now()}`);
+  addLog('error', 'client failed after first request');
+  await apiFetch('/api/second');
+  await syncClientLogs();
+
+  assert.equal(capturedBody.items[0].traceId, 'trace-first');
+  assert.equal(capturedBody.items[0].context.traceId, 'trace-first');
 });

@@ -2,6 +2,7 @@
 // 其他 modules 的所有 fetch 都应该通过 apiFetch，避免漏挂 X-Requested-With。
 
 const CURRENT_USER_KEY = Symbol.for('image-key-manager.currentUser');
+let lastRequestTraceId = '';
 
 function authState() {
   if (!globalThis[CURRENT_USER_KEY]) {
@@ -32,13 +33,16 @@ export async function apiFetch(url, opts = {}) {
     body = JSON.stringify(body);
   }
 
-  return fetch(url, {
+  const resp = await fetch(url, {
     ...opts,
     method,
     headers,
     body,
     credentials: opts.credentials || 'include'
   });
+  const traceId = resp.headers?.get?.('x-request-id') || resp.headers?.get?.('x-trace-id') || '';
+  if (traceId) lastRequestTraceId = traceId;
+  return resp;
 }
 
 export async function getMe() {
@@ -75,4 +79,8 @@ export function getCurrentUser() {
 
 export function getCurrentUserId() {
   return authState().currentUser?.id || null;
+}
+
+export function getLastRequestTraceId() {
+  return lastRequestTraceId;
 }

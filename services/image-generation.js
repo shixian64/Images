@@ -3,6 +3,7 @@
 
 import { logger } from '../utils/logger.js';
 import { maskApiKey, redactSecrets } from '../utils/mask.js';
+import { positiveIntFromEnv } from '../utils/config.js';
 import {
   assertAllowedUpstreamUrl,
   buildImagePayload,
@@ -20,11 +21,6 @@ import {
   stageReferenceImages
 } from './reference-images.js';
 import { readFile } from 'node:fs/promises';
-
-function positiveIntFromEnv(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 const DEFAULT_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_HEARTBEAT_MS = 15 * 1000;

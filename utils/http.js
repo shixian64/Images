@@ -1,4 +1,4 @@
-// 极小的 HTTP 辅助层。未来替换成 Fastify / Next.js Route Handler 时只需改这里。
+import { positiveIntFromEnv } from './config.js';
 
 export function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -11,27 +11,42 @@ export function sendJson(res, status, payload) {
 export const DEFAULT_JSON_BODY_LIMIT_BYTES = 1024 * 1024;
 export const DEFAULT_MULTIPART_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
 
-function parsePositiveInt(value, fallback) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
 export function getJsonBodyLimitBytes() {
-  return parsePositiveInt(process.env.MAX_JSON_BODY_BYTES, DEFAULT_JSON_BODY_LIMIT_BYTES);
+  return positiveIntFromEnv('MAX_JSON_BODY_BYTES', DEFAULT_JSON_BODY_LIMIT_BYTES);
 }
 
 export function getMultipartBodyLimitBytes() {
-  return parsePositiveInt(process.env.MAX_MULTIPART_BODY_BYTES, DEFAULT_MULTIPART_BODY_LIMIT_BYTES);
+  return positiveIntFromEnv('MAX_MULTIPART_BODY_BYTES', DEFAULT_MULTIPART_BODY_LIMIT_BYTES);
 }
 
-export function httpError(statusCode, message) {
+export const HTTP_ERROR_CODES = Object.freeze({
+  INVALID_JSON: 'invalid_json',
+  REQUEST_BODY_TOO_LARGE: 'request_body_too_large',
+  MULTIPART_BOUNDARY_REQUIRED: 'multipart_boundary_required',
+  INVALID_MULTIPART_BODY: 'invalid_multipart_body',
+  MULTIPART_FIELD_NAME_REQUIRED: 'multipart_field_name_required',
+  INTERNAL_ERROR: 'internal_error'
+});
+
+export function createHttpError(statusCode, message, code) {
+  const status = Number(statusCode) || 500;
   const err = new Error(message);
-  err.statusCode = statusCode;
+  err.statusCode = status;
+  err.status = status;
+  if (code) err.code = code;
   return err;
 }
 
+export function httpError(statusCode, message, code) {
+  return createHttpError(statusCode, message, code);
+}
+
+export function errorStatus(error, fallback = 500) {
+  return Number(error?.statusCode || error?.status) || fallback;
+}
+
 export function bodyErrorStatus(error) {
-  return Number(error?.statusCode) || 400;
+  return errorStatus(error, 400);
 }
 
 export async function readJsonBody(req, { limitBytes = getJsonBodyLimitBytes() } = {}) {
@@ -40,7 +55,7 @@ export async function readJsonBody(req, { limitBytes = getJsonBodyLimitBytes() }
   for await (const chunk of req) {
     total += chunk.length;
     if (total > limitBytes) {
-      throw httpError(413, `request body too large (max ${limitBytes} bytes)`);
+      throw createHttpError(413, `request body too large (max ${limitBytes} bytes)`, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
     }
     chunks.push(chunk);
   }
@@ -49,7 +64,7 @@ export async function readJsonBody(req, { limitBytes = getJsonBodyLimitBytes() }
   try {
     return JSON.parse(raw);
   } catch {
-    throw httpError(400, 'invalid json');
+    throw createHttpError(400, 'invalid json', HTTP_ERROR_CODES.INVALID_JSON);
   }
 }
 
@@ -59,7 +74,7 @@ async function readBodyBuffer(req, { limitBytes }) {
   for await (const chunk of req) {
     total += chunk.length;
     if (total > limitBytes) {
-      throw httpError(413, `request body too large (max ${limitBytes} bytes)`);
+      throw createHttpError(413, `request body too large (max ${limitBytes} bytes)`, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
     }
     chunks.push(Buffer.from(chunk));
   }
@@ -70,7 +85,7 @@ function multipartBoundary(contentType) {
   const raw = String(contentType || '');
   const match = raw.match(/(?:^|;)\s*boundary=(?:"([^"]+)"|([^;]+))/i);
   const boundary = (match?.[1] || match?.[2] || '').trim();
-  if (!boundary) throw httpError(400, 'multipart boundary is required');
+  if (!boundary) throw createHttpError(400, 'multipart boundary is required', HTTP_ERROR_CODES.MULTIPART_BOUNDARY_REQUIRED);
   return boundary;
 }
 
@@ -173,21 +188,21 @@ export async function readMultipartFormData(req, {
   const fields = {};
   const files = [];
   let current = findFirstDelimiter(buffer, delimiter);
-  if (!current) throw httpError(400, 'invalid multipart body');
+  if (!current) throw createHttpError(400, 'invalid multipart body', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
 
   while (current && !current.closing) {
     const pos = current.nextPos;
 
     const headerEnd = buffer.indexOf(headerEndMarker, pos);
-    if (headerEnd === -1) throw httpError(400, 'invalid multipart part');
+    if (headerEnd === -1) throw createHttpError(400, 'invalid multipart part', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
     const headers = parsePartHeaders(buffer.slice(pos, headerEnd).toString('utf8'));
     const disposition = parseHeaderParams(headers['content-disposition'] || '');
     const name = disposition.name;
-    if (!name) throw httpError(400, 'multipart field name is required');
+    if (!name) throw createHttpError(400, 'multipart field name is required', HTTP_ERROR_CODES.MULTIPART_FIELD_NAME_REQUIRED);
 
     const contentStart = headerEnd + headerEndMarker.length;
     const next = findNextDelimiter(buffer, nextDelimiterMarker, delimiter, contentStart);
-    if (!next) throw httpError(400, 'invalid multipart boundary');
+    if (!next) throw createHttpError(400, 'invalid multipart boundary', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
     const content = buffer.slice(contentStart, next.contentEnd);
 
     if (disposition.filename !== undefined) {

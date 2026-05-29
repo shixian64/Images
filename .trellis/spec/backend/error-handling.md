@@ -39,6 +39,68 @@ Services generally throw `Error` objects. When the status matters, attach `statu
 
 Route handlers should map expected service errors to stable HTTP statuses and avoid leaking internals.
 
+## Scenario: Shared HTTP Error and Environment Config Boundary
+
+### 1. Scope / Trigger
+
+- Trigger: Any route/service helper that creates HTTP-shaped errors, maps body parsing failures, or reads numeric environment limits.
+- This is infra code: changes affect most API routes because body parsing and limits sit on the HTTP boundary.
+
+### 2. Signatures
+
+- `createHttpError(statusCode, message, code?)` from `utils/http.js`.
+- `httpError(statusCode, message, code?)` remains a compatibility alias.
+- `errorStatus(error, fallback = 500)` accepts either `error.statusCode` or `error.status`.
+- `bodyErrorStatus(error)` is `errorStatus(error, 400)`.
+- `positiveIntFromEnv(name, fallback, { allowZero = false } = {})` from `utils/config.js`.
+- `validateEnvConfig({ logger } = {})` returns warnings and logs `config.env.invalid_positive_int`.
+
+### 3. Contracts
+
+- HTTP errors must carry both `statusCode` and `status` so old route code and newer service code behave the same.
+- Stable machine-readable error `code` values should be added when the caller or frontend can branch on the failure.
+- Numeric environment values parse as finite positive integers and `Math.floor()` decimals; invalid, empty, or non-positive values fall back.
+- Only keys that intentionally allow disabling with zero should pass `{ allowZero: true }`.
+
+### 4. Validation & Error Matrix
+
+- Invalid JSON body -> `400`, code `invalid_json`.
+- Oversized JSON/multipart body -> `413`, code `request_body_too_large`.
+- Missing multipart boundary -> `400`, code `multipart_boundary_required`.
+- Malformed multipart structure -> `400`, code `invalid_multipart_body`.
+- Invalid positive integer env value -> keep fallback, emit `config.env.invalid_positive_int` at startup validation.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `throw createHttpError(429, 'quota exceeded', 'daily_limit_exceeded')`.
+- Base: `throw httpError(400, 'invalid input')` is allowed for legacy compatibility, but new shared helpers should prefer `createHttpError`.
+- Bad: `const n = Number(process.env.MAX_FOO) || fallback` because `NaN`, `0`, and decimal behavior drift from the centralized parser.
+
+### 6. Tests Required
+
+- HTTP helpers: assert `statusCode`, `status`, `code`, and `bodyErrorStatus()`.
+- Body parsing: assert invalid JSON and multipart errors expose stable codes.
+- Config helpers: assert invalid/non-positive env values fall back and `allowZero` is explicit.
+- Startup validation: assert invalid configured env values produce warnings without changing runtime fallback behavior.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```js
+function positiveIntFromEnv(name, fallback) {
+  return Number(process.env[name]) || fallback;
+}
+```
+
+#### Correct
+
+```js
+import { positiveIntFromEnv } from '../utils/config.js';
+
+const limit = positiveIntFromEnv('MAX_JSON_BODY_BYTES', 1024 * 1024);
+```
+
 ## Top-Level Catch
 
 `server.js` wraps `handleRequest()` and logs unhandled exceptions as `server.request_unhandled`. If headers were not sent, it returns `500 { error: 'internal server error' }`.
