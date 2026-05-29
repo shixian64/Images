@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture constraints for platform research"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite constraints and migration considerations"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend architecture constraints for i18n/offline/plugin research"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer research framing"}
