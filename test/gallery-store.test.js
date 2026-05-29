@@ -234,3 +234,37 @@ test('removeDanglingFile only deletes files under a user images directory', asyn
   assert.equal(removed.path, `users/${user.id}/images/dangling/orphan.png`);
   assert.equal(existsSync(orphanPath), false);
 });
+
+test('scanOrphans reads image rows in bounded maintenance pages', async () => {
+  const original = db.images.listAllForMaintenance;
+  const calls = [];
+  db.images.listAllForMaintenance = function patchedListAllForMaintenance(options = {}) {
+    calls.push(options);
+    return original.call(this, options);
+  };
+
+  try {
+    await withEnv({
+      GALLERY_MAINTENANCE_SCAN_PAGE_SIZE: '1',
+      GALLERY_STAT_CONCURRENCY: '2'
+    }, async () => {
+      await gallery.saveGeneratedImages(
+        [
+          { b64_json: Buffer.from(PNG_BYTES).toString('base64') },
+          { b64_json: Buffer.from(PNG_BYTES).toString('base64') }
+        ],
+        { prompt: 'paged maintenance scan', outputFormat: 'png' },
+        { userId: user.id }
+      );
+      const result = await gallery.scanOrphans();
+      assert.ok(Array.isArray(result.missingFiles));
+      assert.ok(Array.isArray(result.danglingFiles));
+    });
+  } finally {
+    db.images.listAllForMaintenance = original;
+  }
+
+  assert.ok(calls.length >= 2);
+  assert.ok(calls.every((call) => call.limit === 1));
+  assert.deepEqual(calls.slice(0, 3).map((call) => call.offset), [0, 1, 2]);
+});

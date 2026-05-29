@@ -15,11 +15,11 @@ let db;
 let serveStatic;
 let userA, userB;
 
-function mockReq(url, session) {
+function mockReq(url, session, { method = 'GET', headers = {} } = {}) {
   return {
     url,
-    method: 'GET',
-    headers: { host: 'localhost:8787' },
+    method,
+    headers: { host: 'localhost:8787', ...headers },
     session
   };
 }
@@ -44,8 +44,8 @@ function mockRes() {
   return res;
 }
 
-async function call(url, session) {
-  const req = mockReq(url, session);
+async function call(url, session, options = {}) {
+  const req = mockReq(url, session, options);
   const res = mockRes();
   await serveStatic(req, res);
   return res;
@@ -130,6 +130,28 @@ test('owner can access own user-scoped image', async () => {
   );
   assert.equal(res.statusCode, 200);
   assert.ok(Buffer.isBuffer(res.body) && res.body.length === 4);
+});
+
+test('saved gallery images use immutable private cache headers with ETag revalidation', async () => {
+  const url = `/gallery-files/users/${userA.id}/images/2026-04-25/a.png`;
+  const res = await call(url, { user: userA, sessionId: 's' });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['cache-control'], /max-age=31536000/);
+  assert.match(res.headers['cache-control'], /immutable/);
+  assert.match(res.headers.etag, /^"[0-9a-f]+-[0-9a-f]+"$/);
+
+  const cached = await call(url, { user: userA, sessionId: 's' }, {
+    headers: { 'if-none-match': res.headers.etag }
+  });
+  assert.equal(cached.statusCode, 304);
+  assert.equal(cached.body, undefined);
+});
+
+test('public app assets keep no-cache headers', async () => {
+  const res = await call('/', null);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['cache-control'], 'no-cache');
+  assert.equal(res.headers.etag, undefined);
 });
 
 test('other user gets 403 on cross-user image', async () => {

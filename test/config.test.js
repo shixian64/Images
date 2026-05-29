@@ -56,4 +56,6 @@ test('config center knows common positive integer env names', () => {
   assert.ok(names.includes('DATA_CLEANUP_INTERVAL_MS'));
   assert.ok(names.includes('SQLITE_BUSY_TIMEOUT_MS'));
   assert.ok(names.includes('SHUTDOWN_TIMEOUT_MS'));
+  assert.ok(names.includes('RATE_LIMIT_MAX_KEYS'));
+  assert.ok(names.includes('GALLERY_STAT_CONCURRENCY'));
 });

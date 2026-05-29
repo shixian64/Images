@@ -22,6 +22,8 @@ const GALLERY_ROOT = guardPaths.generatedRoot;
 const DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 const DEFAULT_DAILY_PUBLIC_LIKE_LIMIT = 10;
+const DEFAULT_GALLERY_STAT_CONCURRENCY = 16;
+const DEFAULT_MAINTENANCE_SCAN_PAGE_SIZE = 500;
 
 const MIME_BY_EXT = {
   png: 'image/png',
@@ -64,6 +66,31 @@ function imageDownloadTimeoutMs() {
 
 function dailyPublicLikeLimit() {
   return positiveIntFromEnv('PUBLIC_GALLERY_DAILY_LIKE_LIMIT', DEFAULT_DAILY_PUBLIC_LIKE_LIMIT);
+}
+
+function galleryStatConcurrency() {
+  return positiveIntFromEnv('GALLERY_STAT_CONCURRENCY', DEFAULT_GALLERY_STAT_CONCURRENCY);
+}
+
+function maintenanceScanPageSize() {
+  return positiveIntFromEnv('GALLERY_MAINTENANCE_SCAN_PAGE_SIZE', DEFAULT_MAINTENANCE_SCAN_PAGE_SIZE);
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const source = Array.isArray(items) ? items : [];
+  if (!source.length) return [];
+  const concurrency = Math.min(source.length, Math.max(1, Math.floor(Number(limit) || 1)));
+  const results = new Array(source.length);
+  let next = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (next < source.length) {
+      const index = next;
+      next += 1;
+      results[index] = await mapper(source[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function imageTypeFromMagic(buffer) {
@@ -410,26 +437,27 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
 }
 
 async function itemsFromRows(rows, { viewerId = null } = {}) {
-  const items = [];
-  for (const row of rows) {
+  const mapped = await mapWithConcurrency(rows, galleryStatConcurrency(), async (row) => {
     const item = rowToItem(row);
     // path 可能是新格式 users/<uid>/images/... 或旧格式 images/...
     const filePath = join(GALLERY_ROOT, ...item.path.split(/[\\/]+/).filter(Boolean));
     try {
       const fileStat = await stat(filePath);
-      if (!fileStat.isFile()) continue;
+      if (!fileStat.isFile()) return null;
       const publicUrl = toPublicUrl(item.path);
-      items.push({
+      return {
         ...item,
         url: publicUrl,
         downloadUrl: publicUrl,
         bytes: item.bytes || fileStat.size
-      });
+      };
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
       // 物理文件丢了 —— 跳过，不影响其他条目
+      return null;
     }
-  }
+  });
+  const items = mapped.filter(Boolean);
 
   const ids = items.map((item) => item.id).filter(Boolean);
   const likeCounts = imageLikes.countForImages(ids);
@@ -645,36 +673,52 @@ export async function adminStats() {
 
 // 扫描孤儿：DB 行无文件 + 文件系统多余文件。
 export async function scanOrphans() {
-  const rows = imagesTable.listAllForMaintenance();
   const dbKnownPaths = new Set();
   const missingFiles = [];
+  const pageSize = maintenanceScanPageSize();
+  let offset = 0;
 
-  for (const row of rows) {
-    const segs = String(row.path || '').split(/[\\/]+/).filter(Boolean);
-    if (!segs.length) continue;
-    dbKnownPaths.add(segs.join('/'));
-    const abs = resolve(GALLERY_ROOT, ...segs);
-    try {
-      const st = await stat(abs);
-      if (!st.isFile()) {
-        missingFiles.push({
+  while (true) {
+    const rows = imagesTable.listAllForMaintenance({ limit: pageSize, offset });
+    if (!rows.length) break;
+
+    const entries = rows
+      .map((row) => ({
+        row,
+        segs: String(row.path || '').split(/[\\/]+/).filter(Boolean)
+      }))
+      .filter((entry) => entry.segs.length);
+
+    for (const entry of entries) {
+      dbKnownPaths.add(entry.segs.join('/'));
+    }
+
+    const missingPage = await mapWithConcurrency(entries, galleryStatConcurrency(), async ({ row, segs }) => {
+      const abs = resolve(GALLERY_ROOT, ...segs);
+      try {
+        const st = await stat(abs);
+        if (st.isFile()) return null;
+        return {
           id: row.id,
           path: row.path,
           userId: row.user_id,
           createdAt: row.created_at
-        });
-      }
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        missingFiles.push({
+        };
+      } catch (err) {
+        if (err.code !== 'ENOENT') return null;
+        return {
           id: row.id,
           path: row.path,
           userId: row.user_id,
           createdAt: row.created_at,
           bytes: Number(row.bytes) || 0
-        });
+        };
       }
-    }
+    });
+    missingFiles.push(...missingPage.filter(Boolean));
+
+    if (rows.length < pageSize) break;
+    offset += rows.length;
   }
 
   // 反向扫 generated/users/<uid>/images 下的真实文件
@@ -703,28 +747,33 @@ async function walkAndCheck(dir, userId, knownPaths, danglingFiles) {
   } catch {
     return;
   }
+  const files = [];
   for (const ent of entries) {
     const abs = join(dir, ent.name);
     if (ent.isDirectory()) {
       await walkAndCheck(abs, userId, knownPaths, danglingFiles);
       continue;
     }
-    if (!isUnderUserImages(abs)) continue;
-    const rel = abs.slice(GALLERY_ROOT.length + 1).split(sep).join('/');
-    if (!knownPaths.has(rel)) {
-      try {
-        const st = await stat(abs);
-        danglingFiles.push({
-          path: rel,
-          userId,
-          bytes: st.size,
-          mtime: st.mtime?.toISOString?.() || null
-        });
-      } catch {
-        danglingFiles.push({ path: rel, userId });
-      }
-    }
+    files.push(abs);
   }
+
+  const dangling = await mapWithConcurrency(files, galleryStatConcurrency(), async (abs) => {
+    if (!isUnderUserImages(abs)) return null;
+    const rel = abs.slice(GALLERY_ROOT.length + 1).split(sep).join('/');
+    if (knownPaths.has(rel)) return null;
+    try {
+      const st = await stat(abs);
+      return {
+        path: rel,
+        userId,
+        bytes: st.size,
+        mtime: st.mtime?.toISOString?.() || null
+      };
+    } catch {
+      return { path: rel, userId };
+    }
+  });
+  danglingFiles.push(...dangling.filter(Boolean));
 }
 
 // 删除一个孤儿文件（物理路径，仅 admin 可调）。

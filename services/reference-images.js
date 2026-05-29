@@ -356,7 +356,7 @@ export async function cleanupExpiredReferenceJobFiles({ now = Date.now(), ttlMs 
     if (!abs.startsWith(root + sep)) continue;
     try {
       const st = await stat(abs);
-      if (now - st.mtimeMs >= ttlMs) {
+      if (ttlMs <= 0 || now - st.mtimeMs >= ttlMs) {
         const job = generationJobs.findById(entry.name);
         if (job && !TERMINAL_JOB_STATUSES.has(job.status)) continue;
         await rm(abs, { recursive: true, force: true });

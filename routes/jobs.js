@@ -1,6 +1,7 @@
 // /api/jobs and /api/admin/jobs routes for the persistent generation queue.
 
 import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { createSseSession, openSse, writeSse } from '../utils/sse.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   cancelJob,
@@ -16,26 +17,6 @@ import {
   subscribeUserJobs,
   updateJobPriority
 } from '../services/job-queue.js';
-
-function writeSse(res, event, data = {}) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
-}
-
-function writeSseComment(res, message) {
-  res.write(`: ${message}\n\n`);
-}
-
-function openSse(res) {
-  res.writeHead(200, {
-    'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache, no-transform',
-    'connection': 'keep-alive',
-    'x-accel-buffering': 'no'
-  });
-  res.flushHeaders?.();
-  writeSseComment(res, 'connected');
-}
 
 function statusFromError(err) {
   return err?.statusCode || bodyErrorStatus(err);
@@ -62,12 +43,7 @@ async function handleUserJobs(req, res, pathname) {
     openSse(res);
     writeSse(res, 'snapshot', { items: getUserJobs(user.id) });
     const cleanup = subscribeUserJobs(user.id, res);
-    const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
-    heartbeat.unref?.();
-    res.on('close', () => {
-      clearInterval(heartbeat);
-      cleanup();
-    });
+    createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     return;
   }
 
@@ -80,12 +56,7 @@ async function handleUserJobs(req, res, pathname) {
       openSse(res);
       writeSse(res, 'snapshot', { job });
       const cleanup = subscribeJob(id, res);
-      const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
-      heartbeat.unref?.();
-      res.on('close', () => {
-        clearInterval(heartbeat);
-        cleanup();
-      });
+      createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     } catch (err) {
       return sendJson(res, statusFromError(err), { error: err.message || String(err) });
     }
@@ -152,12 +123,7 @@ async function handleAdminJobs(req, res, pathname, url) {
       stats: queueStats()
     });
     const cleanup = subscribeAdminJobs(res);
-    const heartbeat = setInterval(() => writeSseComment(res, `heartbeat ${Date.now()}`), 25_000);
-    heartbeat.unref?.();
-    res.on('close', () => {
-      clearInterval(heartbeat);
-      cleanup();
-    });
+    createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     return;
   }
 

@@ -3,7 +3,7 @@
   "name": "runtime-sse-resource-hardening",
   "title": "P1: Runtime limits, SSE utilities, and cache headers",
   "description": "Harden long-running runtime behavior: rate-limit map cleanup, shared SSE stream helper, orphan scan pagination/parallel stat, and immutable image cache headers.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

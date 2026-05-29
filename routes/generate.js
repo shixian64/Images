@@ -4,6 +4,7 @@
 
 import { readJsonBody, readMultipartFormData, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
+import { createSseSession, openSse, writeSse, writeSseComment } from '../utils/sse.js';
 import {
   getMaxImagesPerRequest,
   getImageGenerationTimeoutMs,
@@ -24,15 +25,6 @@ export function handleGenerateConfig(req, res) {
     return sendJson(res, 401, { error: 'unauthorized' });
   }
   return sendJson(res, 200, { maxImagesPerRequest: getMaxImagesPerRequest() });
-}
-
-function writeSse(res, event, data = {}) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
-}
-
-function writeSseComment(res, message) {
-  res.write(`: ${message}\n\n`);
 }
 
 function statusFromError(error) {
@@ -161,14 +153,7 @@ export async function handleGenerateStream(req, res) {
     });
   }
 
-  res.writeHead(200, {
-    'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache, no-transform',
-    'connection': 'keep-alive',
-    'x-accel-buffering': 'no'
-  });
-  res.flushHeaders?.();
-  writeSseComment(res, 'connected');
+  openSse(res);
   writeSse(res, 'progress', {
     stage: 'accepted',
     message: job.position ? `已加入队列，当前第 ${job.position} 位。` : '已加入队列。',
@@ -176,44 +161,38 @@ export async function handleGenerateStream(req, res) {
     job
   });
 
-  let closed = false;
   let completed = false;
-  let heartbeat = null;
   let cleanup = () => {};
+  let session = null;
   const finish = () => {
+    if (completed) return;
     completed = true;
-    cleanup();
-    if (heartbeat) clearInterval(heartbeat);
-    if (!res.destroyed && !res.writableEnded) res.end();
+    session?.end();
   };
+  session = createSseSession(res, {
+    heartbeatMs: getGenerateStreamHeartbeatMs(),
+    onClose: () => cleanup(),
+    onHeartbeat: () => {
+      if (completed || session?.isClosed()) return;
+      writeSseComment(res, `heartbeat ${Date.now()}`);
+      try {
+        const current = getJobForUser(job.id, req.session.user);
+        const done = streamJobResult(current, res, started);
+        if (done) finish();
+      } catch {
+        writeSse(res, 'progress', {
+          stage: 'waiting',
+          message: '仍在等待任务更新…',
+          elapsedMs: Date.now() - started
+        });
+      }
+    }
+  });
   cleanup = onJobUpdate(job.id, (updated) => {
-    if (closed || completed || res.destroyed || res.writableEnded) return;
+    if (completed || session.isClosed()) return;
     const done = streamJobResult(updated, res, started);
     if (done) finish();
   });
-
-  res.on('close', () => {
-    closed = true;
-    cleanup();
-    if (heartbeat) clearInterval(heartbeat);
-  });
-
-  heartbeat = setInterval(() => {
-    if (closed || completed || res.destroyed || res.writableEnded) return;
-    writeSseComment(res, `heartbeat ${Date.now()}`);
-    try {
-      const current = getJobForUser(job.id, req.session.user);
-      const done = streamJobResult(current, res, started);
-      if (done) finish();
-    } catch {
-      writeSse(res, 'progress', {
-        stage: 'waiting',
-        message: '仍在等待任务更新…',
-        elapsedMs: Date.now() - started
-      });
-    }
-  }, getGenerateStreamHeartbeatMs());
-  heartbeat.unref?.();
 
   try {
     const current = getJobForUser(job.id, req.session.user);

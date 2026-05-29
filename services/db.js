@@ -706,11 +706,14 @@ export const images = {
       ORDER BY created_at DESC LIMIT ?
     `).all(limit);
   },
-  listAllForMaintenance() {
+  listAllForMaintenance({ limit = 500, offset = 0 } = {}) {
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 500));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
     return open().prepare(`
       SELECT * FROM images
       ORDER BY created_at DESC
-    `).all();
+      LIMIT ? OFFSET ?
+    `).all(safeLimit, safeOffset);
   },
   adminStats(today) {
     const db = open();

@@ -47,3 +47,87 @@ The normal verification command is `npm test`. For documentation-only changes, r
 - Are secrets redacted in every log and error path?
 - Is generated file access scoped to the owning user, admin, or public-image rule?
 - Do tests cover the security-sensitive edge case, not only the happy path?
+
+## Scenario: Runtime Resource Limits, SSE Streams, and Immutable Gallery Files
+
+### 1. Scope / Trigger
+
+- Trigger: changing in-memory limiters, long-lived SSE endpoints, generated image scans, or static serving under `/gallery-files/*`.
+- Goal: prevent unbounded memory/DB/file-system work while keeping stream cleanup and generated image caching deterministic.
+
+### 2. Signatures
+
+- `hit(key, max, windowMs, options?) -> { allowed, remaining, retryAfterMs }` in `services/rate-limit.js`; `options.now/maxKeys/cleanupIntervalMs` are test hooks and must remain optional.
+- `openSse(res)`, `writeSse(res, event, data)`, `writeSseComment(res, message)`, and `createSseSession(res, { heartbeatMs, onHeartbeat, onClose })` live in `utils/sse.js`.
+- `images.listAllForMaintenance({ limit, offset })` must page rows; callers must not use an unbounded maintenance `SELECT *`.
+- `scanOrphans()` pages DB rows and caps filesystem `stat()` concurrency.
+- `createStaticHandler()` may return `304` for authorized `/gallery-files/*` requests when `If-None-Match` matches the generated ETag.
+
+### 3. Contracts
+
+- Env keys:
+  - `RATE_LIMIT_MAX_KEYS` caps the in-memory limiter key count.
+  - `RATE_LIMIT_CLEANUP_INTERVAL_MS=0` means sweep expired limiter keys on every hit.
+  - `GALLERY_STAT_CONCURRENCY` caps concurrent `stat()` calls.
+  - `GALLERY_MAINTENANCE_SCAN_PAGE_SIZE` caps image rows read per maintenance page.
+- SSE responses use `content-type: text/event-stream; charset=utf-8`, `cache-control: no-cache, no-transform`, `connection: keep-alive`, and `x-accel-buffering: no`.
+- Gallery file cache responses are sent only after ownership/public/admin checks pass, use long-lived private immutable caching, and include a stable ETag derived from file metadata.
+- Non-gallery static assets keep `cache-control: no-cache`; JSON API responses keep `no-store` via `sendJson()`.
+
+### 4. Validation & Error Matrix
+
+- Limiter key expired -> remove it during cleanup; if max keys is reached, evict least-recent keys instead of rejecting all new keys.
+- SSE close/end -> clear heartbeat timer and run subscriber cleanup exactly once.
+- SSE write after destroyed/ended response -> helper returns `false`; stream callers must not throw from cleanup paths.
+- Maintenance scan row with missing file -> include in `missingFiles`; non-`ENOENT` stat errors are ignored like transient races.
+- Authorized gallery request with matching `If-None-Match` -> `304` with cache headers; unauthorized request -> existing `403/404` before cache evaluation.
+- `ttlMs <= 0` in reference job file cleanup -> remove eligible terminal job directories regardless of filesystem mtime skew.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `createSseSession(res, { onClose: unsubscribe })` for job streams so heartbeats and subscribers share one lifecycle.
+- Base: route-specific SSE heartbeat work can pass `onHeartbeat` while still using shared cleanup.
+- Bad: each route creating its own `setInterval()` and `res.on('close')` cleanup because one missed branch leaks subscribers.
+- Good: `images.listAllForMaintenance({ limit: pageSize, offset })` inside a loop.
+- Bad: `images.listAllForMaintenance()` returning every image row for maintenance scans.
+
+### 6. Tests Required
+
+- Rate-limit tests must assert expired key deletion and max-key eviction without changing the public `hit()` response shape.
+- SSE tests must assert standard headers, event serialization, exactly-once close cleanup, and no heartbeat writes after close.
+- Gallery maintenance tests must prove `scanOrphans()` calls the DB wrapper with bounded `limit/offset`.
+- Static tests must assert gallery image `Cache-Control`/`ETag` and `304` behavior, plus non-gallery no-cache behavior.
+- Reference cleanup or queue recovery tests must cover `ttlMs <= 0` so restart cleanup is not defeated by filesystem mtime skew.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```js
+const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 25_000);
+res.on('close', () => {
+  clearInterval(heartbeat);
+  cleanup();
+});
+```
+
+#### Correct
+
+```js
+createSseSession(res, {
+  heartbeatMs: 25_000,
+  onClose: cleanup
+});
+```
+
+#### Wrong
+
+```js
+const rows = imagesTable.listAllForMaintenance();
+```
+
+#### Correct
+
+```js
+const rows = imagesTable.listAllForMaintenance({ limit: pageSize, offset });
+```

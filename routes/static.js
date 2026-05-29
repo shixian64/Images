@@ -25,6 +25,9 @@ const MIME = {
   '.gif': 'image/gif'
 };
 
+const GALLERY_IMAGE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
+const DEFAULT_CACHE_CONTROL = 'no-cache';
+
 function send403(res) {
   res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
   res.end('Forbidden');
@@ -38,6 +41,18 @@ function send404(res) {
 function send400(res) {
   res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
   res.end('Bad request');
+}
+
+function etagForStat(fileStat) {
+  const size = Number(fileStat.size) || 0;
+  const mtimeMs = Math.trunc(Number(fileStat.mtimeMs) || 0);
+  return `"${size.toString(16)}-${mtimeMs.toString(16)}"`;
+}
+
+function requestMatchesEtag(req, etag) {
+  const header = req.headers?.['if-none-match'] || req.headers?.['If-None-Match'];
+  if (!header) return false;
+  return String(header).split(',').map((part) => part.trim()).some((part) => part === '*' || part === etag);
 }
 
 // 判断 filePath 规范化后是否仍在 root 内（防穿越）。
@@ -152,10 +167,24 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
     try {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return send404(res);
+      const isGalleryFile = pathname.startsWith('/gallery-files/');
+      const cacheHeaders = isGalleryFile
+        ? {
+            'cache-control': GALLERY_IMAGE_CACHE_CONTROL,
+            'etag': etagForStat(fileStat)
+          }
+        : { 'cache-control': DEFAULT_CACHE_CONTROL };
+
+      if (isGalleryFile && requestMatchesEtag(req, cacheHeaders.etag)) {
+        res.writeHead(304, cacheHeaders);
+        res.end();
+        return;
+      }
+
       res.writeHead(200, {
         'content-type': MIME[extname(filePath)] || 'application/octet-stream',
         'content-length': fileStat.size,
-        'cache-control': 'no-cache'
+        ...cacheHeaders
       });
       if (req.method === 'HEAD') {
         res.end();
