@@ -22,6 +22,7 @@ import { logger } from '../utils/logger.js';
 import { clientIp, userAgent } from '../utils/request.js';
 
 const LOGIN_RATE_WINDOW_MS = 60_000;
+const ADMIN_BOOTSTRAP_RATE_WINDOW_MS = 10 * 60_000;
 
 function envInt(name, fallback) {
   const raw = process.env[name];
@@ -69,6 +70,17 @@ function checkLoginRateLimit(res, ip, login) {
   return true;
 }
 
+function checkAdminBootstrapRateLimit(res, ip) {
+  const safeIp = ip || 'unknown';
+  const fallbackMax = envInt('REGISTRATION_IP_MAX_PER_10MIN', 3);
+  const max = envInt('ADMIN_BOOTSTRAP_IP_MAX_PER_10MIN', fallbackMax);
+  const windowMs = envInt('ADMIN_BOOTSTRAP_IP_WINDOW_MS', ADMIN_BOOTSTRAP_RATE_WINDOW_MS);
+  return rateLimit(res, `admin-bootstrap:ip:${safeIp}`, max, windowMs, {
+    message: 'admin bootstrap rate limited',
+    code: 'admin_bootstrap_rate_limited'
+  });
+}
+
 async function handleRegister(req, res) {
   const ip = clientIp(req);
   let body;
@@ -81,6 +93,9 @@ async function handleRegister(req, res) {
   const { username, email, password, adminBootstrapToken } = body || {};
   try {
     const adminBootstrapOk = isValidAdminBootstrapToken(adminBootstrapToken);
+    if (adminBootstrapToken && !checkAdminBootstrapRateLimit(res, ip)) {
+      return;
+    }
     if (adminBootstrapToken && !adminBootstrapOk) {
       throw new Error('invalid admin bootstrap token');
     }

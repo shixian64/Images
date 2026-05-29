@@ -113,24 +113,70 @@ function assignField(fields, name, value) {
   }
 }
 
+function parseDelimiterAt(buffer, pos, delimiter) {
+  if (pos < 0 || pos + delimiter.length > buffer.length) return null;
+  if (!buffer.subarray(pos, pos + delimiter.length).equals(delimiter)) return null;
+
+  let next = pos + delimiter.length;
+  let closing = false;
+  if (buffer[next] === 0x2d && buffer[next + 1] === 0x2d) {
+    closing = true;
+    next += 2;
+  }
+
+  if (next === buffer.length) return { closing, nextPos: next };
+  if (buffer[next] === 0x0d && buffer[next + 1] === 0x0a) {
+    return { closing, nextPos: next + 2 };
+  }
+  return null;
+}
+
+function findFirstDelimiter(buffer, delimiter) {
+  let pos = buffer.indexOf(delimiter);
+  while (pos !== -1) {
+    const atLineStart = pos === 0 || (pos >= 2 && buffer[pos - 2] === 0x0d && buffer[pos - 1] === 0x0a);
+    if (atLineStart) {
+      const delimiterInfo = parseDelimiterAt(buffer, pos, delimiter);
+      if (delimiterInfo) return { delimiterPos: pos, ...delimiterInfo };
+    }
+    pos = buffer.indexOf(delimiter, pos + 1);
+  }
+  return null;
+}
+
+function findNextDelimiter(buffer, marker, delimiter, from) {
+  let markerPos = buffer.indexOf(marker, from);
+  while (markerPos !== -1) {
+    const delimiterPos = markerPos + 2; // skip the CRLF that belongs to part content framing
+    const delimiterInfo = parseDelimiterAt(buffer, delimiterPos, delimiter);
+    if (delimiterInfo) {
+      return {
+        contentEnd: markerPos,
+        delimiterPos,
+        ...delimiterInfo
+      };
+    }
+    markerPos = buffer.indexOf(marker, markerPos + 1);
+  }
+  return null;
+}
+
 export async function readMultipartFormData(req, {
   limitBytes = getMultipartBodyLimitBytes()
 } = {}) {
   const boundary = multipartBoundary(req.headers?.['content-type'] || req.headers?.['Content-Type']);
   const buffer = await readBodyBuffer(req, { limitBytes });
   const delimiter = Buffer.from(`--${boundary}`);
-  const nextDelimiter = Buffer.from(`\r\n--${boundary}`);
+  const nextDelimiterMarker = Buffer.from(`\r\n--${boundary}`);
   const headerEndMarker = Buffer.from('\r\n\r\n');
 
   const fields = {};
   const files = [];
-  let pos = buffer.indexOf(delimiter);
-  if (pos === -1) throw httpError(400, 'invalid multipart body');
+  let current = findFirstDelimiter(buffer, delimiter);
+  if (!current) throw httpError(400, 'invalid multipart body');
 
-  while (pos !== -1) {
-    pos += delimiter.length;
-    if (buffer[pos] === 0x2d && buffer[pos + 1] === 0x2d) break; // "--"
-    if (buffer[pos] === 0x0d && buffer[pos + 1] === 0x0a) pos += 2;
+  while (current && !current.closing) {
+    const pos = current.nextPos;
 
     const headerEnd = buffer.indexOf(headerEndMarker, pos);
     if (headerEnd === -1) throw httpError(400, 'invalid multipart part');
@@ -140,9 +186,9 @@ export async function readMultipartFormData(req, {
     if (!name) throw httpError(400, 'multipart field name is required');
 
     const contentStart = headerEnd + headerEndMarker.length;
-    const contentEnd = buffer.indexOf(nextDelimiter, contentStart);
-    if (contentEnd === -1) throw httpError(400, 'invalid multipart boundary');
-    const content = buffer.slice(contentStart, contentEnd);
+    const next = findNextDelimiter(buffer, nextDelimiterMarker, delimiter, contentStart);
+    if (!next) throw httpError(400, 'invalid multipart boundary');
+    const content = buffer.slice(contentStart, next.contentEnd);
 
     if (disposition.filename !== undefined) {
       files.push({
@@ -155,10 +201,7 @@ export async function readMultipartFormData(req, {
       assignField(fields, name, content.toString('utf8'));
     }
 
-    pos = contentEnd + 2; // skip CRLF before the next boundary
-    if (buffer.indexOf(delimiter, pos) !== pos) {
-      pos = buffer.indexOf(delimiter, pos);
-    }
+    current = next;
   }
 
   return { fields, files };

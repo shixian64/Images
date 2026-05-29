@@ -5,7 +5,7 @@
 import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
-  listGallery,
+  listAdminGallery,
   removeImage,
   removeImagesBulk,
   adminStats,
@@ -28,68 +28,37 @@ function parseDate(value, end = false) {
   return text;
 }
 
-function applyAdminFilters(items, urlObj) {
-  if (!urlObj) return { items, page: 1, pageSize: items.length, total: items.length };
+function adminListOptions(urlObj) {
+  if (!urlObj) return { page: 1, pageSize: 50, sort: 'createdAt', order: 'desc' };
   const sp = urlObj.searchParams;
-  const userId = sp.get('userId');
-  const model = sp.get('model');
-  const profileName = sp.get('profileName');
-  const search = String(sp.get('search') || '').trim().toLowerCase();
-  const from = parseDate(sp.get('from'), false);
-  const to = parseDate(sp.get('to'), true);
-  const minBytes = Number(sp.get('minBytes')) || 0;
-  const maxBytes = Number(sp.get('maxBytes')) || 0;
-  const sortField = SORT_FIELDS.has(sp.get('sort')) ? sp.get('sort') : 'createdAt';
-  const sortDir = sp.get('order') === 'asc' ? 1 : -1;
-
-  let filtered = items.filter((it) => {
-    if (userId && it.userId !== userId) return false;
-    if (model && (it.model || '') !== model) return false;
-    if (profileName && (it.profileName || '') !== profileName) return false;
-    if (from && String(it.createdAt) < from) return false;
-    if (to && String(it.createdAt) > to) return false;
-    if (minBytes && Number(it.bytes || 0) < minBytes) return false;
-    if (maxBytes && Number(it.bytes || 0) > maxBytes) return false;
-    if (search) {
-      const blob = `${it.prompt || ''}\n${it.revisedPrompt || ''}\n${it.filename || ''}\n${it.model || ''}\n${it.profileName || ''}`.toLowerCase();
-      if (!blob.includes(search)) return false;
-    }
-    return true;
-  });
-
-  filtered = filtered.sort((a, b) => {
-    const av = sortField === 'bytes' ? Number(a.bytes || 0) : String(a.createdAt || '');
-    const bv = sortField === 'bytes' ? Number(b.bytes || 0) : String(b.createdAt || '');
-    if (av < bv) return -1 * sortDir;
-    if (av > bv) return 1 * sortDir;
-    return 0;
-  });
-
   const page = Math.max(1, Number(sp.get('page')) || 1);
   const pageSize = Math.min(200, Math.max(1, Number(sp.get('size')) || 50));
-  const start = (page - 1) * pageSize;
-  const slice = filtered.slice(start, start + pageSize);
-
   return {
-    items: slice,
+    userId: sp.get('userId') || '',
+    model: sp.get('model') || '',
+    profileName: sp.get('profileName') || '',
+    search: String(sp.get('search') || '').trim().toLowerCase(),
+    from: parseDate(sp.get('from'), false) || '',
+    to: parseDate(sp.get('to'), true) || '',
+    minBytes: Number(sp.get('minBytes')) || 0,
+    maxBytes: Number(sp.get('maxBytes')) || 0,
+    sort: SORT_FIELDS.has(sp.get('sort')) ? sp.get('sort') : 'createdAt',
+    order: sp.get('order') === 'asc' ? 'asc' : 'desc',
     page,
-    pageSize,
-    total: filtered.length,
-    totalAll: items.length
+    pageSize
   };
 }
 
 async function handleList(req, res, urlObj) {
   try {
-    const data = await listGallery({ isAdmin: true, limit: 100000 });
-    const result = applyAdminFilters(data.items, urlObj);
+    const result = await listAdminGallery(adminListOptions(urlObj));
     sendJson(res, 200, {
       items: result.items,
       page: result.page,
       pageSize: result.pageSize,
       total: result.total,
       totalAll: result.totalAll,
-      storage: data.storage
+      storage: result.storage
     });
   } catch (err) {
     logger.error('admin.gallery.list_failed', { error: err.message });

@@ -129,20 +129,6 @@ function validatePublishPayload(body) {
   };
 }
 
-function matchesFilters(item, { search, tag, mine }) {
-  if (mine && !item.isMine) return false;
-  if (tag && tag !== 'all' && !item.tags.includes(tag)) return false;
-  if (!search) return true;
-  const hay = [
-    item.title,
-    item.prompt,
-    item.tags.join(' '),
-    item.owner?.username || '',
-    item.source || ''
-  ].join('\n').toLowerCase();
-  return hay.includes(search);
-}
-
 async function handleCollection(req, res, urlObj) {
   const user = req.session.user;
 
@@ -151,11 +137,13 @@ async function handleCollection(req, res, urlObj) {
     const search = String(urlObj.searchParams.get('search') || '').trim().toLowerCase();
     const tag = String(urlObj.searchParams.get('tag') || 'all').trim();
     const mine = urlObj.searchParams.get('mine') === '1';
-    const all = promptSquare
-      .list(limit)
+    const filters = { limit, search, tag, mine, userId: user.id };
+    const items = promptSquare
+      .list(filters)
       .map((row) => mapSquareRow(row, user.id));
-    const items = all.filter((item) => matchesFilters(item, { search, tag, mine }));
-    return sendJson(res, 200, { items, total: all.length, filtered: items.length });
+    const total = promptSquare.count();
+    const filtered = promptSquare.count(filters);
+    return sendJson(res, 200, { items, total, filtered });
   }
 
   if (req.method === 'POST') {

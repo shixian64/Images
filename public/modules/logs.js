@@ -3,6 +3,7 @@
 
 import { $, escapeHtml, maskKey } from './dom.js';
 import { apiFetch } from './auth.js';
+import { redactSecrets } from '../../shared/redaction.js';
 import {
   KEYS,
   readJsonScoped,
@@ -29,15 +30,18 @@ let clientErrorHandlersMounted = false;
 function ensureLogsLoaded() {
   if (logsLoaded) return;
   logsLoaded = true;
-  logs = readJsonScoped(KEYS.logs, []);
+  const storedLogs = readJsonScoped(KEYS.logs, []);
+  logs = sanitizeLoadedEntries(storedLogs, MAX_LOGS);
+  if (entriesChanged(storedLogs, logs)) writeJsonScoped(KEYS.logs, logs);
   errorSeenAt = readStringScoped(KEYS.logErrorSeenAt, '');
 }
 
 function ensureSyncQueueLoaded() {
   if (syncQueueLoaded) return;
   syncQueueLoaded = true;
-  syncQueue = readJsonScoped(KEYS.clientLogSyncQueue, []);
-  if (!Array.isArray(syncQueue)) syncQueue = [];
+  const storedQueue = readJsonScoped(KEYS.clientLogSyncQueue, []);
+  syncQueue = sanitizeLoadedEntries(storedQueue, SYNC_QUEUE_MAX);
+  if (entriesChanged(storedQueue, syncQueue)) writeJsonScoped(KEYS.clientLogSyncQueue, syncQueue);
 }
 const listeners = new Set();
 
@@ -48,28 +52,70 @@ export function onLogsChanged(fn) {
   return () => listeners.delete(fn);
 }
 
+const SENSITIVE_META_KEY_RE = /(?:api[-_ ]?key|authorization|bearer|token|password|passwd|secret|credential)/i;
+const REDACTED_FIELD = '••••';
+
+export function redactLogString(value) {
+  return redactSecrets(value);
+}
+
 // meta 中若含 apiKey / key 字段，自动脱敏，避免日志泄漏。
 function isSensitiveMetaKey(key) {
-  return /^(apiKey|api_key|key|authorization|token|password|secret)$/i.test(String(key || ''));
+  return SENSITIVE_META_KEY_RE.test(String(key || ''));
+}
+
+function sanitizeSensitiveMetaValue(value) {
+  if (typeof value !== 'string') return REDACTED_FIELD;
+  if (/^sk-[A-Za-z0-9._-]{6,}$/.test(value)) return maskKey(value);
+  const redacted = redactLogString(value);
+  if (redacted !== value) return redacted;
+  return value.startsWith('sk-') ? maskKey(value) : REDACTED_FIELD;
 }
 
 function sanitizeMetaValue(value, depth = 0) {
   if (depth > 5) return '[max-depth]';
   if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return redactLogString(value);
   if (Array.isArray(value)) return value.slice(0, 80).map((item) => sanitizeMetaValue(item, depth + 1));
   if (typeof value !== 'object') return value;
   const copy = {};
   for (const [key, item] of Object.entries(value)) {
     copy[key] = isSensitiveMetaKey(key)
-      ? (String(item || '').startsWith('sk-') ? maskKey(item) : '••••')
+      ? sanitizeSensitiveMetaValue(item)
       : sanitizeMetaValue(item, depth + 1);
   }
   return copy;
 }
 
-function sanitizeMeta(meta) {
+export function sanitizeMeta(meta) {
   if (!meta || typeof meta !== 'object') return meta;
   return sanitizeMetaValue(meta);
+}
+
+export function sanitizeLogEntryForStorage(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+  const sanitized = {
+    ...entry,
+    message: redactLogString(entry.message || ''),
+    meta: sanitizeMeta(entry.meta || {})
+  };
+  if (entry.context && typeof entry.context === 'object') {
+    sanitized.context = sanitizeMeta(entry.context);
+  }
+  return sanitized;
+}
+
+function sanitizeLoadedEntries(entries, max) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(0, max).map(sanitizeLogEntryForStorage);
+}
+
+function entriesChanged(before, after) {
+  try {
+    return JSON.stringify(before) !== JSON.stringify(after);
+  } catch {
+    return true;
+  }
 }
 
 function persistSyncQueue() {
@@ -80,9 +126,9 @@ function persistSyncQueue() {
 
 function clientContext() {
   return {
-    pageUrl: location.href,
-    userAgent: navigator.userAgent,
-    language: navigator.language,
+    pageUrl: redactLogString(location.href),
+    userAgent: redactLogString(navigator.userAgent),
+    language: redactLogString(navigator.language),
     viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`
   };
 }
@@ -92,7 +138,7 @@ function entryForSync(entry) {
     id: entry.id,
     ts: entry.ts,
     level: entry.level,
-    message: entry.message,
+    message: redactLogString(entry.message),
     meta: sanitizeMeta(entry.meta),
     context: clientContext()
   };
@@ -160,7 +206,7 @@ export function addLog(level, message, meta = {}) {
     id: (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random()}`,
     ts: new Date().toISOString(),
     level,
-    message: String(message || ''),
+    message: redactLogString(message || ''),
     meta: sanitizeMeta(meta)
   };
   logs.unshift(entry);

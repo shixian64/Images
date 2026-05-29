@@ -536,6 +536,81 @@ export const sessions = {
 
 // ---- images ----
 
+function normalizeImageAdminListOptions(input = {}) {
+  const options = input || {};
+  const page = Math.max(1, Math.floor(Number(options.page) || 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(Number(options.pageSize ?? options.size) || 50)));
+  const sort = options.sort === 'bytes' ? 'bytes' : 'createdAt';
+  const order = options.order === 'asc' ? 'asc' : 'desc';
+  return {
+    userId: String(options.userId || '').trim(),
+    model: String(options.model || '').trim(),
+    profileName: String(options.profileName || '').trim(),
+    search: String(options.search || '').trim().toLowerCase().slice(0, 200),
+    from: String(options.from || '').trim(),
+    to: String(options.to || '').trim(),
+    minBytes: Math.max(0, Number(options.minBytes) || 0),
+    maxBytes: Math.max(0, Number(options.maxBytes) || 0),
+    page,
+    pageSize,
+    offset: (page - 1) * pageSize,
+    sort,
+    order
+  };
+}
+
+function imageAdminFilterSql(options = {}) {
+  const filters = normalizeImageAdminListOptions(options);
+  const clauses = [];
+  const params = [];
+
+  if (filters.userId) {
+    clauses.push('user_id = ?');
+    params.push(filters.userId);
+  }
+  if (filters.model) {
+    clauses.push('COALESCE(model, \'\') = ?');
+    params.push(filters.model);
+  }
+  if (filters.profileName) {
+    clauses.push('COALESCE(profile_name, \'\') = ?');
+    params.push(filters.profileName);
+  }
+  if (filters.from) {
+    clauses.push('created_at >= ?');
+    params.push(filters.from);
+  }
+  if (filters.to) {
+    clauses.push('created_at <= ?');
+    params.push(filters.to);
+  }
+  if (filters.minBytes) {
+    clauses.push('COALESCE(bytes, 0) >= ?');
+    params.push(filters.minBytes);
+  }
+  if (filters.maxBytes) {
+    clauses.push('COALESCE(bytes, 0) <= ?');
+    params.push(filters.maxBytes);
+  }
+  if (filters.search) {
+    const like = `%${escapeSqlLike(filters.search)}%`;
+    clauses.push(`(
+      lower(COALESCE(prompt, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(revised_prompt, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(filename, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(model, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(profile_name, '')) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(like, like, like, like, like);
+  }
+
+  return {
+    filters,
+    where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+    params
+  };
+}
+
 export const images = {
   insert(meta) {
     const db = open();
@@ -595,6 +670,75 @@ export const images = {
       SELECT * FROM images
       ORDER BY created_at DESC LIMIT ?
     `).all(limit);
+  },
+  listAllForMaintenance() {
+    return open().prepare(`
+      SELECT * FROM images
+      ORDER BY created_at DESC
+    `).all();
+  },
+  adminStats(today) {
+    const db = open();
+    const summary = db.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        COALESCE(SUM(bytes), 0) AS totalBytes,
+        COALESCE(SUM(CASE WHEN substr(created_at, 1, 10) = ? THEN 1 ELSE 0 END), 0) AS savedToday
+      FROM images
+    `).get(today);
+    const topUsers = db.prepare(`
+      SELECT
+        COALESCE(user_id, 'unknown') AS userId,
+        COUNT(*) AS count,
+        COALESCE(SUM(bytes), 0) AS bytes
+      FROM images
+      GROUP BY COALESCE(user_id, 'unknown')
+      ORDER BY bytes DESC
+      LIMIT 10
+    `).all();
+    const topModels = db.prepare(`
+      SELECT
+        COALESCE(NULLIF(model, ''), 'unknown') AS model,
+        COUNT(*) AS count
+      FROM images
+      GROUP BY COALESCE(NULLIF(model, ''), 'unknown')
+      ORDER BY count DESC
+      LIMIT 10
+    `).all();
+    return {
+      total: Number(summary?.total) || 0,
+      totalBytes: Number(summary?.totalBytes) || 0,
+      savedToday: Number(summary?.savedToday) || 0,
+      topUsers: topUsers.map((row) => ({
+        userId: row.userId,
+        count: Number(row.count) || 0,
+        bytes: Number(row.bytes) || 0
+      })),
+      topModels: topModels.map((row) => ({
+        model: row.model,
+        count: Number(row.count) || 0
+      }))
+    };
+  },
+  countAdmin(options = {}) {
+    const { where, params } = imageAdminFilterSql(options);
+    const row = open().prepare(`
+      SELECT COUNT(*) AS n
+      FROM images
+      ${where}
+    `).get(...params);
+    return Number(row?.n) || 0;
+  },
+  listAdmin(options = {}) {
+    const { filters, where, params } = imageAdminFilterSql(options);
+    const sortColumn = filters.sort === 'bytes' ? 'bytes' : 'created_at';
+    const sortDirection = filters.order === 'asc' ? 'ASC' : 'DESC';
+    return open().prepare(`
+      SELECT * FROM images
+      ${where}
+      ORDER BY ${sortColumn} ${sortDirection}, created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, filters.pageSize, filters.offset);
   },
   countByUser(userId) {
     return open().prepare('SELECT COUNT(*) AS n FROM images WHERE user_id = ?').get(userId)?.n || 0;
@@ -1275,6 +1419,56 @@ export const systemSettings = {
 
 // ---- prompt_square ----
 
+function normalizePromptSquareListOptions(input = {}) {
+  const options = typeof input === 'number' ? { limit: input } : (input || {});
+  const limit = Math.min(1000, Math.max(1, Math.floor(Number(options.limit) || 200)));
+  const search = String(options.search || '').trim().toLowerCase().slice(0, 200);
+  const tag = String(options.tag || '').trim();
+  return {
+    limit,
+    search,
+    tag: tag && tag !== 'all' ? tag.slice(0, 64) : '',
+    mine: options.mine === true,
+    userId: String(options.userId || '').trim()
+  };
+}
+
+function escapeSqlLike(value) {
+  return String(value || '').replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function promptSquareFilterSql(options = {}) {
+  const filters = normalizePromptSquareListOptions(options);
+  const clauses = [];
+  const params = [];
+
+  if (filters.mine) {
+    clauses.push('p.user_id = ?');
+    params.push(filters.userId || '');
+  }
+  if (filters.tag) {
+    clauses.push('instr(p.tags, ?) > 0');
+    params.push(JSON.stringify(filters.tag));
+  }
+  if (filters.search) {
+    const like = `%${escapeSqlLike(filters.search)}%`;
+    clauses.push(`(
+      lower(p.title) LIKE ? ESCAPE '\\' OR
+      lower(p.prompt) LIKE ? ESCAPE '\\' OR
+      lower(p.tags) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(u.username, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(p.source, '')) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(like, like, like, like, like);
+  }
+
+  return {
+    filters,
+    where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+    params
+  };
+}
+
 export const promptSquare = {
   findById(id) {
     return open().prepare(`
@@ -1315,7 +1509,18 @@ export const promptSquare = {
       LIMIT 1
     `).get(sourcePromptId) || null;
   },
-  list(limit = 200) {
+  count(options = {}) {
+    const { where, params } = promptSquareFilterSql(options);
+    const row = open().prepare(`
+      SELECT COUNT(*) AS count
+      FROM prompt_square p
+      LEFT JOIN users u ON u.id = p.user_id
+      ${where}
+    `).get(...params);
+    return Number(row?.count) || 0;
+  },
+  list(options = 200) {
+    const { filters, where, params } = promptSquareFilterSql(options);
     return open().prepare(`
       SELECT
         p.*,
@@ -1323,9 +1528,10 @@ export const promptSquare = {
         u.avatar_url AS owner_avatar_url
       FROM prompt_square p
       LEFT JOIN users u ON u.id = p.user_id
+      ${where}
       ORDER BY p.published_at DESC
       LIMIT ?
-    `).all(limit);
+    `).all(...params, filters.limit);
   },
   upsert({ userId, sourcePromptId, title, prompt, tagsJson, source, metaJson }) {
     const db = open();

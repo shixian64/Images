@@ -194,6 +194,67 @@ test('closed registration failures do not consume IP registration limit', async 
   }
 });
 
+test('invalid admin bootstrap token attempts are rate limited separately from normal registration', async () => {
+  rateLimit.clear();
+  const prev = {
+    REGISTRATION_MODE: process.env.REGISTRATION_MODE,
+    REGISTRATION_INVITE_CODE: process.env.REGISTRATION_INVITE_CODE,
+    REGISTRATION_INVITE_CODES: process.env.REGISTRATION_INVITE_CODES,
+    REGISTRATION_IP_MAX_PER_10MIN: process.env.REGISTRATION_IP_MAX_PER_10MIN,
+    REGISTRATION_IP_MAX_PER_DAY: process.env.REGISTRATION_IP_MAX_PER_DAY,
+    ADMIN_BOOTSTRAP_IP_MAX_PER_10MIN: process.env.ADMIN_BOOTSTRAP_IP_MAX_PER_10MIN,
+    ADMIN_BOOTSTRAP_IP_WINDOW_MS: process.env.ADMIN_BOOTSTRAP_IP_WINDOW_MS,
+    REGISTRATION_EMAIL_DOMAIN_ALLOWLIST: process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST,
+    REGISTRATION_EMAIL_DOMAIN_BLOCKLIST: process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST
+  };
+  const ip = '198.51.100.45';
+  try {
+    process.env.REGISTRATION_MODE = 'open';
+    process.env.REGISTRATION_INVITE_CODE = '';
+    process.env.REGISTRATION_INVITE_CODES = '';
+    process.env.REGISTRATION_IP_MAX_PER_10MIN = '2';
+    process.env.REGISTRATION_IP_MAX_PER_DAY = '100';
+    process.env.ADMIN_BOOTSTRAP_IP_MAX_PER_10MIN = '';
+    process.env.ADMIN_BOOTSTRAP_IP_WINDOW_MS = '600000';
+    process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST = '';
+    process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST = '';
+
+    for (let i = 0; i < 2; i += 1) {
+      const wrong = await postAuth('/api/auth/register', {
+        username: `wrongbootstrap${i}`,
+        email: `wrongbootstrap${i}@example.com`,
+        password: 'longenough1',
+        adminBootstrapToken: 'wrong-token'
+      }, { ip });
+      assert.equal(wrong.statusCode, 400);
+      assert.equal(JSON.parse(wrong.body).error, 'invalid admin bootstrap token');
+    }
+
+    const blocked = await postAuth('/api/auth/register', {
+      username: 'wrongbootstrap2',
+      email: 'wrongbootstrap2@example.com',
+      password: 'longenough1',
+      adminBootstrapToken: 'wrong-token'
+    }, { ip });
+    assert.equal(blocked.statusCode, 429);
+    assert.equal(JSON.parse(blocked.body).code, 'admin_bootstrap_rate_limited');
+
+    const allowed = await postAuth('/api/auth/register', {
+      username: 'normalafterbootstraplimit',
+      email: 'normalafterbootstraplimit@example.com',
+      password: 'longenough1'
+    }, { ip });
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(JSON.parse(allowed.body).user.username, 'normalafterbootstraplimit');
+  } finally {
+    rateLimit.clear();
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('register validates username/email/password', () => {
   assert.throws(() => auth.register({ username: 'a', email: 'x@y.com', password: 'longenough1' }), /invalid username/);
   assert.throws(() => auth.register({ username: 'okok', email: 'no-at-sign', password: 'longenough1' }), /invalid email/);

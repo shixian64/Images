@@ -148,6 +148,14 @@ function errorMessageFromUpstream(data, status, apiKey) {
   return redactSecrets(data?.error?.message || data?.message || `Request failed with ${status}`, [apiKey]);
 }
 
+function hasImagePayload(item) {
+  if (!item || typeof item !== 'object') return false;
+  return Boolean(
+    (typeof item.b64_json === 'string' && item.b64_json.trim()) ||
+    (typeof item.url === 'string' && item.url.trim())
+  );
+}
+
 function callErrorResult(err, started) {
   return {
     ok: false,
@@ -440,13 +448,31 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     return { status, body: { error: errMsg } };
   }
 
+  const imageItems = Array.isArray(data?.data) ? data.data : [];
+  if (!imageItems.length || !imageItems.some(hasImagePayload)) {
+    const errMsg = 'Upstream returned no usable image data.';
+    logger.error('image.generate.failed', {
+      userId: userInfo?.id,
+      status: 502,
+      upstreamStatus: status,
+      durationMs,
+      model: payload.model,
+      mode,
+      error: errMsg,
+      upstreamRequestCount
+    });
+    if (usingSystemDefault) {
+      recordFailure(userInfo?.id, { calls: requestedImages });
+    }
+    return { status: 502, body: { error: errMsg, code: 'invalid_image_response' } };
+  }
+
   onProgress?.({
     stage: 'saving',
     message: '上游已返回，正在保存图片到本地…',
     elapsedMs: Date.now() - started
   });
 
-  const imageItems = Array.isArray(data?.data) ? data.data : [];
   let saved = [];
   try {
     const saveResult = await saveGeneratedImages(

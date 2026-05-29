@@ -15,6 +15,7 @@ let quota;
 let generate;
 let jobQueue;
 let interfaceDefaults;
+let imageGeneration;
 let user;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
@@ -86,6 +87,7 @@ before(async () => {
   generate = await import('../routes/generate.js');
   jobQueue = await import('../services/job-queue.js');
   interfaceDefaults = await import('../services/interface-defaults.js');
+  imageGeneration = await import('../services/image-generation.js');
 
   db.migrate();
   jobQueue.startJobQueue();
@@ -253,6 +255,69 @@ test('handleGenerate records managed quota only for system default interface', a
       assert.equal(quota.assertCanGenerate(routeUser.id, { n: 1 }).ok, true);
     } finally {
       await close(server);
+    }
+  });
+});
+
+test('runImageGeneration rejects malformed 200 responses and records managed failure quota', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    DEFAULT_DAILY_LIMIT: '4',
+    DEFAULT_MONTHLY_LIMIT: undefined,
+    DEFAULT_STORAGE_LIMIT_MB: undefined
+  }, async () => {
+    const malformedResponses = [
+      {},
+      { data: [] },
+      { data: [{ revised_prompt: 'no image payload' }] }
+    ];
+
+    for (const [index, upstreamBody] of malformedResponses.entries()) {
+      const server = http.createServer((req, res) => {
+        req.resume();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(upstreamBody));
+      });
+      await listen(server);
+
+      try {
+        const { port } = server.address();
+        interfaceDefaults.setGlobalInterfaceConfig({
+          enabled: true,
+          name: `Malformed System ${index}`,
+          image: {
+            baseUrl: `http://127.0.0.1:${port}`,
+            apiKey: skLike(`malformed-system-${index}`),
+            defaultModel: 'test-image-model'
+          },
+          chat: { apiKey: skLike(`malformed-chat-${index}`) }
+        }, 'test');
+
+        const routeUser = auth.register({
+          username: `gen_malformed_${index}`,
+          email: `gen_malformed_${index}@example.com`,
+          password: 'longenough1'
+        });
+
+        const result = await imageGeneration.runImageGeneration({
+          useSystemDefault: true,
+          prompt: 'malformed response should fail',
+          model: 'test-image-model',
+          n: 1
+        }, routeUser);
+
+        assert.equal(result.status, 502);
+        assert.equal(result.body.code, 'invalid_image_response');
+        assert.match(result.body.error, /no usable image data/i);
+
+        const usage = quota.usageSnapshot(routeUser.id);
+        assert.equal(usage.today.calls, 1);
+        assert.equal(usage.today.images, 0);
+        assert.equal(usage.today.fails, 1);
+      } finally {
+        await close(server);
+      }
     }
   });
 });

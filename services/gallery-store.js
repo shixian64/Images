@@ -496,6 +496,63 @@ export async function listGallery({ userId, isAdmin = false, limit = 500, scope 
   };
 }
 
+export async function listAdminGallery(options = {}) {
+  const page = Math.max(1, Math.floor(Number(options.page) || 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(Number(options.pageSize ?? options.size) || 50)));
+  const filtered = await collectExistingAdminGalleryPage(options, { page, pageSize });
+  const totalAll = hasAdminGalleryFilters(options)
+    ? (await collectExistingAdminGalleryPage({}, { page: 1, pageSize: 1 })).total
+    : filtered.total;
+
+  return {
+    items: filtered.items,
+    page,
+    pageSize,
+    total: filtered.total,
+    totalAll,
+    storage: 'generated/users/* + legacy'
+  };
+}
+
+function hasAdminGalleryFilters(options = {}) {
+  return Boolean(
+    options.userId ||
+    options.model ||
+    options.profileName ||
+    options.search ||
+    options.from ||
+    options.to ||
+    options.minBytes ||
+    options.maxBytes
+  );
+}
+
+async function collectExistingAdminGalleryPage(options = {}, { page, pageSize }) {
+  const scanPageSize = 200;
+  const start = (page - 1) * pageSize;
+  let dbPage = 1;
+  let existingSeen = 0;
+  const items = [];
+
+  while (true) {
+    const rows = imagesTable.listAdmin({ ...options, page: dbPage, pageSize: scanPageSize });
+    if (!rows.length) break;
+
+    const existingItems = await itemsFromRows(rows, { viewerId: null });
+    for (const item of existingItems) {
+      if (existingSeen >= start && items.length < pageSize) {
+        items.push(item);
+      }
+      existingSeen += 1;
+    }
+
+    if (rows.length < scanPageSize) break;
+    dbPage += 1;
+  }
+
+  return { items, total: existingSeen };
+}
+
 export async function setImagePublic(id, { userId, isAdmin = false, isPublic = false } = {}) {
   if (!id) throw new Error('image id required');
   if (!userId && !isAdmin) throw new Error('unauthorized');
@@ -586,49 +643,13 @@ export async function removeImagesBulk(ids, ctx = {}) {
 
 // 全量统计：用于管理员图库面板顶部。
 export async function adminStats() {
-  const rows = imagesTable.listAll(100000);
   const today = new Date().toISOString().slice(0, 10);
-  const byUser = new Map();
-  const byModel = new Map();
-  let totalBytes = 0;
-  let savedToday = 0;
-
-  for (const row of rows) {
-    totalBytes += Number(row.bytes) || 0;
-    if (String(row.created_at || '').startsWith(today)) savedToday += 1;
-
-    const u = row.user_id || 'unknown';
-    const ub = byUser.get(u) || { count: 0, bytes: 0 };
-    ub.count += 1;
-    ub.bytes += Number(row.bytes) || 0;
-    byUser.set(u, ub);
-
-    const m = row.model || 'unknown';
-    byModel.set(m, (byModel.get(m) || 0) + 1);
-  }
-
-  const topUsers = [...byUser.entries()]
-    .map(([userId, v]) => ({ userId, ...v }))
-    .sort((a, b) => b.bytes - a.bytes)
-    .slice(0, 10);
-
-  const topModels = [...byModel.entries()]
-    .map(([model, count]) => ({ model, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-
-  return {
-    total: rows.length,
-    totalBytes,
-    savedToday,
-    topUsers,
-    topModels
-  };
+  return imagesTable.adminStats(today);
 }
 
 // 扫描孤儿：DB 行无文件 + 文件系统多余文件。
 export async function scanOrphans() {
-  const rows = imagesTable.listAll(100000);
+  const rows = imagesTable.listAllForMaintenance();
   const dbKnownPaths = new Set();
   const missingFiles = [];
 
