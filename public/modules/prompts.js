@@ -548,9 +548,9 @@ async function uploadPromptExamples(entry) {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
     applyUploadedPromptExample(entry, data.image);
+    saveHistory();
   }
 
-  saveHistory();
   if (entry.isPublic) await publishEntryToSquare(entry);
   setStatus(`已上传 ${files.length} 张示例图`, 'ok', 1500);
   return true;

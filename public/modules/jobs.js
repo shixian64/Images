@@ -373,14 +373,15 @@ function bindQueueEvents() {
   });
 }
 
-export async function submitGenerationJob(payload) {
+export async function submitGenerationJob(payload, { signal } = {}) {
   pendingSubmissions += 1;
   updateQueueVisibility();
   try {
     const resp = await apiFetch('/api/generate', {
       method: 'POST',
       body: payload,
-      headers: { accept: 'application/json' }
+      headers: { accept: 'application/json' },
+      signal
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);

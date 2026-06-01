@@ -424,6 +424,11 @@ function waitForJob(jobId, { signal } = {}) {
 async function cancelCurrentJob() {
   const jobId = activeRun?.currentJobId;
   if (!jobId) return;
+  await cancelJobById(jobId);
+}
+
+async function cancelJobById(jobId) {
+  if (!jobId) return;
   try {
     await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
   } catch {
@@ -499,6 +504,10 @@ async function generateComic({ onSavedImages } = {}) {
       const jobId = accepted.jobId || accepted.job?.id;
       if (!jobId) throw new Error('服务端没有返回生图任务 ID。');
       activeRun.currentJobId = jobId || '';
+      if (activeRun.controller.signal.aborted) {
+        await cancelJobById(jobId);
+        throw abortError();
+      }
       generatedPanels[i] = { ...generatedPanels[i], status: 'running', jobId };
       renderComicResults();
       showComicProgress(`第 ${i + 1}/${storyboard.panels.length} 格已入队，等待完成…`, 'busy');
