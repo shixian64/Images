@@ -1855,6 +1855,35 @@ body.preview-open { overflow: hidden; }
   color: var(--text-faint);
   font-size: 11px;
 }
+.prompt-history-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.prompt-history-example {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+.prompt-history-example:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.prompt-history-example img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.prompt-history-example:hover img {
+  opacity: 0.9;
+}
 .prompt-history-side {
   display: flex;
   flex-direction: column;
@@ -3819,4 +3848,3 @@ body.drawer-open { overflow: hidden; }
     grid-template-columns: 1fr;
   }
 }
-

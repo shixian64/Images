@@ -15,6 +15,7 @@ import { handleProfileRoute } from './routes/profile.js';
 import { handleAdminGalleryRoute } from './routes/admin-gallery.js';
 import { handleQuotaRoute } from './routes/quota.js';
 import { handleInterfacesRoute } from './routes/interfaces.js';
+import { handlePromptExamplesRoute } from './routes/prompt-examples.js';
 import { handlePromptSquareRoute } from './routes/prompt-square.js';
 import { handleJobsRoute } from './routes/jobs.js';
 import { handleClientLogsRoute } from './routes/client-logs.js';
@@ -80,6 +81,9 @@ async function handleRequest(req, res) {
     }
     if (pathname.startsWith('/api/interfaces') || pathname.startsWith('/api/admin/interfaces')) {
       return handleInterfacesRoute(req, res, pathname);
+    }
+    if (pathname.startsWith('/api/prompt-examples')) {
+      return handlePromptExamplesRoute(req, res, pathname);
     }
     if (pathname.startsWith('/api/prompt-square')) {
       return handlePromptSquareRoute(req, res, pathname, url);

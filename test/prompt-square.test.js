@@ -61,6 +61,19 @@ function getReq(user) {
   };
 }
 
+function postReq(user, body) {
+  const raw = Buffer.from(JSON.stringify(body));
+  return {
+    method: 'POST',
+    session: { user },
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    async *[Symbol.asyncIterator]() {
+      yield raw;
+    }
+  };
+}
+
 function setPublishedAt(id, ts) {
   const sqlite = new DatabaseSync(db.dbPaths.file);
   try {
@@ -76,6 +89,13 @@ async function getSquare(user, query) {
   await promptSquareRoutes.handlePromptSquareRoute(getReq(user), res, '/api/prompt-square', url);
   assert.equal(res.statusCode, 200);
   return JSON.parse(res.body);
+}
+
+async function postSquare(user, body) {
+  const url = new URL('http://localhost/api/prompt-square');
+  const res = captureRes();
+  await promptSquareRoutes.handlePromptSquareRoute(postReq(user, body), res, '/api/prompt-square', url);
+  return { statusCode: res.statusCode, body: JSON.parse(res.body) };
 }
 
 test('prompt square search/tag/mine filters run before the result limit', async () => {
@@ -187,4 +207,31 @@ test('prompt square tag filter matches JSON array elements, not tag substrings',
   const tagged = await getSquare(owner, '?limit=10&tag=a');
   assert.equal(tagged.filtered, 1);
   assert.deepEqual(tagged.items.map((item) => item.id), [exact.id]);
+});
+
+test('prompt square keeps uploaded prompt example preview urls', async () => {
+  const owner = auth.register({
+    username: 'square_preview_owner',
+    email: 'square_preview_owner@example.com',
+    password: 'longenough1'
+  });
+  const previewUrl = `/prompt-example-files/users/${owner.id}/images/prompt-examples/2026-04-25/example.png`;
+
+  const result = await postSquare(owner, {
+    sourcePromptId: 'preview-local-upload',
+    title: 'Preview local upload',
+    prompt: 'prompt with uploaded example image',
+    tags: ['preview'],
+    source: 'manual',
+    meta: {
+      previewImages: [
+        previewUrl,
+        'data:image/png;base64,AAA=',
+        '/gallery-files/users/x/images/private.png'
+      ]
+    }
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.item.meta.previewImages, [previewUrl]);
 });

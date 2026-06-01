@@ -99,6 +99,21 @@ before(async () => {
     index: 1
   });
 
+  const promptExampleDir = join(workDir, 'generated', 'users', userA.id, 'images', 'prompt-examples', '2026-04-25');
+  mkdirSync(promptExampleDir, { recursive: true });
+  writeFileSync(join(promptExampleDir, 'example.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  db.images.insert({
+    id: 'prompt-example-A-1',
+    userId: userA.id,
+    createdAt: '2026-04-25T00:02:00.000Z',
+    filename: 'example.png',
+    path: `users/${userA.id}/images/prompt-examples/2026-04-25/example.png`,
+    mimeType: 'image/png',
+    bytes: 4,
+    sourceType: 'prompt_example',
+    index: 1
+  });
+
   // 给 legacy 旧路径写一张图（在 generated/images/ 下，归属 userA）
   const legacyDir = join(workDir, 'generated', 'images', '2026-01-01');
   mkdirSync(legacyDir, { recursive: true });
@@ -173,6 +188,23 @@ test('other logged-in user can access a public user-scoped image', async () => {
 test('unauthenticated request still cannot access a public image file', async () => {
   const res = await call(
     `/gallery-files/users/${userA.id}/images/2026-04-25/public.png`,
+    null
+  );
+  assert.equal(res.statusCode, 403);
+});
+
+test('logged-in users can access prompt example images by dedicated route', async () => {
+  const res = await call(
+    `/prompt-example-files/users/${userA.id}/images/prompt-examples/2026-04-25/example.png`,
+    { user: userB, sessionId: 's' }
+  );
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['cache-control'], /max-age=31536000/);
+});
+
+test('anonymous users cannot access prompt example images', async () => {
+  const res = await call(
+    `/prompt-example-files/users/${userA.id}/images/prompt-examples/2026-04-25/example.png`,
     null
   );
   assert.equal(res.statusCode, 403);

@@ -48,6 +48,12 @@ function sanitizeParts(parts) {
   return Object.keys(out).length ? out : null;
 }
 
+function isAllowedPreviewImageUrl(url) {
+  const value = trimText(url, 500);
+  if (/^https?:\/\//i.test(value)) return true;
+  return /^\/prompt-example-files\/users\/[a-zA-Z0-9._-]+\/images\/prompt-examples\/[^?#]+$/i.test(value);
+}
+
 function sanitizeMeta(input, parts) {
   const meta = {};
   const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
@@ -66,7 +72,7 @@ function sanitizeMeta(input, parts) {
   const previewImages = Array.isArray(src.previewImages) ? src.previewImages : [];
   const cleanPreviewImages = previewImages
     .map((url) => trimText(url, 500))
-    .filter((url) => /^https?:\/\//i.test(url))
+    .filter(isAllowedPreviewImageUrl)
     .slice(0, 4);
   if (cleanPreviewImages.length) meta.previewImages = cleanPreviewImages;
   const cleanParts = sanitizeParts(parts || src.parts);

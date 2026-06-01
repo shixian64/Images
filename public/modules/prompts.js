@@ -10,6 +10,8 @@ import {
 import { apiFetch, getCurrentUserId } from './auth.js';
 
 const MAX_PROMPT_HISTORY = 160;
+const MAX_PROMPT_EXAMPLE_IMAGES = 4;
+const PROMPT_EXAMPLE_ACCEPT = 'image/png,image/jpeg,image/webp';
 
 const SOURCE_LABEL = {
   builder: '构造器',
@@ -456,6 +458,114 @@ function renderHistorySummary(filtered) {
   `;
 }
 
+function historyPreviewImages(entry) {
+  const meta = entry?.meta || {};
+  const values = Array.isArray(meta.previewImages)
+    ? meta.previewImages
+    : (meta.previewImage ? [meta.previewImage] : []);
+  return Array.from(new Set(
+    values
+      .map((url) => String(url || '').trim())
+      .filter(Boolean)
+  )).slice(0, MAX_PROMPT_EXAMPLE_IMAGES);
+}
+
+function historyPreviewImageIds(entry) {
+  const ids = Array.isArray(entry?.meta?.previewImageIds) ? entry.meta.previewImageIds : [];
+  return Array.from(new Set(
+    ids
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  )).slice(0, MAX_PROMPT_EXAMPLE_IMAGES);
+}
+
+function renderHistoryExamples(item) {
+  const previews = historyPreviewImages(item);
+  if (!previews.length) return '';
+  return `<div class="prompt-history-examples" aria-label="示例图">
+    ${previews.map((url, index) => `
+      <button class="prompt-history-example" type="button" data-history-preview="${escapeHtml(url)}" aria-label="预览第 ${index + 1} 张示例图">
+        <img src="${escapeHtml(url)}" alt="${escapeHtml(`${item.title} 示例图 ${index + 1}`)}" loading="lazy" />
+      </button>
+    `).join('')}
+  </div>`;
+}
+
+function selectPromptExampleFiles() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve(Array.from(input.files || []));
+    };
+    input.type = 'file';
+    input.accept = PROMPT_EXAMPLE_ACCEPT;
+    input.multiple = true;
+    input.addEventListener('change', finish, { once: true });
+    input.addEventListener('cancel', finish, { once: true });
+    setTimeout(() => {
+      window.addEventListener('focus', () => setTimeout(finish, 250), { once: true });
+    }, 0);
+    input.click();
+  });
+}
+
+function applyUploadedPromptExample(entry, image) {
+  if (!image?.url) return;
+  const currentUrls = historyPreviewImages(entry).filter((url) => url !== image.url);
+  const currentIds = historyPreviewImageIds(entry).filter((id) => id !== image.id);
+  entry.meta = {
+    ...(entry.meta || {}),
+    previewImages: [image.url, ...currentUrls].slice(0, MAX_PROMPT_EXAMPLE_IMAGES),
+    previewImageIds: [image.id, ...currentIds].filter(Boolean).slice(0, MAX_PROMPT_EXAMPLE_IMAGES)
+  };
+  entry.updatedAt = new Date().toISOString();
+}
+
+async function uploadPromptExamples(entry) {
+  const remaining = MAX_PROMPT_EXAMPLE_IMAGES - historyPreviewImages(entry).length;
+  if (remaining <= 0) {
+    setStatus(`最多保留 ${MAX_PROMPT_EXAMPLE_IMAGES} 张示例图`, 'ready', 1600);
+    return false;
+  }
+
+  const files = (await selectPromptExampleFiles())
+    .filter((file) => /^image\/(png|jpeg|webp)$/i.test(file.type || '') || /\.(png|jpe?g|webp)$/i.test(file.name || ''))
+    .slice(0, remaining);
+  if (!files.length) return false;
+
+  for (const file of files) {
+    const form = new FormData();
+    form.append('image', file, file.name || 'example.png');
+    form.append('title', entry.title || '');
+    form.append('prompt', entry.prompt || '');
+    const resp = await apiFetch('/api/prompt-examples', {
+      method: 'POST',
+      body: form
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    applyUploadedPromptExample(entry, data.image);
+  }
+
+  saveHistory();
+  if (entry.isPublic) await publishEntryToSquare(entry);
+  setStatus(`已上传 ${files.length} 张示例图`, 'ok', 1500);
+  return true;
+}
+
+function clearPromptExamples(entry) {
+  const meta = { ...(entry.meta || {}) };
+  delete meta.previewImage;
+  delete meta.previewImages;
+  delete meta.previewImageIds;
+  entry.meta = meta;
+  entry.updatedAt = new Date().toISOString();
+  saveHistory();
+}
+
 function renderHistoryList(filtered, { onUsePrompt } = {}) {
   const list = $('promptHistoryList');
   if (!list) return;
@@ -475,6 +585,7 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
       ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
       : '<span>未标记</span>';
     const meta = [item.meta?.model, item.meta?.size, item.meta?.quality].filter(Boolean).join(' · ');
+    const previews = historyPreviewImages(item);
     return `
       <article class="prompt-history-item ${item.pinned ? 'is-pinned' : ''}" data-id="${escapeHtml(item.id)}">
         <div class="prompt-history-main">
@@ -486,16 +597,20 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
           </div>
           <p>${escapeHtml(item.prompt)}</p>
           <div class="prompt-history-tags">${tags}</div>
+          ${renderHistoryExamples(item)}
         </div>
         <div class="prompt-history-side">
           <span>${escapeHtml(formatTime(item.updatedAt))}</span>
           <span>使用 ${item.useCount || 0} 次</span>
+          ${previews.length ? `<span>示例图 ${previews.length} 张</span>` : ''}
           ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
         </div>
         <div class="prompt-history-buttons">
           <button data-action="use" type="button">使用</button>
           <button data-action="copy" type="button">复制</button>
           <button data-action="load" type="button">载入构造</button>
+          <button data-action="upload-example" type="button">上传示例图</button>
+          ${previews.length ? '<button data-action="clear-examples" type="button">清空示例图</button>' : ''}
           <button data-action="toggle-public" type="button">${item.isPublic ? '取消公开' : '公开到广场'}</button>
           <button data-action="pin" type="button">${item.pinned ? '取消固定' : '固定'}</button>
           <button data-action="delete" class="danger" type="button">删除</button>
@@ -504,6 +619,17 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
   }).join('');
 
   list.onclick = async (ev) => {
+    const previewBtn = ev.target.closest('[data-history-preview]');
+    if (previewBtn) {
+      const itemEl = previewBtn.closest('.prompt-history-item');
+      const entry = history.find((item) => item.id === itemEl?.dataset.id);
+      openSquarePreviewModal({
+        url: previewBtn.dataset.historyPreview,
+        alt: entry ? `${entry.title} 示例图` : '提示词示例图'
+      }, previewBtn);
+      return;
+    }
+
     const btn = ev.target.closest('button[data-action]');
     const itemEl = ev.target.closest('.prompt-history-item');
     if (!btn || !itemEl) return;
@@ -527,6 +653,13 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
         loadEntryToBuilder(entry);
         switchPromptSubpanel('builder');
         setStatus('已载入构造器', 'ok', 1400);
+      } else if (action === 'upload-example') {
+        await uploadPromptExamples(entry);
+      } else if (action === 'clear-examples') {
+        if (!confirm('清空这条提示词的示例图？')) return;
+        clearPromptExamples(entry);
+        if (entry.isPublic) await publishEntryToSquare(entry);
+        setStatus('已清空示例图', 'ok', 1400);
       } else if (action === 'toggle-public') {
         if (entry.isPublic) {
           if (!confirm('取消公开后，其他用户将无法在提示词广场看到这条提示词。继续？')) return;

@@ -4,6 +4,8 @@
 // - /gallery-files/users/<uid>/images/... 映射到 generated/users/<uid>/images/...
 //   仅限当前登录用户（uid 匹配）、admin，或已公开图片的任意登录用户。
 // - /gallery-files/images/...（旧迁移路径）通过 images 表查 user_id / is_public 做归属校验。
+// - /prompt-example-files/users/<uid>/images/prompt-examples/... 映射到提示词示例图，
+//   仅限已登录用户访问，且必须能在 images 表中查到 source_type=prompt_example。
 // 统一用 path.normalize + startsWith 做路径穿越防护。
 
 import { createReadStream } from 'node:fs';
@@ -125,6 +127,28 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
     return { notFound: true };
   }
 
+  function resolvePromptExampleFile(pathname, session) {
+    const user = session?.user;
+    if (!user) return { forbidden: true };
+
+    const rel = pathname.slice('/prompt-example-files/'.length);
+    if (!rel) return { notFound: true };
+
+    const match = rel.match(/^users\/([^/]+)\/images\/prompt-examples\/(.+)$/);
+    if (!match) return { notFound: true };
+
+    const uid = match[1];
+    const rest = match[2];
+    const filePath = normalize(join(generatedDir, 'users', uid, 'images', 'prompt-examples', rest));
+    const expectedRoot = normalize(join(generatedDir, 'users', uid, 'images', 'prompt-examples'));
+    if (!isInside(filePath, expectedRoot)) return { forbidden: true };
+
+    const lookupKey = ['users', uid, 'images', 'prompt-examples', ...rest.split(/[\\/]+/).filter(Boolean)].join('/');
+    const row = imagesTable.findByPath(lookupKey);
+    if (!row || row.source_type !== 'prompt_example') return { forbidden: true };
+    return { filePath, root: expectedRoot };
+  }
+
   function resolveFile(pathname, session) {
     // /shared/* —— 映射到项目根的 shared/
     if (pathname.startsWith('/shared/')) {
@@ -137,6 +161,10 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
     // /gallery-files/* —— 按用户隔离
     if (pathname.startsWith('/gallery-files/')) {
       return resolveGalleryFile(pathname, session);
+    }
+
+    if (pathname.startsWith('/prompt-example-files/')) {
+      return resolvePromptExampleFile(pathname, session);
     }
 
     // 默认：public/ 下
@@ -168,14 +196,16 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return send404(res);
       const isGalleryFile = pathname.startsWith('/gallery-files/');
-      const cacheHeaders = isGalleryFile
+      const isPromptExampleFile = pathname.startsWith('/prompt-example-files/');
+      const isUserImageFile = isGalleryFile || isPromptExampleFile;
+      const cacheHeaders = isUserImageFile
         ? {
             'cache-control': GALLERY_IMAGE_CACHE_CONTROL,
             'etag': etagForStat(fileStat)
           }
         : { 'cache-control': DEFAULT_CACHE_CONTROL };
 
-      if (isGalleryFile && requestMatchesEtag(req, cacheHeaders.etag)) {
+      if (isUserImageFile && requestMatchesEtag(req, cacheHeaders.etag)) {
         res.writeHead(304, cacheHeaders);
         res.end();
         return;
