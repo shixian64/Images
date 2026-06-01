@@ -1,12 +1,19 @@
-// Tab 切换 + 记忆 + 快捷键（G S / G G / G P / G L）。对应 §5.1 键盘友好。
+// Tab 切换 + 记忆 + 快捷键（G S / G M / G T / G G / G P / G L）。对应 §5.1 键盘友好。
 
 import { $, $$ } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 
-const TAB_IDS = ['studioPanel', 'comicPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel', 'usersPanel'];
+const FALLBACK_TAB_IDS = ['studioPanel', 'comicPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel', 'usersPanel'];
+
+function availableTabIds() {
+  const ids = $$('.tab-panel')
+    .map((panel) => panel.id)
+    .filter(Boolean);
+  return ids.length ? ids : FALLBACK_TAB_IDS;
+}
 
 export function switchTab(tabId) {
-  if (!TAB_IDS.includes(tabId)) tabId = 'studioPanel';
+  if (!availableTabIds().includes(tabId)) tabId = 'studioPanel';
   const targetPanel = $(tabId);
   if (!targetPanel || targetPanel.hidden) tabId = 'studioPanel';
   $$('.tab-button').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
@@ -16,8 +23,11 @@ export function switchTab(tabId) {
 }
 
 export function mountNav() {
-  $$('.tab-button, .tab-link').forEach((btn) => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest?.('.tab-button, .tab-link');
+    if (!btn) return;
+    ev.preventDefault();
+    switchTab(btn.dataset.tab);
   });
   switchTab(readString(KEYS.activeTab, 'studioPanel'));
 
