@@ -28,6 +28,7 @@ let mounted = false;
 let storyboard = null;
 let generatedPanels = [];
 let activeRun = null;
+let activeStoryboardRequest = null;
 
 function renderSelect(id, items, selectedValue = '') {
   const el = $(id);
@@ -313,12 +314,14 @@ async function analyzeStoryboard() {
     payload.chatApiKey = profileInfo.config.apiKey;
   }
 
+  const started = Date.now();
+  const controller = new AbortController();
+  activeStoryboardRequest = { controller, stopped: false };
+  const timeoutId = setTimeout(() => controller.abort(), STORYBOARD_TIMEOUT_MS);
+
   setBusy(true);
   setStatus('正在生成漫画分镜…', 'busy');
   showComicProgress(`正在调用 ${model} 分析故事并生成 ${panelCount} 格分镜…`, 'busy');
-  const started = Date.now();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), STORYBOARD_TIMEOUT_MS);
   try {
     const resp = await apiFetch('/api/chat', {
       method: 'POST',
@@ -349,20 +352,23 @@ async function analyzeStoryboard() {
     setStatus('漫画分镜已生成', 'ok', 1800);
     showComicProgress('分镜已生成。可微调每格提示词后逐格生成图片。', 'ok');
   } catch (err) {
-    const message = err.name === 'AbortError'
-      ? '分镜生成超时，请缩短故事或稍后重试。'
+    const aborted = err.name === 'AbortError';
+    const stopped = aborted && activeStoryboardRequest?.stopped;
+    const message = aborted
+      ? (stopped ? '分镜生成已停止。' : '分镜生成超时，请缩短故事或稍后重试。')
       : (err.message || String(err));
-    showComicError(message);
-    addLog('error', 'comic.storyboard.failed', {
+    showComicError(stopped ? '' : message);
+    addLog(stopped ? 'info' : 'error', stopped ? 'comic.storyboard.stopped' : 'comic.storyboard.failed', {
       model,
       profileName: profileInfo.profile.name,
       durationMs: Date.now() - started,
       error: message
     });
-    setStatus('漫画分镜失败', 'err', 2200);
-    showComicProgress('');
+    setStatus(stopped ? '漫画分镜已停止' : '漫画分镜失败', stopped ? 'ok' : 'err', 2200);
+    showComicProgress(stopped ? '已停止分镜生成。' : '', stopped ? 'muted' : 'busy');
   } finally {
     clearTimeout(timeoutId);
+    if (activeStoryboardRequest?.controller === controller) activeStoryboardRequest = null;
     setBusy(false);
   }
 }
@@ -568,6 +574,11 @@ async function generateComic({ onSavedImages } = {}) {
 }
 
 function stopComicRun() {
+  if (activeStoryboardRequest) {
+    activeStoryboardRequest.stopped = true;
+    activeStoryboardRequest.controller.abort();
+    return;
+  }
   if (!activeRun) return;
   activeRun.stopped = true;
   activeRun.controller.abort();

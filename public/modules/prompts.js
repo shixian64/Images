@@ -16,6 +16,7 @@ const PROMPT_EXAMPLE_ACCEPT = 'image/png,image/jpeg,image/webp';
 const SOURCE_LABEL = {
   builder: '构造器',
   studio: '生成页',
+  comic: '漫画',
   manual: '手动',
   optimizer: '优化',
   square: '广场',
@@ -1020,7 +1021,7 @@ async function refreshPromptSquare({ silent = false, onUsePrompt = squareUseProm
           <p>提示词广场加载失败：${escapeHtml(err.message || String(err))}</p>
         </div>`;
     }
-    setStatus('提示词广场加载失败', 'err', 1800);
+    if (!silent) setStatus('提示词广场加载失败', 'err', 1800);
   } finally {
     squareLoading = false;
   }
