@@ -62,6 +62,7 @@
 
     <nav class="top-menu" aria-label="主导航">
       <button class="tab-button active" data-tab="studioPanel" data-hotkey="gs">生成</button>
+      <button class="tab-button" data-tab="comicPanel" data-hotkey="gm">漫画</button>
       <button class="tab-button" data-tab="promptPanel" data-hotkey="gt">提示词</button>
       <button class="tab-button" data-tab="galleryPanel" data-hotkey="gg">图库</button>
       <button class="tab-button" data-tab="configPanel" data-hotkey="gp">配置</button>
@@ -226,6 +227,120 @@
           </section>
         </section>
       </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- Comic Workflow -->
+    <!-- ============================================================ -->
+    <section id="comicPanel" class="tab-panel" aria-labelledby="comicHeading">
+      <section class="panel comic-workflow-panel">
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">Comic Workflow</p>
+            <h2 id="comicHeading">漫画工作流</h2>
+            <p class="hint">输入小故事，先生成结构化分镜，再逐格生图；首格与上一格会作为参考图上下文来锁定人物和画风。</p>
+          </div>
+          <div class="active-profile-chip">
+            <span class="dot" data-status="unknown"></span>
+            <span>当前配置：<strong id="comicActiveConfigName">-</strong></span>
+            <button class="ghost small tab-link" data-tab="configPanel">切换</button>
+          </div>
+        </header>
+
+        <div class="comic-workflow-grid">
+          <section class="comic-step-card">
+            <div class="comic-step-head">
+              <span>1</span>
+              <div>
+                <h3>故事与风格</h3>
+                <p>选择漫画模板，控制分镜数量。</p>
+              </div>
+            </div>
+            <label class="field">
+              <span>小故事</span>
+              <textarea id="comicStory" rows="9" placeholder="例如：雨夜里，快递员在旧楼门口发现一只会发光的猫，跟着它来到楼顶，看到整座城市的灯光变成星河……"></textarea>
+            </label>
+            <div class="options comic-options">
+              <label class="field"><span>漫画风格</span>
+                <select id="comicStyle"></select>
+              </label>
+              <label class="field"><span>分镜格数</span>
+                <input id="comicPanelCount" type="number" min="1" max="12" value="6" />
+              </label>
+              <label class="field"><span>分镜模型</span>
+                <input id="comicChatModel" value="gpt-5.5" spellcheck="false" />
+              </label>
+              <label class="field"><span>生图模型</span>
+                <input id="comicImageModel" value="gpt-image-2" spellcheck="false" />
+              </label>
+            </div>
+            <details class="advanced comic-advanced">
+              <summary>生图参数</summary>
+              <div class="options">
+                <label class="field"><span>尺寸</span>
+                  <select id="comicSize"></select>
+                </label>
+                <label class="field"><span>质量</span>
+                  <select id="comicQuality"></select>
+                </label>
+                <label class="field"><span>输出格式</span>
+                  <select id="comicOutputFormat"></select>
+                </label>
+                <label class="field checkbox-field">
+                  <span>上下文参考</span>
+                  <label class="inline-check">
+                    <input id="comicUseContext" type="checkbox" checked />
+                    <span>逐格使用首格 + 上一格作为参考图</span>
+                  </label>
+                </label>
+              </div>
+            </details>
+            <div class="action-row">
+              <button id="comicAnalyze" class="primary" type="button">生成分镜</button>
+              <button id="comicGenerate" class="ghost" type="button" disabled>逐格生成图片</button>
+              <button id="comicStop" class="ghost danger" type="button" disabled>停止</button>
+            </div>
+            <div id="comicError" class="error" hidden role="alert"></div>
+            <div id="comicProgress" class="progress comic-progress" hidden aria-live="polite">
+              <strong>漫画工作流</strong>
+              <span id="comicProgressText"></span>
+            </div>
+          </section>
+
+          <aside class="comic-step-card comic-guide-card">
+            <div class="comic-step-head">
+              <span>?</span>
+              <div>
+                <h3>模板化风格提示词</h3>
+                <p>内置彩色条漫、韩漫、黑白日漫、水墨国风、美漫动作、绘本漫画等模板。</p>
+              </div>
+            </div>
+            <div id="comicStyleGuide" class="comic-style-grid"></div>
+            <ul class="comic-design-tips">
+              <li>每格只讲一个节拍，避免同一格塞入太多动作。</li>
+              <li>先锁定角色设定表，再让每格复用脸型、发型、服装和主色。</li>
+              <li>远景交代环境，中景推进动作，近景/特写强调情绪。</li>
+              <li>除非必须，不直接让模型生成大量对白文字；更适合后期排版。</li>
+            </ul>
+          </aside>
+        </div>
+
+        <section class="comic-section" aria-labelledby="comicStoryboardHeading">
+          <div class="section-title-row">
+            <h3 id="comicStoryboardHeading" class="section-title">分镜设计</h3>
+            <p class="hint">每格的生图提示词可手动修改；修改后再点击“逐格生成图片”。</p>
+          </div>
+          <div id="comicStoryboard" class="comic-storyboard" data-empty="true"></div>
+        </section>
+
+        <section class="comic-section" aria-labelledby="comicResultsHeading">
+          <div class="section-title-row">
+            <h3 id="comicResultsHeading" class="section-title">漫画结果</h3>
+            <p class="hint">完成的图片会自动保存到图库；后续格会尽量引用首格和上一格保持一致性。</p>
+          </div>
+          <div id="comicResults" class="gallery comic-results" data-empty="true"></div>
+        </section>
+      </section>
     </section>
 
     <!-- ============================================================ -->

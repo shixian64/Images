@@ -176,7 +176,7 @@ function hasVisibleRecentJobs() {
 }
 
 function isStudioTabActive() {
-  return currentTabId === 'studioPanel';
+  return currentTabId === 'studioPanel' || currentTabId === 'comicPanel';
 }
 
 function updateQueueVisibility() {
