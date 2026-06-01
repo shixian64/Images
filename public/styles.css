@@ -799,6 +799,18 @@ input[type="checkbox"]:disabled {
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  font: inherit;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.reference-upload-button:hover {
+  background: var(--surface-2);
 }
 .reference-list {
   display: grid;
