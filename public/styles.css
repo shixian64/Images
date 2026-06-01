@@ -3538,7 +3538,7 @@ body.drawer-open { overflow: hidden; }
 
 .comic-workflow-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  grid-template-columns: 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -3582,6 +3582,18 @@ body.drawer-open { overflow: hidden; }
 
 .comic-options {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comic-style-menu {
+  margin-top: 14px;
+}
+
+.comic-style-menu-body > .hint {
+  margin-top: 0;
+}
+
+.comic-style-menu .comic-style-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .checkbox-field .inline-check {

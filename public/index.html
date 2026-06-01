@@ -6,7 +6,7 @@
   <title>图像工作台 · BYOK 在线生图</title>
   <meta name="color-scheme" content="light dark" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=c5902f1-comic-nav" />
+  <link rel="stylesheet" href="./styles.css?v=c5902f1-comic-style-menu" />
   <style>
     html.auth-pending body > * { visibility: hidden; }
     html.auth-pending body::before {
@@ -287,6 +287,19 @@
                 <input id="comicImageModel" value="gpt-image-2" spellcheck="false" />
               </label>
             </div>
+            <details class="advanced comic-style-menu">
+              <summary>模板化风格提示词</summary>
+              <div class="comic-style-menu-body">
+                <p class="hint">内置彩色条漫、韩漫、黑白日漫、水墨国风、美漫动作、绘本漫画等模板。</p>
+                <div id="comicStyleGuide" class="comic-style-grid"></div>
+                <ul class="comic-design-tips">
+                  <li>每格只讲一个节拍，避免同一格塞入太多动作。</li>
+                  <li>先锁定角色设定表，再让每格复用脸型、发型、服装和主色。</li>
+                  <li>远景交代环境，中景推进动作，近景/特写强调情绪。</li>
+                  <li>除非必须，不直接让模型生成大量对白文字；更适合后期排版。</li>
+                </ul>
+              </div>
+            </details>
             <details class="advanced comic-advanced">
               <summary>生图参数</summary>
               <div class="options">
@@ -319,23 +332,6 @@
               <span id="comicProgressText"></span>
             </div>
           </section>
-
-          <aside class="comic-step-card comic-guide-card">
-            <div class="comic-step-head">
-              <span>?</span>
-              <div>
-                <h3>模板化风格提示词</h3>
-                <p>内置彩色条漫、韩漫、黑白日漫、水墨国风、美漫动作、绘本漫画等模板。</p>
-              </div>
-            </div>
-            <div id="comicStyleGuide" class="comic-style-grid"></div>
-            <ul class="comic-design-tips">
-              <li>每格只讲一个节拍，避免同一格塞入太多动作。</li>
-              <li>先锁定角色设定表，再让每格复用脸型、发型、服装和主色。</li>
-              <li>远景交代环境，中景推进动作，近景/特写强调情绪。</li>
-              <li>除非必须，不直接让模型生成大量对白文字；更适合后期排版。</li>
-            </ul>
-          </aside>
         </div>
 
         <section class="comic-section" aria-labelledby="comicStoryboardHeading">
@@ -1029,6 +1025,6 @@
     </section>
   </aside>
 
-  <script type="module" src="./app.js?v=c5902f1-comic-nav"></script>
+  <script type="module" src="./app.js?v=c5902f1-comic-style-menu"></script>
 </body>
 </html>
