@@ -245,7 +245,7 @@ function renderJobCard(job, kind) {
 function renderQueue() {
   const running = jobs.filter((job) => job.status === 'running');
   const queued = jobs.filter((job) => job.status === 'queued');
-  const recent = jobs.filter((job) => isVisibleRecentJob(job)).slice(0, 6);
+  const recent = jobs.filter((job) => isVisibleRecentJob(job));
 
   const summary = $('jobQueueSummary');
   if (summary) {
