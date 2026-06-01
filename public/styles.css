@@ -1668,13 +1668,14 @@ body.preview-open { overflow: hidden; }
 
 .prompt-builder-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
   gap: 20px;
   align-items: stretch;
 }
 
 .prompt-builder-form,
 .prompt-preview-pane {
+  min-width: 0;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
