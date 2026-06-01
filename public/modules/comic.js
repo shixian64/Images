@@ -13,13 +13,16 @@ import {
   buildComicImagePrompt,
   buildComicStoryboardMessages,
   clampComicPanelCount,
+  comicPageStoryboardToJson,
   comicReferenceSpecs,
   comicStyleOptions,
   getComicStyleTemplate,
+  normalizeComicPageStoryboard,
   parseComicStoryboardResponse
 } from '../../shared/comic-workflow.js';
 
 const COMIC_STORY_DRAFT_KEY = 'image-key-manager.comicStoryDraft.v1';
+const COMIC_PAGE_STORYBOARD_KEY = 'image-key-manager.comicUsePageStoryboard.v1';
 const STORYBOARD_TIMEOUT_MS = 180_000;
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
 const FINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
@@ -63,10 +66,36 @@ function itemPanelIndex(item = {}) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function hasPageStoryboard(panel = {}) {
+  return Boolean(comicPageStoryboardToJson(panel.pageStoryboard ?? panel.page_storyboard));
+}
+
+function storyboardHasPageStoryboards(value = storyboard) {
+  return Array.isArray(value?.panels) && value.panels.some(hasPageStoryboard);
+}
+
+function pageStoryboardEditorValue(value) {
+  return comicPageStoryboardToJson(value);
+}
+
+function parsePageStoryboardEditorValue(raw = '', index = 0) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  try {
+    return normalizeComicPageStoryboard(JSON.parse(value), index) || value;
+  } catch {
+    return value;
+  }
+}
+
 function collectComicProjectPayload(status = 'storyboard') {
   const story = $('comicStory')?.value.trim() || '';
   const styleId = storyboard?.styleId || $('comicStyle')?.value || '';
   const style = getComicStyleTemplate(styleId);
+  const usePageStoryboard = $('comicUsePageStoryboard')?.checked === true;
+  const storyboardPayload = storyboard
+    ? { ...storyboard, pageStoryboardEnabled: usePageStoryboard || storyboardHasPageStoryboards(storyboard) }
+    : {};
   return {
     id: currentProjectId || undefined,
     title: storyboard?.title || story.slice(0, 40) || '未命名漫画',
@@ -81,7 +110,7 @@ function collectComicProjectPayload(status = 'storyboard') {
     outputFormat: $('comicOutputFormat')?.value || 'auto',
     useContext: $('comicUseContext')?.checked !== false,
     status,
-    storyboard: storyboard || {}
+    storyboard: storyboardPayload
   };
 }
 
@@ -224,7 +253,13 @@ function renderStoryboard() {
     ].filter(Boolean).join('；'))}</li>`).join('')
     : '<li>模型未提取到明确角色；生成时会按故事主体保持一致。</li>';
 
-  const panels = storyboard.panels.map((panel, index) => `<article class="comic-panel-card" data-comic-panel="${index}">
+  const panels = storyboard.panels.map((panel, index) => {
+    const pageStoryboardJson = pageStoryboardEditorValue(panel.pageStoryboard);
+    const pageStoryboardField = pageStoryboardJson || storyboard.pageStoryboardEnabled ? `<label class="field comic-page-storyboard-field">
+      <span>漫画页分镜 JSON（可改）</span>
+      <textarea rows="8" data-comic-page-storyboard="${index}" spellcheck="false">${escapeHtml(pageStoryboardJson)}</textarea>
+    </label>` : '';
+    return `<article class="comic-panel-card" data-comic-panel="${index}">
     <header>
       <span class="comic-panel-index">#${index + 1}</span>
       <div>
@@ -242,7 +277,9 @@ function renderStoryboard() {
       <span>本格生图提示词（可改）</span>
       <textarea rows="5" data-comic-panel-prompt="${index}">${escapeHtml(panel.imagePrompt || '')}</textarea>
     </label>
-  </article>`).join('');
+    ${pageStoryboardField}
+  </article>`;
+  }).join('');
 
   box.innerHTML = `
     <section class="comic-bible">
@@ -317,6 +354,13 @@ function syncStoryboardFromEditors() {
     if (!Number.isInteger(index) || !storyboard.panels[index]) return;
     storyboard.panels[index].imagePrompt = el.value.trim();
   });
+  document.querySelectorAll('[data-comic-page-storyboard]').forEach((el) => {
+    const index = Number(el.dataset.comicPageStoryboard);
+    if (!Number.isInteger(index) || !storyboard.panels[index]) return;
+    const value = parsePageStoryboardEditorValue(el.value, index);
+    if (value) storyboard.panels[index].pageStoryboard = value;
+    else delete storyboard.panels[index].pageStoryboard;
+  });
 }
 
 function resolveProfileConfig(kind) {
@@ -353,13 +397,14 @@ async function analyzeStoryboard() {
   const styleId = $('comicStyle')?.value;
   const panelCount = clampComicPanelCount($('comicPanelCount')?.value);
   const model = $('comicChatModel')?.value.trim() || profileInfo.config.defaultModel || DEFAULT_CHAT_MODEL;
+  const includePageStoryboards = $('comicUsePageStoryboard')?.checked === true;
   const payload = {
     name: profileInfo.profile.name,
     useSystemDefault: profileInfo.systemMode,
     model,
-    messages: buildComicStoryboardMessages({ story, styleId, panelCount }),
+    messages: buildComicStoryboardMessages({ story, styleId, panelCount, includePageStoryboards }),
     response_format: { type: 'json_object' },
-    max_completion_tokens: 2200
+    max_completion_tokens: includePageStoryboards ? 5200 : 2200
   };
   if (!profileInfo.systemMode) {
     payload.chatBaseUrl = profileInfo.config.baseUrl;
@@ -373,7 +418,7 @@ async function analyzeStoryboard() {
 
   setBusy(true);
   setStatus('正在生成漫画分镜…', 'busy');
-  showComicProgress(`正在调用 ${model} 分析故事并生成 ${panelCount} 格分镜…`, 'busy');
+  showComicProgress(`正在调用 ${model} 分析故事并生成 ${panelCount} 格分镜${includePageStoryboards ? ' + 单页分镜 JSON' : ''}…`, 'busy');
   try {
     const resp = await apiFetch('/api/chat', {
       method: 'POST',
@@ -383,6 +428,7 @@ async function analyzeStoryboard() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     storyboard = parseComicStoryboardResponse(extractChatText(data), { story, styleId, panelCount });
+    storyboard.pageStoryboardEnabled = includePageStoryboards || storyboardHasPageStoryboards(storyboard);
     generatedPanels = [];
     await saveComicProject('storyboard');
     renderStoryboard();
@@ -400,10 +446,13 @@ async function analyzeStoryboard() {
       interfaceMode: profileInfo.systemMode ? 'system' : 'custom',
       durationMs: Date.now() - started,
       panelCount,
-      styleId
+      styleId,
+      includePageStoryboards
     });
     setStatus('漫画分镜已生成', 'ok', 1800);
-    showComicProgress('分镜已生成，并已保存为“图库 → 漫画项目”。可微调每格提示词后逐格生成图片。', 'ok');
+    showComicProgress(includePageStoryboards
+      ? '分镜与每页漫画页分镜 JSON 已生成，并已保存为“图库 → 漫画项目”。可微调提示词或 JSON 后逐格生成图片。'
+      : '分镜已生成，并已保存为“图库 → 漫画项目”。可微调每格提示词后逐格生成图片。', 'ok');
   } catch (err) {
     const aborted = err.name === 'AbortError';
     const stopped = aborted && activeStoryboardRequest?.stopped;
@@ -695,6 +744,11 @@ function loadComicProject(detail = {}) {
   }
   const useContext = $('comicUseContext');
   if (useContext) useContext.checked = project.useContext !== false;
+  const usePageStoryboard = $('comicUsePageStoryboard');
+  if (usePageStoryboard) {
+    usePageStoryboard.checked = storyboard?.pageStoryboardEnabled === true || storyboardHasPageStoryboards(storyboard);
+    writeStringScoped(COMIC_PAGE_STORYBOARD_KEY, usePageStoryboard.checked ? '1' : '0');
+  }
 
   const images = Array.isArray(detail.images) ? detail.images : [];
   generatedPanels = storyboard?.panels?.length
@@ -730,6 +784,9 @@ function bindEvents({ onSavedImages } = {}) {
   });
   $('comicChatModel')?.addEventListener('input', () => { $('comicChatModel').dataset.userEdited = '1'; });
   $('comicImageModel')?.addEventListener('input', () => { $('comicImageModel').dataset.userEdited = '1'; });
+  $('comicUsePageStoryboard')?.addEventListener('change', () => {
+    writeStringScoped(COMIC_PAGE_STORYBOARD_KEY, $('comicUsePageStoryboard').checked ? '1' : '0');
+  });
   window.addEventListener('comic-project-import', (ev) => loadComicProject(ev.detail || {}));
 }
 
@@ -738,6 +795,10 @@ export function mountComicPanel({ onSavedImages } = {}) {
   mounted = true;
   populateOptions();
   updateProfileDefaults();
+  const usePageStoryboard = $('comicUsePageStoryboard');
+  if (usePageStoryboard) {
+    usePageStoryboard.checked = readStringScoped(COMIC_PAGE_STORYBOARD_KEY, '0') === '1';
+  }
   renderStyleGuide();
   renderStoryboard();
   renderComicResults();

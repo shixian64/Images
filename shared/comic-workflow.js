@@ -108,6 +108,23 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
   })
 ]);
 
+const COMIC_PAGE_STORYBOARD_LAYOUT_GUIDE = Object.freeze([
+  '规整网格型：稳定、清楚、节奏均匀，适合对话、日常、说明、连续动作。',
+  '横向条带型：从上到下推进，阅读顺序明确，适合叙事推进和场景切换。',
+  '竖向条带型：强调高度、压迫、坠落、人物登场和空间纵深。',
+  '大格主视觉型：一个大画格统领页面，小格辅助，突出高潮、登场、爆发或关键情绪。',
+  '单页大图型：整页作为冲击画面，适合高潮、世界观展示和人物高光。',
+  '破格分镜：角色、武器、特效或气泡冲出边界，增强动感和临场感。',
+  '斜切分镜：斜向边界制造不稳定、速度感和紧张感，适合打斗、追逐、惊慌。',
+  '碎片化分镜：大量小格，节奏快、信息密集，适合回忆、混乱、连续细节和多人反应。',
+  '留白型分镜：低密度、空间大，表现安静、孤独、震惊后的余韵。',
+  '电影镜头型：远景→中景→特写→爆发等镜头组接，强调镜头语言。',
+  '对话节奏型：半身、表情特写、反应格递进，重点呈现对白和表情变化。',
+  '动作连续型：小格铺垫→斜切加速→大格爆发→特写收尾，适合战斗/运动/追逐。',
+  '蒙太奇型：拼接不同时间、地点、记忆和象征画面，适合回忆、心理、时间流逝。',
+  '非规则自由型：格子大小、方向、形状自由，但必须保持清晰阅读顺序。'
+]);
+
 function text(value, fallback = '') {
   return String(value ?? fallback).trim();
 }
@@ -146,12 +163,47 @@ export function clampComicPanelCount(value, fallback = COMIC_PANEL_LIMITS.defaul
   return Math.min(COMIC_PANEL_LIMITS.max, Math.max(COMIC_PANEL_LIMITS.min, base));
 }
 
-export function buildComicStoryboardMessages({ story = '', styleId = DEFAULT_COMIC_STYLE_ID, panelCount } = {}) {
+function pageStoryboardGuideText() {
+  return COMIC_PAGE_STORYBOARD_LAYOUT_GUIDE.map((item, index) => `${index + 1}. ${item}`).join('\n');
+}
+
+export function buildComicStoryboardMessages({
+  story = '',
+  styleId = DEFAULT_COMIC_STYLE_ID,
+  panelCount,
+  includePageStoryboards = false
+} = {}) {
   const sourceStory = text(story);
   if (!sourceStory) throw new Error('Story is required.');
 
   const style = getComicStyleTemplate(styleId);
   const count = clampComicPanelCount(panelCount);
+  const pageStoryboardSchema = {
+    layout_type: '页面布局类型，例如大格主视觉型/横向条带型/斜切分镜',
+    layout_keywords: [
+      'manga page layout',
+      'dominant panel',
+      'diagonal panels'
+    ],
+    reading_order: '读者阅读顺序，例如从左到右、从上到下，并说明视线引导',
+    visual_hierarchy: '主视觉/次视觉/留白/视觉重心如何安排',
+    narrative_function: '本页排版承担的叙事作用，例如铺垫/爆发/转场/情绪停顿',
+    panel_count: 4,
+    sub_panels: [
+      {
+        id: 'A',
+        role: '开场/反应/动作/特写/收尾',
+        area: '画格在页面中的位置与面积，例如顶部通栏、右下小格、中央大格',
+        shot: '远景/中景/近景/特写',
+        camera: '俯视/仰视/过肩/斜切/运动方向',
+        composition: '主体、前中后景、留白、速度线、破框等',
+        content: '该小格具体画面内容',
+        transition: '与上一小格/下一小格的阅读衔接'
+      }
+    ],
+    design_notes: '给生图模型看的页面排版注意事项',
+    ai_prompt_addon: '可直接拼入生图提示词的英文/中文排版关键词'
+  };
   const schema = {
     title: '短标题',
     logline: '一句话概括',
@@ -180,7 +232,8 @@ export function buildComicStoryboardMessages({ story = '', styleId = DEFAULT_COM
         dialogue: '如需对白，保持很短；否则空字符串',
         caption: '如需旁白，保持很短；否则空字符串',
         image_prompt: '可直接用于单格生图的完整提示词',
-        continuity_notes: '需要与前后格保持一致的角色/道具/空间'
+        continuity_notes: '需要与前后格保持一致的角色/道具/空间',
+        ...(includePageStoryboards ? { page_storyboard: pageStoryboardSchema } : {})
       }
     ]
   };
@@ -194,6 +247,9 @@ export function buildComicStoryboardMessages({ story = '', styleId = DEFAULT_COM
         '设计原则：每格只表达一个清晰节拍；在远景/中景/近景/特写之间变化；用构图、景别、动作和表情推进叙事。',
         '一致性原则：先提炼角色设定表和 style_bible，再让每格 image_prompt 复用这些设定，避免角色服装、发型、色彩和画风漂移。',
         '文字原则：除非故事强依赖对白，否则 image_prompt 里要求不要生成文字、Logo、水印或复杂气泡；对白/旁白字段保持短句。',
+        includePageStoryboards ? '单页分镜开关已开启：除原有 panel_plan 字段外，必须为 panel_plan 的每一个分镜补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心和叙事功能。' : '',
+        includePageStoryboards ? `漫画页分镜分类参考：\n${pageStoryboardGuideText()}` : '',
+        includePageStoryboards ? 'page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、对话节奏型、动作连续型、蒙太奇型、非规则自由型中选择；sub_panels 描述页面内部小格位置、画面内容和阅读衔接。' : '',
         `风格模板：${style.label}`,
         `风格摘要：${style.summary}`,
         `风格关键词：${style.stylePrompt}`,
@@ -208,7 +264,7 @@ export function buildComicStoryboardMessages({ story = '', styleId = DEFAULT_COM
       content: compactLines([
         `故事：${sourceStory}`,
         `目标分镜数：${count}`,
-        '请补全角色设定、风格圣经和每格分镜。'
+        includePageStoryboards ? '请补全角色设定、风格圣经、每格分镜，并为每一个分镜额外生成 page_storyboard JSON。' : '请补全角色设定、风格圣经和每格分镜。'
       ])
     }
   ];
@@ -245,6 +301,69 @@ function normalizeCharacters(value) {
     .filter((item) => item.name || item.visualSignature);
 }
 
+function normalizeStringList(value) {
+  const source = Array.isArray(value)
+    ? value
+    : text(value)
+      ? text(value).split(/[、,，;；|/]/)
+      : [];
+  return source
+    .map((item) => text(item))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizePageSubPanel(item = {}, index = 0) {
+  const source = item && typeof item === 'object' ? item : {};
+  return {
+    id: nonEmpty(source.id ?? source.panel_id ?? source.panelId, String.fromCharCode(65 + index)),
+    role: text(source.role),
+    area: text(source.area ?? source.position ?? source.frame),
+    shot: text(source.shot ?? source.shot_size ?? source.shotSize),
+    camera: text(source.camera ?? source.angle),
+    composition: text(source.composition),
+    content: text(source.content ?? source.beat ?? source.description),
+    transition: text(source.transition ?? source.flow)
+  };
+}
+
+export function normalizeComicPageStoryboard(value = {}, index = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rawSubPanels = Array.isArray(value.sub_panels)
+    ? value.sub_panels
+    : Array.isArray(value.subPanels)
+      ? value.subPanels
+      : Array.isArray(value.panels)
+        ? value.panels
+        : Array.isArray(value.panel_layout)
+          ? value.panel_layout
+          : Array.isArray(value.panelLayout)
+            ? value.panelLayout
+            : [];
+  const subPanels = rawSubPanels
+    .map(normalizePageSubPanel)
+    .filter((item) => item.role || item.area || item.content || item.composition);
+  const rawCount = Number(value.panel_count ?? value.panelCount ?? subPanels.length);
+  const panelCount = Number.isFinite(rawCount) && rawCount > 0
+    ? Math.floor(rawCount)
+    : subPanels.length;
+  const result = {
+    layoutType: nonEmpty(value.layout_type ?? value.layoutType ?? value.type, `单页分镜 ${index + 1}`),
+    layoutKeywords: normalizeStringList(value.layout_keywords ?? value.layoutKeywords ?? value.keywords),
+    readingOrder: text(value.reading_order ?? value.readingOrder),
+    visualHierarchy: text(value.visual_hierarchy ?? value.visualHierarchy),
+    narrativeFunction: text(value.narrative_function ?? value.narrativeFunction),
+    panelCount,
+    subPanels,
+    designNotes: text(value.design_notes ?? value.designNotes ?? value.notes),
+    aiPromptAddon: text(value.ai_prompt_addon ?? value.aiPromptAddon ?? value.prompt_addon ?? value.promptAddon)
+  };
+  if (!result.layoutKeywords.length && result.aiPromptAddon) {
+    result.layoutKeywords = normalizeStringList(result.aiPromptAddon);
+  }
+  return result;
+}
+
 function panelPromptFromParts(panel) {
   return compactLines([
     panel.beat,
@@ -257,7 +376,11 @@ function panelPromptFromParts(panel) {
   ]).replace(/\n/g, '；');
 }
 
-function normalizePanel(item = {}, index = 0) {
+function normalizePanel(item = {}, index = 0, pageStoryboardFallback = null) {
+  const pageStoryboard = normalizeComicPageStoryboard(
+    item.page_storyboard ?? item.pageStoryboard ?? item.page_layout ?? item.pageLayout ?? pageStoryboardFallback,
+    index
+  );
   const panel = {
     index: Number(item.index) || index + 1,
     beat: text(item.beat ?? item.summary ?? item.description),
@@ -272,6 +395,7 @@ function normalizePanel(item = {}, index = 0) {
     imagePrompt: text(item.image_prompt ?? item.imagePrompt ?? item.prompt),
     continuityNotes: text(item.continuity_notes ?? item.continuityNotes)
   };
+  if (pageStoryboard) panel.pageStoryboard = pageStoryboard;
   if (!panel.imagePrompt) panel.imagePrompt = panelPromptFromParts(panel);
   if (!panel.beat) panel.beat = panel.imagePrompt || `分镜 ${panel.index}`;
   return panel;
@@ -284,9 +408,14 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
     : Array.isArray(source.panels)
       ? source.panels
       : [];
+  const rawPageStoryboards = Array.isArray(source.page_storyboards)
+    ? source.page_storyboards
+    : Array.isArray(source.pageStoryboards)
+      ? source.pageStoryboards
+      : [];
   const count = clampComicPanelCount(panelCount ?? rawPanels.length ?? COMIC_PANEL_LIMITS.default);
   const style = getComicStyleTemplate(source.style_id || source.styleId || styleId);
-  const panels = rawPanels.slice(0, count).map(normalizePanel);
+  const panels = rawPanels.slice(0, count).map((item, index) => normalizePanel(item, index, rawPageStoryboards[index]));
   while (panels.length < count) {
     panels.push(normalizePanel({
       beat: `根据故事继续推进第 ${panels.length + 1} 个节拍`,
@@ -312,6 +441,13 @@ export function parseComicStoryboardResponse(textValue = '', options = {}) {
   return normalizeComicStoryboard(parsed, options);
 }
 
+export function comicPageStoryboardToJson(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  const normalized = normalizeComicPageStoryboard(value);
+  return normalized ? JSON.stringify(normalized, null, 2) : '';
+}
+
 function characterBible(storyboard = {}) {
   const characters = Array.isArray(storyboard.characters) ? storyboard.characters : [];
   if (!characters.length) return '角色设定：保持同一角色的年龄、脸型、发型、体型、服装主色和标志物一致。';
@@ -333,13 +469,16 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
   const total = Number(totalPanels) || (Array.isArray(storyboard.panels) ? storyboard.panels.length : index);
   const dialogue = text(panel.dialogue);
   const caption = text(panel.caption);
+  const pageStoryboardJson = comicPageStoryboardToJson(panel.pageStoryboard ?? panel.page_storyboard);
   const textRule = dialogue || caption
     ? `如需文字，只预留干净对白/旁白区域；不要生成乱码。对白：${dialogue || '无'}；旁白：${caption || '无'}。`
     : '不要生成任何文字、对白框、Logo、水印或签名。';
 
   return compactLines([
     `漫画项目：${nonEmpty(storyboard.title, '未命名漫画')}`,
-    `生成第 ${index}/${total} 格：单张完整漫画分镜图。`,
+    pageStoryboardJson
+      ? `生成第 ${index}/${total} 页：包含完整单页分镜排版的漫画页图。`
+      : `生成第 ${index}/${total} 格：单张完整漫画分镜图。`,
     `统一风格：${style.stylePrompt}`,
     `风格圣经：${nonEmpty(storyboard.styleBible, style.summary)}`,
     `角色设定表：\n${characterBible(storyboard)}`,
@@ -353,6 +492,11 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
     panel.camera ? `- 镜头：${panel.camera}` : '',
     panel.composition ? `- 构图：${panel.composition}` : '',
     panel.continuityNotes ? `- 连续性：${panel.continuityNotes}` : '',
+    pageStoryboardJson ? compactLines([
+      '当前页漫画页分镜 JSON（用于决定页面格子结构、阅读顺序、视觉层级和叙事节奏）：',
+      pageStoryboardJson,
+      '请把上面的 pageStoryboard 当作当前页排版约束：遵循 layoutType、readingOrder、visualHierarchy 和 subPanels 的位置/面积/镜头设计；如果有 aiPromptAddon，也要融入构图。'
+    ]) : '',
     `生图重点：${nonEmpty(panel.imagePrompt, panel.beat)}`,
     `一致性锁定：${style.consistencyPrompt}`,
     '如果请求携带参考图：参考图只用于锁定角色、服装、色彩、线条和世界观；本格必须按照上面的新分镜重新构图，不要复制上一格画面。',

@@ -3850,8 +3850,18 @@ body.drawer-open { overflow: hidden; }
   margin-bottom: 0;
 }
 
+.comic-panel-card .field + .field {
+  margin-top: 10px;
+}
+
 .comic-panel-card textarea {
   min-height: 120px;
+}
+
+.comic-page-storyboard-field textarea {
+  min-height: 180px;
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .comic-result-card[data-status="succeeded"] {
