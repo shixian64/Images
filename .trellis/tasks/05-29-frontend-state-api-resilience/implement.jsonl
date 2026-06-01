@@ -1,8 +1,0 @@
-{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend pre-development checklist and key flows"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Frontend module placement"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering and event binding"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Module state, localStorage, events, and SSE"}
-{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "No-framework lifecycle and listener cleanup patterns"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "XSS, apiFetch, accessibility, and tests"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Runtime shape validation expectations"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer request/data-flow consistency"}

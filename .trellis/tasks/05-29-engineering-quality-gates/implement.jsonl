@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality expectations"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend tests/security/dependency rules"}
-{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend quality expectations"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend tests/accessibility/XSS expectations"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer quality checks"}
