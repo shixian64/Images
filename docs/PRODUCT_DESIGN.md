@@ -1,17 +1,41 @@
 # Image Studio · 商业化设计方案
 
-> 基于当前仓库（本地 Node 代理 + localStorage 单用户页面，适配 OpenAI-compatible `gpt-image-2`）的演进版本。
-> 目标：从"能跑的工具"演进到"可托管、可付费、可协作"的在线生图产品。
-> 版本：v1.0 设计稿　|　负责人：hmt　|　最后更新：2026-04-24
+> 基于当前仓库（Node.js 原生 HTTP + SQLite + 本地文件存储 + 浏览器 ES Modules，适配 OpenAI-compatible 图片生成与 Chat Completions）的现状与演进版本。
+> 当前项目已从早期“单用户 localStorage 工具”演进为支持登录、管理员、额度、队列、图库、Prompt Square 和漫画工作流的小团队自托管应用。
+> 目标：继续从“可自托管的小团队工具”演进到“可托管、可付费、可协作”的在线生图产品。
+> 版本：v1.1 路线图　|　负责人：hmt　|　最后更新：2026-06-01
 
 ---
 
 ## 0. TL;DR（一页结论）
 
-- **产品定位**：面向开发者 / 设计师 / 内容创作者的 **"自带密钥（BYOK）在线生图工作站"**。用户带自己的 OpenAI / 兼容网关 Key，平台提供统一 UI、多模型适配、历史资产管理、团队协作。
-- **差异点**：不赚 token 中间差价，而是靠 **"工作流 + 资产管理 + 协作"** 收订阅。对用户来说：一处管理多个 Key、跨模型对比、作品集 & 版本管理。
-- **技术骨架**：Next.js（App Router）+ Node API Gateway + PostgreSQL + Redis + S3 兼容对象存储 + 任务队列。前端多端一致响应式设计。
-- **关键里程碑**：MVP（4 周）→ 公测 Beta（8 周）→ 商业版 v1（12 周，含订阅 & 团队）。
+- **产品定位**：面向开发者 / 设计师 / 内容创作者的 **"自带密钥（BYOK）在线生图工作站"**。用户带自己的 OpenAI / 兼容网关 Key，平台提供统一 UI、提示词工作流、历史资产管理和小团队运维能力。
+- **当前形态**：Node.js 单进程 + SQLite + 本地 `generated/` 存储，支持用户/管理员、额度、异步队列、SSE、公开图库、Prompt Square、示例图上传和漫画分镜工作流。
+- **商业化差异点**：不赚 token 中间差价，而是靠 **"工作流 + 资产管理 + 协作 + 管理后台"** 收订阅。
+- **目标技术骨架**：当前自托管版本继续保持低依赖；SaaS / 商业版再迁移到 PostgreSQL、对象存储、队列后端、KMS/Vault、可观测性和订阅计费。
+- **关键里程碑**：自托管稳定版 → 小团队协作版 → SaaS Beta → 商业版 v1（订阅、团队、合规和平台级密钥管理）。
+
+## 0.1 当前实现快照（2026-06-01）
+
+当前代码已经落地：
+
+- **账号与权限**：注册、登录、session、普通用户 / 管理员、管理员初始化令牌、关闭 / 邀请 / 公开注册模式。
+- **管理后台**：用户管理、额度管理、生成队列、客户端日志、系统默认接口、图库管理。
+- **生成链路**：同步提交、SSE/队列进度、任务取消 / 重试 / 优先级、全站并发槽位、单用户并发槽位、多图拆分。
+- **图片输入**：参考图上传、图库图作为参考、参考图临时目录 TTL 和上传大小 / 类型校验。
+- **图库**：用户图库、公开图库、点赞、管理员统计 / 批量删除 / 孤儿扫描。
+- **提示词工作流**：Prompt Builder、Prompt 历史、Prompt Square、提示词示例图上传。
+- **漫画工作流**：故事分析、分镜生成、风格模板、逐格图片生成。
+- **运行时存储**：SQLite schema、WAL、用户图片、客户端日志、审计日志、用量日聚合、后台数据生命周期清理。
+- **安全边界**：CSRF、登录/注册/chat 限流、上游 URL 安全校验、HTTPS/私网默认限制、请求体 / 上游响应 / 下载大小限制、日志脱敏。
+
+当前仍未落地或不应视为生产 SaaS 完成项：
+
+- 多租户 Workspace、团队成员角色和跨团队数据隔离。
+- PostgreSQL / Redis / S3 / CDN / worker 横向扩展。
+- 系统默认 API Key 加密存储、KMS/Vault、密钥轮换审计。
+- 支付订阅、账单、成本报表和企业 SSO。
+- 图片缩略图管线、内容审核、公开分享链接、Webhook / 外部 API。
 
 ---
 
@@ -48,7 +72,7 @@
 
 ## 2. 功能清单（按版本分层）
 
-按照 **MVP → Beta → v1 商业版** 三阶段切分，避免一次吃成胖子。
+按照 **MVP → Beta → v1 商业版** 三阶段切分，避免一次吃成胖子。本节描述商业化目标分层；其中部分能力已经在当前自托管版提前落地，但仍需在 SaaS 化时重做多租户、对象存储、密钥加密、可观测性和计费边界。
 
 ### 2.1 MVP（4 周）—— "单人版，但像产品"
 
@@ -635,31 +659,57 @@ W13+    巡航：Enterprise 私有化、LoRA 对接、移动端原生
 
 ## 13. 从当前代码到商业版的迁移清单
 
-> 以仓库现状（`server.js` + `public/*` + localStorage）为起点，按优先级给出。
+> 当前仓库现状：`server.js` + `routes/` + `services/` + `public/modules/` + SQLite + `generated/` 本地文件存储。它已经不再是早期的单用户 localStorage demo，而是一个小团队自托管版本。后续迁移重点不是“补基础功能”，而是把已有能力生产化、平台化和可横向扩展。
 
-### 13.1 立即能做，不破坏现状
-- [ ] 把 `server.js` 的 `handleGenerate` 拆成 `routes/generate.ts` + `services/upstream.ts`，为迁 TS 铺路
-- [ ] API Key 在任何日志中都强制 `maskApiKey`（已做），再补单元测试防回归
-- [ ] 前端 `app.js` 引入 ES Module 拆成 `studio.js / profiles.js / logs.js`
-- [ ] 把尺寸/质量等选项抽成常量文件，共享给前后端
+### 13.1 已完成或基本完成
 
-### 13.2 第 1 周内（搭架子）
-- [ ] 迁移到 Next.js（App Router）+ TS + Tailwind
-- [ ] 引入 Prisma，建 `users / profiles / jobs / images` 四张表
-- [ ] Auth.js：邮箱 + Google + GitHub
-- [ ] 对象存储接入（S3 / R2），原图 + 缩略图
+- [x] `server.js` 拆出 `routes/*` 与 `services/*`，路由层保持较薄。
+- [x] 前端从单体脚本拆成 ES Modules：studio、profiles、gallery、logs、jobs、users、prompts、comic 等。
+- [x] 尺寸、质量、默认模型、漫画工作流等抽到 `shared/*` 供前后端共享。
+- [x] API Key、Authorization、Cookie 等敏感字段脱敏，并有测试覆盖。
+- [x] 登录、注册、session、管理员初始化令牌和注册防刷。
+- [x] SQLite 持久化：用户、session、图片、点赞、审计、客户端日志、额度、用量、任务、系统设置、Prompt Square。
+- [x] 异步生成队列、SSE、任务取消 / 重试 / 优先级和管理员队列设置。
+- [x] 参考图编辑输入、Prompt Square、提示词示例图上传、公开图库点赞和漫画工作流。
+- [x] Docker 自托管基础：只读根文件系统、资源限制、健康检查、`/app/generated` 持久化卷。
 
-### 13.3 第 2–4 周（MVP）
-- [ ] Profile CRUD + KMS 加密存储
-- [ ] Studio 新版 UI（§5.3）
-- [ ] Gallery（网格 + 详情抽屉）
-- [ ] 日志从 localStorage 迁到后端 `audit_logs` / `jobs` 表
+### 13.2 自托管稳定版优先级
 
-### 13.4 破坏性注意
-- 现 `localStorage` 数据需提供 **一次性迁移脚本**：用户登录后前端把本地 profiles/logs 推到服务端
-- Base URL 原来接受 `https://host` 或 `https://host/v1`，迁移后需严格校验并存规范化形式（避免重复 `/v1`）
-- 当前默认模型 `gpt-image-2`，后端改为从 Profile 的 `default_model` 取，前端可覆盖
+- [ ] 把当前 `/api/*` 路由整理成 `docs/API.md`，明确请求体、响应体、权限和错误码。
+- [ ] 把部署说明从 README 拆到 `docs/DEPLOYMENT.md`，覆盖反向代理、HTTPS、备份、恢复、升级和容量规划。
+- [ ] 为系统默认 API Key 引入 `services/secrets.js`，用 Node 内置 `crypto` 做 AES-256-GCM 加密存储。
+- [ ] 增加数据库迁移版本表，避免后续 schema 变更只依赖 ad-hoc `ALTER TABLE`。
+- [ ] 增加图库缩略图 / 预览图生成管线，避免前端直接加载过大的原图。
+- [ ] 增加管理员导出：用户用量、任务、审计、图库存储统计。
+- [ ] 完善备份 / 恢复脚本，覆盖 SQLite、WAL、用户图片和示例图。
 
+### 13.3 SaaS / 多租户迁移
+
+- [ ] 引入 Workspace / Organization 数据模型：workspace、member、role、invite、billing owner。
+- [ ] 所有核心表补 `workspace_id`，并提供从当前单实例数据到默认 workspace 的迁移。
+- [ ] 把 SQLite 迁移到 PostgreSQL，保留一个只读迁移工具用于导入旧 `generated/app.db`。
+- [ ] 把本地图片目录迁移到 S3/R2/MinIO，并为图片和示例图生成短时签名 URL。
+- [ ] 把内存限流和单进程队列迁移到 Redis/BullMQ、SQS 或等价后端。
+- [ ] 把 session 存储、限流、队列事件和后台维护任务拆出可横向扩展边界。
+- [ ] 引入 KMS/Vault 或托管密钥系统，支持密钥版本、轮换、销毁和审计。
+- [ ] 增加内容安全策略：图片内容审核、公开分享审核、滥用处置和投诉流程。
+
+### 13.4 商业化能力
+
+- [ ] 订阅计划：Free / Pro / Team / Enterprise。
+- [ ] 计费：订阅、用量报表、超额策略、发票和取消流程。
+- [ ] 团队协作：共享 Profile、成员权限、只读作品集、团队图库、审计查询。
+- [ ] 企业能力：SSO、SCIM、IP allowlist、数据保留策略、导出/删除请求。
+- [ ] 外部集成：公开分享链接、Webhook、API token、自动化工作流。
+
+### 13.5 破坏性注意
+
+- 当前个人接口 Key 不持久化；迁移到 SaaS 时需要设计“个人密钥托管 / 浏览器解锁 / 团队共享密钥”三种路径。
+- 当前系统默认 API Key 明文存 SQLite；公网或多租户前必须先完成加密迁移。
+- 当前 `generated/` 同时存数据库、WAL、图片、示例图和临时参考图；迁移对象存储前必须明确文件归属和清理策略。
+- Base URL 当前接受 `https://host` 或 `https://host/v1`，迁移后仍需保持兼容，并在数据库中存规范化形式。
+- 当前队列是单进程可控模型；迁移到分布式 worker 后要重新设计取消、重试、幂等、进度事件和临时文件生命周期。
+- 当前公开图库和 Prompt Square 是实例内共享；多租户后需要明确 workspace 内公开、全站公开、审核公开三种可见性。
 ---
 
 ## 14. 风险与开放问题
