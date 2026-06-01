@@ -974,7 +974,11 @@ export function mountPromptPanel({ onUsePrompt } = {}) {
   $$('.prompt-tab').forEach((btn) => {
     btn.addEventListener('click', () => switchPromptSubpanel(btn.dataset.promptTab));
   });
-  switchPromptSubpanel(readStringScoped(KEYS.promptManagerTab, 'builder'));
+  const initialPromptTab = readStringScoped(KEYS.promptManagerTab, 'builder');
+  switchPromptSubpanel(initialPromptTab);
+  if (initialPromptTab !== 'square') {
+    refreshPromptSquare({ silent: true, onUsePrompt });
+  }
 
   bindBuilderFieldInputs();
 
