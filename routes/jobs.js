@@ -78,7 +78,7 @@ async function handleUserJobs(req, res, pathname) {
   if (retryMatch) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
     try {
-      const job = retryJob(decodeURIComponent(retryMatch[1]), user);
+      const job = await retryJob(decodeURIComponent(retryMatch[1]), user);
       return sendJson(res, 200, { job });
     } catch (err) {
       return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });

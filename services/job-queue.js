@@ -16,7 +16,8 @@ import {
 import {
   cleanupExpiredReferenceJobFiles,
   cleanupReferenceJobFiles,
-  publicReferencePayload
+  publicReferencePayload,
+  stageReferenceImages
 } from './reference-images.js';
 import { logger } from '../utils/logger.js';
 
@@ -712,7 +713,35 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
   throw httpError(409, 'job is not cancellable');
 }
 
-export function retryJob(jobId, userInfo) {
+async function restageRetryReferences(job, userInfo) {
+  const refs = Array.isArray(job.payload?.referenceImages) ? job.payload.referenceImages : [];
+  if (!refs.length) return job;
+
+  const galleryRefs = refs
+    .map((item) => ({
+      type: 'gallery',
+      id: String(item?.originalId || item?.id || item?.galleryId || '').trim(),
+      source: String(item?.source || '').trim().toLowerCase()
+    }));
+  if (!galleryRefs.every((item) => item.id && (!item.source || item.source === 'gallery'))) {
+    throw httpError(400, '上传参考图任务需要从 Studio 重新提交，以便重新校验并暂存参考图。');
+  }
+
+  await cleanupReferenceJobFiles(job.id);
+  const referenceImages = await stageReferenceImages({
+    body: { references: galleryRefs.map((item) => ({ type: 'gallery', id: item.id })) },
+    jobId: job.id,
+    userInfo
+  });
+  return generationJobs.updatePayload(job.id, {
+    ...(job.payload || {}),
+    mode: 'edit',
+    referenceImages,
+    referenceImageCount: referenceImages.length
+  });
+}
+
+export async function retryJob(jobId, userInfo) {
   const job = generationJobs.findById(jobId);
   if (!job) throw httpError(404, 'job not found');
   if (job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
@@ -720,15 +749,13 @@ export function retryJob(jobId, userInfo) {
   if (job.payload?.interfaceMode === 'custom' || job.payload?.useSystemDefault === false) {
     throw httpError(400, '个人接口任务需要从 Studio 重新提交，以便重新提供 API Key。');
   }
-  if (Array.isArray(job.payload?.referenceImages) && job.payload.referenceImages.length) {
-    throw httpError(400, '参考图任务需要从 Studio 重新提交，以便重新校验并暂存参考图。');
-  }
   const freshUser = users.findById(userInfo.id) || userInfo;
   if (freshUser.role !== 'admin') {
     const check = assertCanGenerate(freshUser.id, { n: Number(job.n) || 1, includeQueued: true });
     if (!check.ok) throw httpError(429, check.message, check.code);
   }
   checkQueueCapacity(freshUser, getQueueSettings());
+  await restageRetryReferences(job, freshUser);
   const updated = generationJobs.resetForRetry(job.id, { priority: priorityForUser(freshUser) });
   logger.info('job.retry_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
   emitJob(updated, 'job');

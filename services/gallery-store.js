@@ -7,7 +7,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 import { positiveIntFromEnv } from '../utils/config.js';
-import { images as imagesTable, imageLikes, dbPaths } from './db.js';
+import { images as imagesTable, imageLikes, comicProjects, dbPaths } from './db.js';
 import { tryReserveStorageBytes } from './quota.js';
 import { guardedFetch } from './upstream.js';
 import {
@@ -177,6 +177,10 @@ function toPublicUrl(relPath) {
   return `/gallery-files/${String(relPath).split(/[\\/]+/).filter(Boolean).map(encodeURIComponent).join('/')}`;
 }
 
+export function galleryFileUrl(relPath) {
+  return toPublicUrl(relPath);
+}
+
 function assertResponseLooksLikeImage(response) {
   const mime = normalizeMimeType(response.headers?.get?.('content-type') || '');
   if (!mime || mime === 'application/octet-stream') return;
@@ -320,7 +324,9 @@ function rowToItem(row) {
     outputFormat: row.output_format || '',
     profileName: row.profile_name || '',
     sourceType: row.source_type || '',
-    index: Number.isFinite(row.image_index) ? row.image_index : null
+    index: Number.isFinite(row.image_index) ? row.image_index : null,
+    comicProjectId: row.comic_project_id || '',
+    comicPanelIndex: Number.isFinite(row.comic_panel_index) ? row.comic_panel_index : null
   };
 }
 
@@ -388,8 +394,14 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         outputFormat: context.outputFormat || '',
         profileName: context.profileName || '',
         sourceType: asset.sourceType,
-        index: imageIndex + 1
+        index: imageIndex + 1,
+        comicProjectId: context.comicProjectId || '',
+        comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
       });
+
+      if (context.comicProjectId) {
+        comicProjects.touch(context.comicProjectId, { status: context.comicProjectStatus || null });
+      }
 
       const publicUrl = toPublicUrl(relPath);
       const meta = {
@@ -413,7 +425,9 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         outputFormat: context.outputFormat || '',
         profileName: context.profileName || '',
         sourceType: asset.sourceType,
-        index: imageIndex + 1
+        index: imageIndex + 1,
+        comicProjectId: context.comicProjectId || '',
+        comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
       };
 
       saved.push(meta);
@@ -422,6 +436,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         local_url: publicUrl,
         localUrl: publicUrl,
         gallery_id: id,
+        comic_project_id: context.comicProjectId || undefined,
+        comic_panel_index: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : undefined,
         file_name: fileName,
         mime_type: asset.mimeType,
         bytes: asset.buffer.length
@@ -474,7 +490,8 @@ export function galleryCounts(userId) {
   return {
     mine: userId ? imagesTable.countByUser(userId) : 0,
     myPublic: userId ? imagesTable.countPublicByUser(userId) : 0,
-    public: imagesTable.countPublic()
+    public: imagesTable.countPublic(),
+    comicProjects: userId ? comicProjects.countByUser(userId) : 0
   };
 }
 
@@ -518,6 +535,17 @@ export async function listGallery({ userId, isAdmin = false, limit = 500, scope 
       ? 'generated/users/*/images (public)'
       : (isAdmin && !userId ? 'generated/users/* + legacy' : `generated/${userImageRel(userId)}`)
   };
+}
+
+export async function listComicProjectImages({ projectId, userId, isAdmin = false, limit = 500 } = {}) {
+  if (!projectId) throw new Error('comic project id required');
+  if (!userId && !isAdmin) throw new Error('unauthorized');
+  const project = comicProjects.findById(projectId);
+  if (!project) throw new Error('comic project not found');
+  if (!isAdmin && project.user_id !== userId) throw new Error('forbidden');
+  const rows = imagesTable.listByComicProject(projectId, { limit });
+  const items = await itemsFromRows(rows, { viewerId: userId });
+  return items;
 }
 
 export async function listAdminGallery(options = {}) {

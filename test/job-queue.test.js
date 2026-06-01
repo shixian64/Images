@@ -14,6 +14,8 @@ let jobQueue;
 let interfaceDefaults;
 let referenceImages;
 
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+
 const ENV_KEYS = [
   'ALLOW_INSECURE_UPSTREAMS',
   'ALLOW_PRIVATE_UPSTREAMS',
@@ -262,6 +264,52 @@ test('expired reference cleanup preserves queued job files', async () => {
   assert.equal(removed, 1);
   assert.equal(existsSync(queuedDir), true);
   assert.equal(existsSync(orphanDir), false);
+  jobQueue.cancelJob(job.id, u);
+});
+
+test('system jobs with gallery references can be retried after staged files were cleaned', async () => {
+  const u = user('retry_gallery_reference');
+  const date = '2026-06-01';
+  const fileName = 'source.png';
+  const relPath = `users/${u.id}/images/${date}/${fileName}`;
+  const absDir = join(workDir, 'generated', 'users', u.id, 'images', date);
+  mkdirSync(absDir, { recursive: true });
+  writeFileSync(join(absDir, fileName), PNG_BYTES);
+  db.images.insert({
+    id: 'retry-gallery-reference-source',
+    userId: u.id,
+    createdAt: new Date().toISOString(),
+    filename: fileName,
+    path: relPath,
+    mimeType: 'image/png',
+    bytes: PNG_BYTES.length,
+    isPublic: false,
+    prompt: 'source',
+    model: 'test-image-model',
+    sourceType: 'b64_json',
+    index: 1
+  });
+
+  const job = await jobQueue.enqueueImageGeneration({
+    ...systemPayload(1),
+    references: [{ type: 'gallery', id: 'retry-gallery-reference-source' }]
+  }, u);
+  const stagedDir = join(workDir, 'generated', 'tmp', 'jobs', job.id, 'references');
+  assert.equal(existsSync(stagedDir), true);
+
+  db.generationJobs.updateStatus(job.id, 'failed', {
+    finishedAt: Date.now(),
+    errorMessage: 'boom',
+    progress: { stage: 'failed', message: 'boom' }
+  });
+  await referenceImages.cleanupReferenceJobFiles(job.id);
+  assert.equal(existsSync(stagedDir), false);
+
+  const retried = await jobQueue.retryJob(job.id, u);
+  assert.equal(retried.status, 'queued');
+  assert.equal(existsSync(stagedDir), true);
+  assert.equal(retried.payload.referenceImages[0].originalId, 'retry-gallery-reference-source');
+  assert.equal(retried.payload.referenceImages[0].relPath, undefined);
   jobQueue.cancelJob(job.id, u);
 });
 

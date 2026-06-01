@@ -1083,6 +1083,42 @@ button.danger:hover { background: var(--danger-soft); }
 .gallery-summary .chip.error { color: var(--danger); }
 .gallery-summary .chip.info { color: var(--brand); }
 
+.comic-project-card .prompt-preview {
+  font-weight: 650;
+}
+
+.comic-project-open {
+  cursor: pointer;
+}
+
+.comic-project-detail {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.comic-project-detail h3 {
+  margin: 10px 0 4px;
+  font-size: 18px;
+}
+
+.comic-project-detail .prompt-preview {
+  margin: 10px 0 0;
+  max-width: 980px;
+}
+
+.comic-project-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .empty-state {
   padding: 48px 24px;
   text-align: center;

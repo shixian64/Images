@@ -73,6 +73,36 @@ test('saveGeneratedImages downloads URL images with redirect disabled', async ()
   assert.equal(seenOptions.method, 'GET');
 });
 
+test('comic project images are saved under projects and hidden from my gallery', async () => {
+  const projectId = 'comic-project-gallery-test';
+  db.comicProjects.upsert({
+    id: projectId,
+    userId: user.id,
+    title: '漫画项目',
+    story: '小故事',
+    panelCount: 2,
+    storyboard: { title: '漫画项目', panels: [{ beat: '一' }, { beat: '二' }] }
+  });
+
+  const result = await gallery.saveGeneratedImages(
+    [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+    { prompt: 'comic panel', outputFormat: 'png', comicProjectId: projectId, comicPanelIndex: 2 },
+    { userId: user.id }
+  );
+
+  assert.equal(result.saved.length, 1);
+  assert.equal(result.saved[0].comicProjectId, projectId);
+  assert.equal(result.saved[0].comicPanelIndex, 2);
+
+  const mine = await gallery.listGallery({ userId: user.id, scope: 'mine', limit: 1000 });
+  assert.equal(mine.items.some((item) => item.id === result.saved[0].id), false);
+  assert.equal(mine.counts.comicProjects >= 1, true);
+
+  const projectImages = await gallery.listComicProjectImages({ projectId, userId: user.id });
+  assert.equal(projectImages.length, 1);
+  assert.equal(projectImages[0].id, result.saved[0].id);
+});
+
 test('saveGeneratedImages rejects URL downloads over byte limit', async () => {
   await withEnv({ MAX_IMAGE_DOWNLOAD_BYTES: '4' }, async () => {
     const result = await gallery.saveGeneratedImages(

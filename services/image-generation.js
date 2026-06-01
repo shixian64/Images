@@ -35,7 +35,9 @@ const PERSISTED_IMAGE_FIELDS = [
   'quality',
   'output_format',
   'moderation',
-  'input_fidelity'
+  'input_fidelity',
+  'comicProjectId',
+  'comicPanelIndex'
 ];
 
 const EDIT_ONLY_PASSTHROUGH_FIELDS = [
@@ -480,6 +482,9 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
         quality: bodyForPayload.quality || body.quality || '',
         outputFormat: bodyForPayload.output_format || body.output_format || '',
         profileName: requestConfig.profileName || body.name || '',
+        comicProjectId: bodyForPayload.comicProjectId || body.comicProjectId || '',
+        comicPanelIndex: Number(bodyForPayload.comicPanelIndex ?? body.comicPanelIndex),
+        comicProjectStatus: 'generating',
         generationMode: mode,
         referenceImageIds: publicReferencePayload(referenceImages)
           .map((item) => item.originalId)

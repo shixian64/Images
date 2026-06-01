@@ -121,11 +121,35 @@ CREATE TABLE IF NOT EXISTS images (
   output_format   TEXT,
   profile_name    TEXT,
   source_type     TEXT,
-  image_index     INTEGER
+  image_index     INTEGER,
+  comic_project_id TEXT,
+  comic_panel_index INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_images_user_created ON images(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_created      ON images(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_model        ON images(model);
+CREATE INDEX IF NOT EXISTS idx_images_comic_project ON images(comic_project_id, comic_panel_index, created_at);
+
+CREATE TABLE IF NOT EXISTS comic_projects (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  story           TEXT NOT NULL,
+  style_id        TEXT,
+  style_label     TEXT,
+  panel_count     INTEGER NOT NULL DEFAULT 0,
+  chat_model      TEXT,
+  image_model     TEXT,
+  size            TEXT,
+  quality         TEXT,
+  output_format   TEXT,
+  use_context     INTEGER NOT NULL DEFAULT 1,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  storyboard_json TEXT NOT NULL DEFAULT '{}',
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_comic_projects_user_updated ON comic_projects(user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS image_likes (
   image_id    TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
@@ -252,6 +276,7 @@ export function migrate() {
   db.exec(SCHEMA);
   migrateUserAbuseColumns(db);
   migrateImagePublicColumns(db);
+  migrateComicProjectTables(db);
   db.exec(DATA_LIFECYCLE_INDEXES);
   migratePromptSquareNullableOwner(db);
   seedPromptSquareDefaults(db);
@@ -284,6 +309,35 @@ function migrateImagePublicColumns(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_image_likes_user_day ON image_likes(user_id, day);
     CREATE INDEX IF NOT EXISTS idx_image_likes_image    ON image_likes(image_id);
+  `);
+}
+
+function migrateComicProjectTables(db) {
+  addColumnIfMissing(db, 'images', 'comic_project_id', 'comic_project_id TEXT');
+  addColumnIfMissing(db, 'images', 'comic_panel_index', 'comic_panel_index INTEGER');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS comic_projects (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title           TEXT NOT NULL,
+      story           TEXT NOT NULL,
+      style_id        TEXT,
+      style_label     TEXT,
+      panel_count     INTEGER NOT NULL DEFAULT 0,
+      chat_model      TEXT,
+      image_model     TEXT,
+      size            TEXT,
+      quality         TEXT,
+      output_format   TEXT,
+      use_context     INTEGER NOT NULL DEFAULT 1,
+      status          TEXT NOT NULL DEFAULT 'draft',
+      storyboard_json TEXT NOT NULL DEFAULT '{}',
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_comic_projects_user_updated ON comic_projects(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_images_comic_project ON images(comic_project_id, comic_panel_index, created_at);
+    CREATE INDEX IF NOT EXISTS idx_images_user_comic_created ON images(user_id, comic_project_id, created_at DESC);
   `);
 }
 
@@ -418,8 +472,8 @@ function migrateLegacyGallery(db) {
     (id, user_id, created_at, filename, path, mime_type, bytes,
      is_public, published_at,
      prompt, revised_prompt, model, size, quality, output_format,
-     profile_name, source_type, image_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     profile_name, source_type, image_index, comic_project_id, comic_panel_index)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   let inserted = 0;
   for (const it of items) {
@@ -442,7 +496,9 @@ function migrateLegacyGallery(db) {
       it.outputFormat || null,
       it.profileName || null,
       it.sourceType || null,
-      Number.isFinite(it.index) ? it.index : null
+      Number.isFinite(it.index) ? it.index : null,
+      null,
+      null
     );
     if (res.changes) inserted += 1;
   }
@@ -654,8 +710,8 @@ export const images = {
       (id, user_id, created_at, filename, path, mime_type, bytes,
        is_public, published_at,
        prompt, revised_prompt, model, size, quality, output_format,
-       profile_name, source_type, image_index)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       profile_name, source_type, image_index, comic_project_id, comic_panel_index)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       meta.id,
       meta.userId,
@@ -674,7 +730,9 @@ export const images = {
       meta.outputFormat || null,
       meta.profileName || null,
       meta.sourceType || null,
-      Number.isFinite(meta.index) ? meta.index : null
+      Number.isFinite(meta.index) ? meta.index : null,
+      meta.comicProjectId || null,
+      Number.isFinite(meta.comicPanelIndex) ? meta.comicPanelIndex : null
     );
     return this.findById(meta.id);
   },
@@ -686,7 +744,8 @@ export const images = {
   },
   listByUser(userId, limit = 500) {
     return open().prepare(`
-      SELECT * FROM images WHERE user_id = ?
+      SELECT * FROM images
+      WHERE user_id = ? AND (comic_project_id IS NULL OR comic_project_id = '')
       ORDER BY created_at DESC LIMIT ?
     `).all(userId, limit);
   },
@@ -714,6 +773,14 @@ export const images = {
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `).all(safeLimit, safeOffset);
+  },
+  listByComicProject(projectId, { limit = 500 } = {}) {
+    return open().prepare(`
+      SELECT * FROM images
+      WHERE comic_project_id = ?
+      ORDER BY COALESCE(comic_panel_index, image_index, 999999) ASC, created_at ASC
+      LIMIT ?
+    `).all(projectId, Math.max(1, Math.floor(Number(limit) || 500)));
   },
   adminStats(today) {
     const db = open();
@@ -785,7 +852,10 @@ export const images = {
     `).all(...params, filters.pageSize, filters.offset);
   },
   countByUser(userId) {
-    return open().prepare('SELECT COUNT(*) AS n FROM images WHERE user_id = ?').get(userId)?.n || 0;
+    return open().prepare(`
+      SELECT COUNT(*) AS n FROM images
+      WHERE user_id = ? AND (comic_project_id IS NULL OR comic_project_id = '')
+    `).get(userId)?.n || 0;
   },
   countPublic() {
     return open().prepare('SELECT COUNT(*) AS n FROM images WHERE is_public = 1').get()?.n || 0;
@@ -815,6 +885,150 @@ export const images = {
         MAX(created_at) AS last_at
       FROM images WHERE user_id = ?
     `).get(userId) || { count: 0, bytes: 0, last_at: null };
+  }
+};
+
+function parseJsonObject(value, fallback = {}) {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function parseComicProject(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    panel_count: Number(row.panel_count) || 0,
+    use_context: Number(row.use_context) ? 1 : 0,
+    storyboard: parseJsonObject(row.storyboard_json, {}),
+    image_count: Number(row.image_count) || 0,
+    thumbnail_path: row.thumbnail_path || null
+  };
+}
+
+export const comicProjects = {
+  upsert(meta = {}) {
+    const db = open();
+    const now = nowIso();
+    const id = meta.id || randomUUID();
+    const existing = this.findById(id);
+    const storyboardJson = JSON.stringify(
+      meta.storyboard && typeof meta.storyboard === 'object' ? meta.storyboard : {}
+    );
+    const values = {
+      userId: meta.userId,
+      title: String(meta.title || '').trim() || '未命名漫画',
+      story: String(meta.story || ''),
+      styleId: meta.styleId || null,
+      styleLabel: meta.styleLabel || null,
+      panelCount: Math.max(0, Math.floor(Number(meta.panelCount) || 0)),
+      chatModel: meta.chatModel || null,
+      imageModel: meta.imageModel || null,
+      size: meta.size || null,
+      quality: meta.quality || null,
+      outputFormat: meta.outputFormat || null,
+      useContext: meta.useContext === false ? 0 : 1,
+      status: meta.status || 'draft',
+      storyboardJson
+    };
+    if (!values.userId) throw new Error('comic project requires userId');
+
+    if (existing) {
+      db.prepare(`
+        UPDATE comic_projects
+        SET title = ?, story = ?, style_id = ?, style_label = ?, panel_count = ?,
+            chat_model = ?, image_model = ?, size = ?, quality = ?, output_format = ?,
+            use_context = ?, status = ?, storyboard_json = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+      `).run(
+        values.title,
+        values.story,
+        values.styleId,
+        values.styleLabel,
+        values.panelCount,
+        values.chatModel,
+        values.imageModel,
+        values.size,
+        values.quality,
+        values.outputFormat,
+        values.useContext,
+        values.status,
+        values.storyboardJson,
+        now,
+        id,
+        values.userId
+      );
+      return this.findById(id);
+    }
+
+    db.prepare(`
+      INSERT INTO comic_projects
+      (id, user_id, title, story, style_id, style_label, panel_count,
+       chat_model, image_model, size, quality, output_format, use_context,
+       status, storyboard_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      values.userId,
+      values.title,
+      values.story,
+      values.styleId,
+      values.styleLabel,
+      values.panelCount,
+      values.chatModel,
+      values.imageModel,
+      values.size,
+      values.quality,
+      values.outputFormat,
+      values.useContext,
+      values.status,
+      values.storyboardJson,
+      now,
+      now
+    );
+    return this.findById(id);
+  },
+  findById(id) {
+    return parseComicProject(open().prepare(`
+      SELECT p.*,
+        (SELECT COUNT(*) FROM images i WHERE i.comic_project_id = p.id) AS image_count,
+        (SELECT i.path FROM images i WHERE i.comic_project_id = p.id
+          ORDER BY COALESCE(i.comic_panel_index, i.image_index, 999999) ASC, i.created_at ASC LIMIT 1) AS thumbnail_path
+      FROM comic_projects p
+      WHERE p.id = ?
+    `).get(id));
+  },
+  listByUser(userId, limit = 200) {
+    return open().prepare(`
+      SELECT p.*,
+        (SELECT COUNT(*) FROM images i WHERE i.comic_project_id = p.id) AS image_count,
+        (SELECT i.path FROM images i WHERE i.comic_project_id = p.id
+          ORDER BY COALESCE(i.comic_panel_index, i.image_index, 999999) ASC, i.created_at ASC LIMIT 1) AS thumbnail_path
+      FROM comic_projects p
+      WHERE p.user_id = ?
+      ORDER BY p.updated_at DESC
+      LIMIT ?
+    `).all(userId, Math.max(1, Math.floor(Number(limit) || 200))).map(parseComicProject);
+  },
+  countByUser(userId) {
+    return open().prepare('SELECT COUNT(*) AS n FROM comic_projects WHERE user_id = ?').get(userId)?.n || 0;
+  },
+  deleteById(id) {
+    return open().prepare('DELETE FROM comic_projects WHERE id = ?').run(id).changes || 0;
+  },
+  touch(id, { status = null } = {}) {
+    if (!id) return null;
+    if (status) {
+      open().prepare('UPDATE comic_projects SET status = ?, updated_at = ? WHERE id = ?').run(status, nowIso(), id);
+    } else {
+      open().prepare('UPDATE comic_projects SET updated_at = ? WHERE id = ?').run(nowIso(), id);
+    }
+    return this.findById(id);
   }
 };
 
@@ -1343,6 +1557,14 @@ export const generationJobs = {
       SET progress_json = ?, updated_at = ?
       WHERE id = ?
     `).run(JSON.stringify(progress || {}), Date.now(), id);
+    return this.findById(id);
+  },
+  updatePayload(id, payload) {
+    open().prepare(`
+      UPDATE generation_jobs
+      SET payload_json = ?, updated_at = ?
+      WHERE id = ?
+    `).run(JSON.stringify(payload || {}), Date.now(), id);
     return this.findById(id);
   },
   requestCancel(id) {

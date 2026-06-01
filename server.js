@@ -19,6 +19,7 @@ import { handlePromptExamplesRoute } from './routes/prompt-examples.js';
 import { handlePromptSquareRoute } from './routes/prompt-square.js';
 import { handleJobsRoute } from './routes/jobs.js';
 import { handleClientLogsRoute } from './routes/client-logs.js';
+import { handleComicProjectsRoute } from './routes/comic-projects.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
@@ -93,6 +94,9 @@ async function handleRequest(req, res) {
     }
     if (pathname.startsWith('/api/client-logs') || pathname.startsWith('/api/admin/client-logs')) {
       return handleClientLogsRoute(req, res, pathname, url);
+    }
+    if (pathname.startsWith('/api/comic-projects')) {
+      return handleComicProjectsRoute(req, res, pathname, url);
     }
     if (req.method === 'GET' && pathname === '/api/generate/config') return handleGenerateConfig(req, res);
     if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
