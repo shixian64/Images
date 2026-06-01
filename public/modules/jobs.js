@@ -104,6 +104,19 @@ function isVisibleRecentJob(job) {
   return FINAL.has(job.status) && !isDoneJobDismissed(job, dismissedDone);
 }
 
+function dismissDoneJob(jobId, { showToast = true } = {}) {
+  ensureDismissedDoneLoaded();
+  const job = jobs.find((item) => item.id === jobId);
+  if (!job || !FINAL.has(job.status)) return false;
+  const key = doneJobDismissalKey(job);
+  if (!key) return false;
+  dismissedDone.add(key);
+  persistDismissedDone();
+  renderQueue();
+  if (showToast) setStatus('已从最近完成删除', 'ok', 1200);
+  return true;
+}
+
 function notifyFinalJob(job) {
   if (!job?.id || !FINAL.has(job.status) || notifiedFinal.has(job.id)) return;
   notifiedFinal.add(job.id);
@@ -197,6 +210,7 @@ function renderJobCard(job, kind) {
   const info = progressInfo(job);
   const canCancel = job.status === 'queued' || job.status === 'running';
   const canRetry = job.status === 'failed' || job.status === 'timeout';
+  const canDismiss = kind === 'recent' && FINAL.has(job.status);
   const thumb = firstThumb(job);
   const position = job.status === 'queued' && job.position ? `<span>前面还有 ${Math.max(0, job.position - 1)} 位</span>` : '';
   const error = job.error ? `<p class="job-card-error">${escapeHtml(job.error)}</p>` : '';
@@ -222,6 +236,7 @@ function renderJobCard(job, kind) {
       <div class="job-card-actions">
         ${canCancel ? `<button class="ghost small" data-job-act="cancel" title="取消任务">×</button>` : ''}
         ${canRetry ? `<button class="ghost small" data-job-act="retry">重试</button>` : ''}
+        ${canDismiss ? `<button class="ghost small" data-job-act="dismiss" title="从最近完成删除">删除</button>` : ''}
       </div>
     </article>
   `;
@@ -332,15 +347,18 @@ function bindQueueEvents() {
     if (btn.dataset.jobAct === 'cancel') cancelJob(jobId);
     if (btn.dataset.jobAct === 'retry') retryJob(jobId);
     if (btn.dataset.jobAct === 'preview') openResultPreview(jobId);
+    if (btn.dataset.jobAct === 'dismiss') dismissDoneJob(jobId);
   });
   $('jobQueueClearDone')?.addEventListener('click', () => {
     ensureDismissedDoneLoaded();
-    jobs.filter((job) => FINAL.has(job.status)).forEach((job) => {
+    const visibleDone = jobs.filter((job) => isVisibleRecentJob(job));
+    visibleDone.forEach((job) => {
       const key = doneJobDismissalKey(job);
       if (key) dismissedDone.add(key);
     });
-    persistDismissedDone();
+    if (visibleDone.length) persistDismissedDone();
     renderQueue();
+    setStatus(visibleDone.length ? '已清空最近完成' : '没有可清空的完成记录', 'ok', 1200);
   });
   const mobileBtn = $('jobQueueMobileButton');
   mobileBtn?.addEventListener('click', () => {
