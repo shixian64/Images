@@ -1,0 +1,26 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">图像工作台图标</title>
+  <desc id="desc">极简黑白方形画布、中心菱形标记与图像窗口，配一个橙色生成火花。</desc>
+  <style>
+    .frame { fill: #FAFAFA; stroke: #0A0A0A; }
+    .mark { fill: #0A0A0A; }
+    .window { fill: #FAFAFA; }
+    .ink-fill { fill: #0A0A0A; }
+    .ink-stroke { fill: none; stroke: #0A0A0A; stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
+    .accent { fill: #E65100; }
+    @media (prefers-color-scheme: dark) {
+      .frame { fill: #121212; stroke: #E0E0E0; }
+      .mark { fill: #E0E0E0; }
+      .window { fill: #121212; }
+      .ink-fill { fill: #E0E0E0; }
+      .ink-stroke { stroke: #E0E0E0; }
+      .accent { fill: #FFA726; }
+    }
+  </style>
+  <rect class="frame" x="6" y="6" width="52" height="52" stroke-width="4" shape-rendering="crispEdges"/>
+  <path class="mark" d="M32 12 52 32 32 52 12 32Z"/>
+  <rect class="window" x="21" y="26" width="22" height="16"/>
+  <circle class="ink-fill" cx="28" cy="31" r="2"/>
+  <path class="ink-stroke" d="M23 39 29 34 34 38 37 35 42 40"/>
+  <path class="accent" d="M50 10 52 16 58 18 52 20 50 26 48 20 42 18 48 16Z"/>
+</svg>
