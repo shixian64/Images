@@ -117,9 +117,16 @@ kbd {
 }
 
 /* ============================================================
-   统一滚动条：覆盖 textarea、日志、抽屉、详情等文本滚动区域
+   统一滚动条：覆盖页面、队列、弹窗、抽屉、菜单、文本区等所有可滚动区域
    ============================================================ */
 
+html,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+html,
 textarea,
 pre,
 .app-drawer-body,
@@ -134,66 +141,26 @@ pre,
 .top-menu,
 .prompt-tabs,
 .gallery-scope-tabs,
-.management-tabs {
+.management-tabs,
+.job-queue-recent-section .job-queue-list,
+.custom-select-menu,
+.client-log-message code {
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
 }
 
-textarea::-webkit-scrollbar,
-pre::-webkit-scrollbar,
-.app-drawer-body::-webkit-scrollbar,
-.log-list::-webkit-scrollbar,
-.log-item .log-meta::-webkit-scrollbar,
-.prompt-history-list::-webkit-scrollbar,
-.prompt-square-list::-webkit-scrollbar,
-.prompt-preview-detail::-webkit-scrollbar,
-.user-session-ua::-webkit-scrollbar,
-.user-detail-grid dd::-webkit-scrollbar,
-.app-dialog-secret code::-webkit-scrollbar,
-.top-menu::-webkit-scrollbar,
-.prompt-tabs::-webkit-scrollbar,
-.gallery-scope-tabs::-webkit-scrollbar,
-.management-tabs::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-textarea::-webkit-scrollbar-track,
-pre::-webkit-scrollbar-track,
-.app-drawer-body::-webkit-scrollbar-track,
-.log-list::-webkit-scrollbar-track,
-.log-item .log-meta::-webkit-scrollbar-track,
-.prompt-history-list::-webkit-scrollbar-track,
-.prompt-square-list::-webkit-scrollbar-track,
-.prompt-preview-detail::-webkit-scrollbar-track,
-.user-session-ua::-webkit-scrollbar-track,
-.user-detail-grid dd::-webkit-scrollbar-track,
-.app-dialog-secret code::-webkit-scrollbar-track,
-.top-menu::-webkit-scrollbar-track,
-.prompt-tabs::-webkit-scrollbar-track,
-.gallery-scope-tabs::-webkit-scrollbar-track,
-.management-tabs::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   margin: 8px 0;
   border-radius: 0;
   background: var(--surface-2);
 }
 
-textarea::-webkit-scrollbar-thumb,
-pre::-webkit-scrollbar-thumb,
-.app-drawer-body::-webkit-scrollbar-thumb,
-.log-list::-webkit-scrollbar-thumb,
-.log-item .log-meta::-webkit-scrollbar-thumb,
-.prompt-history-list::-webkit-scrollbar-thumb,
-.prompt-square-list::-webkit-scrollbar-thumb,
-.prompt-preview-detail::-webkit-scrollbar-thumb,
-.user-session-ua::-webkit-scrollbar-thumb,
-.user-detail-grid dd::-webkit-scrollbar-thumb,
-.app-dialog-secret code::-webkit-scrollbar-thumb,
-.top-menu::-webkit-scrollbar-thumb,
-.prompt-tabs::-webkit-scrollbar-thumb,
-.gallery-scope-tabs::-webkit-scrollbar-thumb,
-.management-tabs::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
+  min-width: 56px;
   min-height: 56px;
   border: 3px solid transparent;
   border-radius: 0;
@@ -201,33 +168,19 @@ pre::-webkit-scrollbar-thumb,
   background-clip: content-box;
 }
 
-textarea::-webkit-scrollbar-thumb:hover,
-pre::-webkit-scrollbar-thumb:hover,
-.app-drawer-body::-webkit-scrollbar-thumb:hover,
-.log-list::-webkit-scrollbar-thumb:hover,
-.log-item .log-meta::-webkit-scrollbar-thumb:hover,
-.prompt-history-list::-webkit-scrollbar-thumb:hover,
-.prompt-square-list::-webkit-scrollbar-thumb:hover,
-.prompt-preview-detail::-webkit-scrollbar-thumb:hover,
-.user-session-ua::-webkit-scrollbar-thumb:hover,
-.user-detail-grid dd::-webkit-scrollbar-thumb:hover,
-.app-dialog-secret code::-webkit-scrollbar-thumb:hover,
-.top-menu::-webkit-scrollbar-thumb:hover,
-.prompt-tabs::-webkit-scrollbar-thumb:hover,
-.gallery-scope-tabs::-webkit-scrollbar-thumb:hover,
-.management-tabs::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: var(--text-faint);
   background-clip: content-box;
 }
 
-textarea::-webkit-scrollbar-corner,
-pre::-webkit-scrollbar-corner,
-.app-drawer-body::-webkit-scrollbar-corner,
-.log-list::-webkit-scrollbar-corner,
-.log-item .log-meta::-webkit-scrollbar-corner,
-.prompt-history-list::-webkit-scrollbar-corner,
-.prompt-square-list::-webkit-scrollbar-corner,
-.prompt-preview-detail::-webkit-scrollbar-corner {
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
   background: transparent;
 }
 
@@ -1983,30 +1936,6 @@ body.preview-open { overflow: hidden; }
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-.prompt-square-list::-webkit-scrollbar {
-  width: 10px;
-}
-.prompt-square-list::-webkit-scrollbar-track {
-  margin: 8px 0;
-  border-radius: 0;
-  background: var(--surface-2);
-}
-.prompt-square-list::-webkit-scrollbar-thumb {
-  min-height: 72px;
-  border: 3px solid transparent;
-  border-radius: 0;
-  background: var(--border-strong);
-  background-clip: content-box;
-}
-.prompt-square-list::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
-  background-clip: content-box;
-}
-.prompt-square-list::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
 .prompt-square-list[data-empty="true"] { display: block; }
 .prompt-square-card {
   display: grid;
@@ -2753,19 +2682,6 @@ select.select-native-hidden {
 .custom-select-menu {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
-}
-.custom-select-menu::-webkit-scrollbar {
-  width: 10px;
-}
-.custom-select-menu::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-select-menu::-webkit-scrollbar-thumb {
-  min-height: 48px;
-  border: 3px solid transparent;
-  border-radius: 0;
-  background: var(--border-strong);
-  background-clip: content-box;
 }
 
 @keyframes selectMenuIn {
