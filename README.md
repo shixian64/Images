@@ -309,7 +309,7 @@ GET /healthz
 | `CHAT_MAX_MESSAGES` | `12` | 单次最大 messages 条数。 |
 | `CHAT_MAX_INPUT_CHARS` | `12000` | 单次输入字符上限。 |
 | `CHAT_DEFAULT_MAX_COMPLETION_TOKENS` | `1200` | 默认输出 token 上限。 |
-| `CHAT_MAX_COMPLETION_TOKENS` | `2000` | 输出 token 封顶。 |
+| `CHAT_MAX_COMPLETION_TOKENS` | `6000` | 输出 token 封顶；需覆盖漫画页分镜 JSON（前端默认请求 5200）。 |
 | `CHAT_COMPLETION_TIMEOUT_MS` | `180000` | 上游对话超时。 |
 
 ### SQLite 与数据生命周期

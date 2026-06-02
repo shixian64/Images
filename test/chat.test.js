@@ -33,6 +33,15 @@ test('prepareChatRequestBody adds and clamps completion token limits', async () 
   });
 });
 
+test('prepareChatRequestBody default ceiling allows comic storyboard requests', async () => {
+  await withEnv({
+    CHAT_MAX_COMPLETION_TOKENS: undefined
+  }, () => {
+    const comicStoryboard = prepareChatRequestBody({ prompt: 'comic storyboard', max_completion_tokens: 5200 });
+    assert.equal(comicStoryboard.max_completion_tokens, 5200);
+  });
+});
+
 test('prepareChatRequestBody rejects oversized chat inputs', async () => {
   await withEnv({
     CHAT_MAX_MESSAGES: '2',
