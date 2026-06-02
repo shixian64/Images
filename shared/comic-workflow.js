@@ -9,6 +9,12 @@ export const COMIC_PANEL_LIMITS = Object.freeze({
   default: 6
 });
 
+export const COMIC_PAGE_PANEL_LIMITS = Object.freeze({
+  min: 1,
+  max: 8,
+  default: 4
+});
+
 export const COMIC_STYLE_TEMPLATES = Object.freeze([
   Object.freeze({
     id: 'webtoon-color',
@@ -163,6 +169,12 @@ export function clampComicPanelCount(value, fallback = COMIC_PANEL_LIMITS.defaul
   return Math.min(COMIC_PANEL_LIMITS.max, Math.max(COMIC_PANEL_LIMITS.min, base));
 }
 
+export function clampComicPagePanelCount(value, fallback = COMIC_PAGE_PANEL_LIMITS.default) {
+  const n = Number(value);
+  const base = Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  return Math.min(COMIC_PAGE_PANEL_LIMITS.max, Math.max(COMIC_PAGE_PANEL_LIMITS.min, base));
+}
+
 function pageStoryboardGuideText() {
   return COMIC_PAGE_STORYBOARD_LAYOUT_GUIDE.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
@@ -178,6 +190,9 @@ export function buildComicStoryboardMessages({
 
   const style = getComicStyleTemplate(styleId);
   const count = clampComicPanelCount(panelCount);
+  const taskLine = includePageStoryboards
+    ? `任务：把用户的小故事拆成适合阅读节奏的漫画页，页数由你自动决定（1-${count} 页），并输出严格 JSON。`
+    : `任务：把用户的小故事拆成 exactly ${count} 个漫画分镜，并输出严格 JSON。`;
   const pageStoryboardSchema = {
     layout_type: '页面布局类型，例如大格主视觉型/横向条带型/斜切分镜',
     layout_keywords: [
@@ -188,6 +203,7 @@ export function buildComicStoryboardMessages({
     reading_order: '读者阅读顺序，例如从左到右、从上到下，并说明视线引导',
     visual_hierarchy: '主视觉/次视觉/留白/视觉重心如何安排',
     narrative_function: '本页排版承担的叙事作用，例如铺垫/爆发/转场/情绪停顿',
+    content: '本页可编辑分镜内容摘要，概括这一页内所有小格发生了什么',
     panel_count: 4,
     sub_panels: [
       {
@@ -208,6 +224,7 @@ export function buildComicStoryboardMessages({
     title: '短标题',
     logline: '一句话概括',
     style_id: style.id,
+    ...(includePageStoryboards ? { page_count: '自动决定的漫画页数（1-页数上限），必须等于 panel_plan.length' } : {}),
     story_world: '故事世界与时间地点',
     characters: [
       {
@@ -243,13 +260,13 @@ export function buildComicStoryboardMessages({
       role: 'system',
       content: compactLines([
         '你是资深漫画分镜导演、角色设定师和 AI 生图提示词设计师。',
-        `任务：把用户的小故事拆成 exactly ${count} 个漫画分镜，并输出严格 JSON。`,
+        taskLine,
         '设计原则：每格只表达一个清晰节拍；在远景/中景/近景/特写之间变化；用构图、景别、动作和表情推进叙事。',
         '一致性原则：先提炼角色设定表和 style_bible，再让每格 image_prompt 复用这些设定，避免角色服装、发型、色彩和画风漂移。',
         '文字原则：除非故事强依赖对白，否则 image_prompt 里要求不要生成文字、Logo、水印或复杂气泡；对白/旁白字段保持短句。',
-        includePageStoryboards ? '单页分镜开关已开启：除原有 panel_plan 字段外，必须为 panel_plan 的每一个分镜补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心和叙事功能。' : '',
+        includePageStoryboards ? `页面分镜开关已开启：先自动决定 page_count（1-${count} 页），panel_plan 的项目数必须等于 page_count；panel_plan 的每一项都代表一页漫画，不是单个小格；必须为每一页补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心、叙事功能和本页内容。` : '',
         includePageStoryboards ? `漫画页分镜分类参考：\n${pageStoryboardGuideText()}` : '',
-        includePageStoryboards ? 'page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、对话节奏型、动作连续型、蒙太奇型、非规则自由型中选择；sub_panels 描述页面内部小格位置、画面内容和阅读衔接。' : '',
+        includePageStoryboards ? `page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、对话节奏型、动作连续型、蒙太奇型、非规则自由型中选择；自动决定每页 panel_count（${COMIC_PAGE_PANEL_LIMITS.min}-${COMIC_PAGE_PANEL_LIMITS.max} 格），让 sub_panels 数量与 panel_count 一致，并让 sub_panels 描述页面内部小格位置、画面内容和阅读衔接。` : '',
         `风格模板：${style.label}`,
         `风格摘要：${style.summary}`,
         `风格关键词：${style.stylePrompt}`,
@@ -263,8 +280,8 @@ export function buildComicStoryboardMessages({
       role: 'user',
       content: compactLines([
         `故事：${sourceStory}`,
-        `目标分镜数：${count}`,
-        includePageStoryboards ? '请补全角色设定、风格圣经、每格分镜，并为每一个分镜额外生成 page_storyboard JSON。' : '请补全角色设定、风格圣经和每格分镜。'
+        includePageStoryboards ? `页数上限：${count}，请根据故事节奏自动决定实际 page_count。` : `目标分镜数：${count}`,
+        includePageStoryboards ? '请补全角色设定、风格圣经、每页分镜，并为每一页额外生成 page_storyboard JSON，其中 page_storyboard.panel_count 和 sub_panels 由你根据剧情节奏自动决定。' : '请补全角色设定、风格圣经和每格分镜。'
       ])
     }
   ];
@@ -344,15 +361,17 @@ export function normalizeComicPageStoryboard(value = {}, index = 0) {
     .map(normalizePageSubPanel)
     .filter((item) => item.role || item.area || item.content || item.composition);
   const rawCount = Number(value.panel_count ?? value.panelCount ?? subPanels.length);
-  const panelCount = Number.isFinite(rawCount) && rawCount > 0
-    ? Math.floor(rawCount)
-    : subPanels.length;
+  const panelCount = clampComicPagePanelCount(
+    Number.isFinite(rawCount) && rawCount > 0 ? rawCount : subPanels.length,
+    subPanels.length || COMIC_PAGE_PANEL_LIMITS.default
+  );
   const result = {
     layoutType: nonEmpty(value.layout_type ?? value.layoutType ?? value.type, `单页分镜 ${index + 1}`),
     layoutKeywords: normalizeStringList(value.layout_keywords ?? value.layoutKeywords ?? value.keywords),
     readingOrder: text(value.reading_order ?? value.readingOrder),
     visualHierarchy: text(value.visual_hierarchy ?? value.visualHierarchy),
     narrativeFunction: text(value.narrative_function ?? value.narrativeFunction),
+    content: text(value.content ?? value.page_content ?? value.pageContent ?? value.summary ?? value.description),
     panelCount,
     subPanels,
     designNotes: text(value.design_notes ?? value.designNotes ?? value.notes),
@@ -401,7 +420,7 @@ function normalizePanel(item = {}, index = 0, pageStoryboardFallback = null) {
   return panel;
 }
 
-export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFAULT_COMIC_STYLE_ID, panelCount } = {}) {
+export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFAULT_COMIC_STYLE_ID, panelCount, autoPageCount = false } = {}) {
   const source = data && typeof data === 'object' ? data : {};
   const rawPanels = Array.isArray(source.panel_plan)
     ? source.panel_plan
@@ -413,7 +432,14 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
     : Array.isArray(source.pageStoryboards)
       ? source.pageStoryboards
       : [];
-  const count = clampComicPanelCount(panelCount ?? rawPanels.length ?? COMIC_PANEL_LIMITS.default);
+  const declaredPageCount = Number(source.page_count ?? source.pageCount);
+  const upperPageCount = clampComicPanelCount(panelCount, COMIC_PANEL_LIMITS.max);
+  const selectedPageCount = Number.isFinite(declaredPageCount) && declaredPageCount > 0
+    ? declaredPageCount
+    : (rawPanels.length || upperPageCount);
+  const count = autoPageCount
+    ? Math.min(upperPageCount, clampComicPanelCount(selectedPageCount))
+    : clampComicPanelCount(panelCount ?? rawPanels.length ?? COMIC_PANEL_LIMITS.default);
   const style = getComicStyleTemplate(source.style_id || source.styleId || styleId);
   const panels = rawPanels.slice(0, count).map((item, index) => normalizePanel(item, index, rawPageStoryboards[index]));
   while (panels.length < count) {
@@ -428,6 +454,7 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
     logline: text(source.logline),
     styleId: style.id,
     styleLabel: style.label,
+    pageCount: panels.length,
     storyWorld: text(source.story_world ?? source.storyWorld),
     characters: normalizeCharacters(source.characters),
     styleBible: nonEmpty(source.style_bible ?? source.styleBible, `${style.summary}。${style.consistencyPrompt}`),
@@ -493,6 +520,7 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
     panel.composition ? `- 构图：${panel.composition}` : '',
     panel.continuityNotes ? `- 连续性：${panel.continuityNotes}` : '',
     pageStoryboardJson ? compactLines([
+      panel.pageStoryboard?.content ? `本页分镜内容：${panel.pageStoryboard.content}` : '',
       '当前页漫画页分镜 JSON（用于决定页面格子结构、阅读顺序、视觉层级和叙事节奏）：',
       pageStoryboardJson,
       '请把上面的 pageStoryboard 当作当前页排版约束：遵循 layoutType、readingOrder、visualHierarchy 和 subPanels 的位置/面积/镜头设计；如果有 aiPromptAddon，也要融入构图。'

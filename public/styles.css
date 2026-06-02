@@ -3758,6 +3758,15 @@ body.drawer-open { overflow: hidden; }
   color: var(--text-muted);
 }
 
+.comic-page-summary {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
 .comic-bible-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3854,6 +3863,55 @@ body.drawer-open { overflow: hidden; }
   margin-top: 10px;
 }
 
+.comic-page-editor {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.comic-page-editor-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.comic-page-editor-head strong {
+  font-size: 13px;
+}
+
+.comic-page-editor-head span {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.comic-page-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.comic-page-content-field textarea {
+  min-height: 130px;
+}
+
+.comic-page-json-details {
+  margin-top: 10px;
+}
+
+.comic-page-json-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.comic-page-json-details .field {
+  margin-top: 10px;
+}
+
 .comic-panel-card textarea {
   min-height: 120px;
 }
@@ -3899,7 +3957,8 @@ body.drawer-open { overflow: hidden; }
 
 @media (max-width: 720px) {
   .comic-options,
-  .comic-panel-card dl {
+  .comic-panel-card dl,
+  .comic-page-editor-grid {
     grid-template-columns: 1fr;
   }
 }
