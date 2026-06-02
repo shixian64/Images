@@ -30,12 +30,27 @@ function positiveIntOrUndefined(value) {
   return Math.floor(n);
 }
 
+function assertCalendarDate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d) || m < 1 || m > 12 || d < 1) {
+    throw new Error('invalid cleanup cutoff');
+  }
+  const maxDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (d > maxDay) throw new Error('invalid cleanup cutoff');
+}
+
 function cutoffIso(value) {
   const text = String(value || '').trim();
   if (!text) throw new Error('cleanup cutoff is required');
+  const datePrefix = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (datePrefix) {
+    const [, year, month, day] = datePrefix;
+    assertCalendarDate(year, month, day);
+  }
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
     const date = new Date(`${text}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) throw new Error('invalid cleanup cutoff');
     return date.toISOString();
   }
   const date = new Date(text);
