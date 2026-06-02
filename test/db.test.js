@@ -84,6 +84,9 @@ test('admin stats counts today with an index-friendly day range', () => {
     email: 'stats_user@example.com',
     password: 'longenough1'
   });
+  // 本文件后续需要验证“无 admin 时 legacy gallery 迁移会延后”；
+  // 首个注册现在会自动成为 admin，因此这里显式降回普通用户。
+  if (user.role === 'admin') db.users.updateRole(user.id, 'user');
   db.images.insert({
     id: 'stats-today-1',
     userId: user.id,

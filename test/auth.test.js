@@ -42,26 +42,21 @@ after(() => {
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
-test('first registration is not admin unless bootstrap token matches', () => {
+test('first registration becomes admin without bootstrap token', () => {
+  const root = auth.register({ username: 'root', email: 'root@x.com', password: 'longenough1' });
+  assert.equal(root.role, 'admin');
+  assert.equal(root.status, 'active');
+  // password fields must not be returned
+  assert.equal(root.password_hash, undefined);
+  assert.equal(root.password_salt, undefined);
+
   const u1 = auth.register({ username: 'alice', email: 'alice@x.com', password: 'longenough1' });
   assert.equal(u1.role, 'user');
-  assert.equal(u1.status, 'active');
-  // password fields must not be returned
-  assert.equal(u1.password_hash, undefined);
-  assert.equal(u1.password_salt, undefined);
 
   assert.throws(
     () => auth.register({ username: 'mallory', email: 'mallory@x.com', password: 'longenough1', adminBootstrapToken: 'wrong' }),
     /invalid admin bootstrap token/
   );
-
-  const root = auth.register({
-    username: 'root',
-    email: 'root@x.com',
-    password: 'longenough1',
-    adminBootstrapToken: 'bootstrap-secret'
-  });
-  assert.equal(root.role, 'admin');
 
   const u2 = auth.register({ username: 'bob', email: 'bob@x.com', password: 'longenough1' });
   assert.equal(u2.role, 'user');

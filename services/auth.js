@@ -57,6 +57,15 @@ export function canUseAdminBootstrapToken(token) {
   return users.countAdmins() === 0 && isValidAdminBootstrapToken(token);
 }
 
+export function canCreateFirstAdminWithoutToken() {
+  return users.count() === 0;
+}
+
+export function canInitializeAdminRegistration({ adminBootstrapToken } = {}) {
+  if (adminBootstrapToken) return canUseAdminBootstrapToken(adminBootstrapToken);
+  return canCreateFirstAdminWithoutToken();
+}
+
 export function sanitizeUser(row, { includeSecurity = false } = {}) {
   if (!row) return null;
   const { password_hash, password_salt, ...rest } = row;
@@ -86,9 +95,9 @@ export function register({ username, email, password, adminBootstrapToken, signu
     throw new Error('email already taken');
   }
   const { hash, salt } = hashPassword(password);
-  // 管理员必须通过部署时设置的 ADMIN_BOOTSTRAP_TOKEN 显式初始化；
-  // 避免空库状态下任意首位注册者直接变成 admin。
-  const role = hasBootstrapToken ? 'admin' : 'user';
+  // 新部署不再强制要求 ADMIN_BOOTSTRAP_TOKEN：空库首个注册账号自动成为 admin。
+  // 兼容旧部署：如果库里已有普通用户但没有活跃 admin，仍允许用有效令牌初始化 admin。
+  const role = (users.count() === 0 || hasBootstrapToken) ? 'admin' : 'user';
   const row = users.create({
     username,
     email,

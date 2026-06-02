@@ -143,6 +143,8 @@ test('system default chat requests use managed quota while custom chat bypasses 
     email: 'chat_quota_user@example.com',
     password: 'longenough1'
   });
+  if (user.role === 'admin') db.users.updateRole(user.id, 'user');
+  user.role = 'user';
   const body = {
     useSystemDefault: true,
     model: 'gpt-test',

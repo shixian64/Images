@@ -12,7 +12,7 @@
 
 ```bash
 cp .env.example .env
-# 修改 ADMIN_BOOTSTRAP_TOKEN
+# 按需修改 .env；空库首个注册账号会自动成为管理员
 npm start
 npm test
 ```

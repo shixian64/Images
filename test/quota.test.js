@@ -41,11 +41,16 @@ after(() => {
 
 function createNormalUser() {
   seq += 1;
-  return auth.register({
+  const user = auth.register({
     username: `quota_user_${seq}`,
     email: `quota_user_${seq}@example.com`,
     password: 'longenough1'
   });
+  if (user.role === 'admin') {
+    db.users.updateRole(user.id, 'user');
+    return { ...user, role: 'user' };
+  }
+  return user;
 }
 
 async function withQuotaEnv(patch, fn) {

@@ -9,7 +9,7 @@ import {
   login as authLogin,
   createSession,
   destroySession,
-  canUseAdminBootstrapToken,
+  canInitializeAdminRegistration,
   isValidAdminBootstrapToken
 } from '../services/auth.js';
 import {
@@ -100,9 +100,9 @@ async function handleRegister(req, res) {
     if (adminBootstrapToken && !adminBootstrapOk) {
       throw new Error('invalid admin bootstrap token');
     }
-    const canBootstrapAdmin = canUseAdminBootstrapToken(adminBootstrapToken);
-    const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canBootstrapAdmin });
-    if (!canBootstrapAdmin) {
+    const canInitializeAdmin = canInitializeAdminRegistration({ adminBootstrapToken });
+    const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canInitializeAdmin });
+    if (!canInitializeAdmin) {
       const limit = checkRegistrationRateLimit({ ip });
       if (!limit.ok) {
         res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
@@ -118,8 +118,8 @@ async function handleRegister(req, res) {
       signupIp: ip,
       signupUserAgent: userAgent(req)
     });
-    if (!canBootstrapAdmin && registrationPolicy.inviteAccepted && registrationPolicy.inviteSource === 'db') {
-      const consumed = consumeRegistrationInviteCode(registrationPolicy.inviteCode);
+    if (!canInitializeAdmin && registrationPolicy.inviteAccepted && registrationPolicy.inviteSource === 'db') {
+      const consumed = consumeRegistrationInviteCode(registrationPolicy.inviteCode, { userId: user.id });
       if (!consumed) {
         throw new RegistrationRejectedError('invalid registration invite code', {
           status: 403,

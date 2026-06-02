@@ -306,7 +306,7 @@ export function assertRegistrationAllowed({ body = {}, isAdminBootstrap = false 
   const supplied = suppliedInviteCode(body);
   let invitePolicy = {};
 
-  // 管理员初始化令牌验证通过时允许穿过注册开关，避免新部署时把首个 admin 锁死。
+  // 初始管理员注册（空库首个账号，或兼容旧令牌方式）允许穿过注册开关。
   if (!isAdminBootstrap) {
     if (supplied) {
       if (!settings.allowInviteRegistration) {

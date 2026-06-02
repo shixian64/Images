@@ -18,7 +18,7 @@ This repository is a dependency-light Node.js web app for local / self-hosted im
 
 - `npm start` — starts the app with `node --experimental-sqlite server.js` at `http://localhost:8787`.
 - `npm test` — runs the Node native test runner over `test/**/*.test.js`.
-- `cp .env.example .env` — creates local configuration; set `ADMIN_BOOTSTRAP_TOKEN` before first admin registration.
+- `cp .env.example .env` — creates local configuration; an empty database promotes the first registered account to admin automatically.
 
 There is no separate build step. Do not run compile/build commands unless explicitly requested or allowed.
 
