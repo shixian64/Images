@@ -33,6 +33,7 @@ let generatedPanels = [];
 let activeRun = null;
 let activeStoryboardRequest = null;
 let currentProjectId = '';
+let currentProjectStory = '';
 
 function renderSelect(id, items, selectedValue = '') {
   const el = $(id);
@@ -88,8 +89,19 @@ function parsePageStoryboardEditorValue(raw = '', index = 0) {
   }
 }
 
+function normalizeProjectStory(value = '') {
+  return String(value || '').trim();
+}
+
+function detachProjectIfStoryChanged(nextStory = '') {
+  const story = normalizeProjectStory(nextStory);
+  if (!currentProjectId || !currentProjectStory || story === currentProjectStory) return;
+  currentProjectId = '';
+  currentProjectStory = '';
+}
+
 function collectComicProjectPayload(status = 'storyboard') {
-  const story = $('comicStory')?.value.trim() || '';
+  const story = normalizeProjectStory($('comicStory')?.value || '');
   const styleId = storyboard?.styleId || $('comicStyle')?.value || '';
   const style = getComicStyleTemplate(styleId);
   const usePageStoryboard = $('comicUsePageStoryboard')?.checked === true;
@@ -127,6 +139,7 @@ async function saveComicProject(status = 'storyboard') {
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
   currentProjectId = data.project?.id || currentProjectId;
+  currentProjectStory = normalizeProjectStory(data.project?.story ?? body.story);
   window.dispatchEvent(new CustomEvent('comic-project-saved', { detail: { project: data.project } }));
   return data.project;
 }
@@ -384,7 +397,7 @@ function resolveProfileConfig(kind) {
 
 async function analyzeStoryboard() {
   showComicError('');
-  const story = $('comicStory')?.value.trim() || '';
+  const story = normalizeProjectStory($('comicStory')?.value || '');
   if (!story) return showComicError('请先输入一个小故事。');
 
   let profileInfo;
@@ -430,6 +443,7 @@ async function analyzeStoryboard() {
     storyboard = parseComicStoryboardResponse(extractChatText(data), { story, styleId, panelCount });
     storyboard.pageStoryboardEnabled = includePageStoryboards || storyboardHasPageStoryboards(storyboard);
     generatedPanels = [];
+    detachProjectIfStoryChanged(story);
     await saveComicProject('storyboard');
     renderStoryboard();
     renderComicResults();
@@ -582,6 +596,7 @@ async function generateComic({ onSavedImages } = {}) {
   showComicError('');
   if (!storyboard?.panels?.length) return showComicError('请先生成分镜。');
   syncStoryboardFromEditors();
+  detachProjectIfStoryChanged($('comicStory')?.value || '');
 
   let imageInfo;
   try {
@@ -725,6 +740,7 @@ function loadComicProject(detail = {}) {
   const project = detail.project || detail;
   if (!project?.id) return;
   currentProjectId = project.id;
+  currentProjectStory = normalizeProjectStory(project.story);
   storyboard = project.storyboard && Object.keys(project.storyboard).length ? project.storyboard : null;
   const story = $('comicStory');
   if (story) {
