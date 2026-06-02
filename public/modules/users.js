@@ -414,8 +414,7 @@ async function generateRegistrationInvites() {
   let body;
   try {
     body = {
-      count: readPositiveInput('registrationGenerateCount', 10),
-      maxUses: readPositiveInput('registrationGenerateUses', undefined)
+      count: readPositiveInput('registrationGenerateCount', 10)
     };
   } catch (err) {
     setStatus(err?.message || '邀请码生成参数不合法', 'err', 2200);
