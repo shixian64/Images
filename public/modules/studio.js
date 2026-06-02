@@ -659,6 +659,7 @@ async function optimizePrompt() {
   const payload = {
     name: profile.name,
     useSystemDefault: systemMode,
+    quotaPurpose: 'prompt_optimize',
     model: chat.defaultModel || DEFAULT_CHAT_MODEL,
     messages: buildPromptOptimizationMessages(sourcePrompt)
   };

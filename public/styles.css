@@ -3505,6 +3505,16 @@ body.drawer-open { overflow: hidden; }
   background: var(--danger-soft);
   border-radius: 0;
 }
+.quota-extra-chip {
+  display: inline-block;
+  margin-top: 4px;
+  margin-right: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-radius: 0;
+}
 
 /* ---- 额度管理：行级 ⋯ 菜单 ---- */
 .quota-row-action {

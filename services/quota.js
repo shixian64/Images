@@ -121,7 +121,13 @@ function pickValue(override, fallback) {
 // 当前用量快照
 export function usageSnapshot(userId) {
   const today = todayUtc();
-  const todayRow = usageDaily.get(userId, today) || { call_count: 0, image_count: 0, bytes: 0, fail_count: 0 };
+  const todayRow = usageDaily.get(userId, today) || {
+    call_count: 0,
+    image_count: 0,
+    bytes: 0,
+    prompt_optimize_count: 0,
+    fail_count: 0
+  };
   const month = usageDaily.sum(userId, monthStart(today), monthEnd(today));
   // storage 用 images 表的累计，简单可靠
   const storage = imagesTable.statsByUser(userId);
@@ -130,6 +136,7 @@ export function usageSnapshot(userId) {
       calls: Number(todayRow.call_count) || 0,
       images: Number(todayRow.image_count) || 0,
       bytes: Number(todayRow.bytes) || 0,
+      promptOptimizations: Number(todayRow.prompt_optimize_count) || 0,
       fails: Number(todayRow.fail_count) || 0
     },
     month,
@@ -328,8 +335,8 @@ export function tryReserveStorageBytes(userId, additionalBytes = 0) {
 export function usageBySignupIpSnapshot(signupIp) {
   if (!signupIp) {
     return {
-      today: { calls: 0, images: 0, bytes: 0, fails: 0 },
-      month: { calls: 0, images: 0, bytes: 0, fails: 0 }
+      today: { calls: 0, images: 0, bytes: 0, promptOptimizations: 0, fails: 0 },
+      month: { calls: 0, images: 0, bytes: 0, promptOptimizations: 0, fails: 0 }
     };
   }
   const today = todayUtc();
@@ -381,14 +388,14 @@ function formatMb(bytes) {
 }
 
 // 记录一次成功调用
-export function recordSuccess(userId, { calls = 1, images = 1, bytes = 0 } = {}) {
+export function recordSuccess(userId, { calls = 1, images = 1, bytes = 0, promptOptimizations = 0 } = {}) {
   if (!userId) return;
-  usageDaily.bump(userId, todayUtc(), { calls, images, bytes });
+  usageDaily.bump(userId, todayUtc(), { calls, images, bytes, promptOptimizations });
 }
 
-export function recordAttempt(userId, { calls = 1 } = {}) {
+export function recordAttempt(userId, { calls = 1, promptOptimizations = 0 } = {}) {
   if (!userId) return;
-  usageDaily.bump(userId, todayUtc(), { calls, images: 0, bytes: 0 });
+  usageDaily.bump(userId, todayUtc(), { calls, images: 0, bytes: 0, promptOptimizations });
 }
 
 export function recordFailure(userId, { calls = 1 } = {}) {

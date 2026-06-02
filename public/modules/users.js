@@ -768,8 +768,8 @@ function renderDefaultsCard() {
     `;
   };
   host.innerHTML = `
-    ${card('daily_limit', '系统默认每日上限', '次/天')}
-    ${card('monthly_limit', '系统默认每月上限', '次/月')}
+    ${card('daily_limit', '系统默认每日调用上限', '次/天')}
+    ${card('monthly_limit', '系统默认每月调用上限', '次/月')}
     ${card('storage_limit_mb', '存储上限', 'MB')}
     ${card('concurrent_limit', '并发上限', '次')}
   `;
@@ -822,8 +822,13 @@ function renderQuotaTable() {
           const today = usage.today || {};
           const month = usage.month || {};
           const storage = usage.storage || {};
+          const todayPromptOptimizations = Number(today.promptOptimizations || 0);
+          const monthPromptOptimizations = Number(month.promptOptimizations || 0);
           const id = u.id || '';
           const isChecked = quotaSelected.has(id);
+          const promptOptimizeChip = (todayPromptOptimizations || monthPromptOptimizations)
+            ? `<small class="quota-extra-chip" title="提示词优化今日 ${todayPromptOptimizations} / 本月 ${monthPromptOptimizations}">优化 ${todayPromptOptimizations}/${monthPromptOptimizations}</small>`
+            : '';
           const failChip = (today.fails || month.fails)
             ? `<small class="quota-fail-chip" title="今日失败 ${today.fails || 0} / 本月失败 ${month.fails || 0}">失败 ${today.fails || 0}/${month.fails || 0}</small>`
             : '';
@@ -849,16 +854,17 @@ function renderQuotaTable() {
               <td class="quota-usage-summary">
                 <div class="quota-usage-line">
                   <span>今</span>${miniBar(today.calls || 0, q.daily_limit)}
-                  <small>${today.calls || 0}/${fmtLimit(q.daily_limit)}</small>
+                  <small title="今日系统默认接口调用总数（含生图与提示词优化）">${today.calls || 0}/${fmtLimit(q.daily_limit)}</small>
                 </div>
                 <div class="quota-usage-line">
                   <span>月</span>${miniBar(month.calls || 0, q.monthly_limit)}
-                  <small>${month.calls || 0}/${fmtLimit(q.monthly_limit)}</small>
+                  <small title="本月系统默认接口调用总数（含生图与提示词优化）">${month.calls || 0}/${fmtLimit(q.monthly_limit)}</small>
                 </div>
                 <div class="quota-usage-line">
                   <span>存</span>${miniStorageBar(storage.bytes || 0, q.storage_limit_mb)}
                   <small>${fmtMb(storage.bytes || 0)}${q.storage_limit_mb ? ` / ${q.storage_limit_mb}MB` : ''}</small>
                 </div>
+                ${promptOptimizeChip}
                 ${failChip}
               </td>
               <td class="quota-row-action">
@@ -996,8 +1002,8 @@ async function resetUserUsage(userId, scope) {
 
 function quotaFields(values = {}) {
   return [
-    { name: 'daily_limit', label: '每日生成上限（次，留空=不限）', type: 'number', value: values.daily_limit ?? '' },
-    { name: 'monthly_limit', label: '每月生成上限（次，留空=不限）', type: 'number', value: values.monthly_limit ?? '' },
+    { name: 'daily_limit', label: '每日系统默认接口调用上限（含提示词优化，次，留空=不限）', type: 'number', value: values.daily_limit ?? '' },
+    { name: 'monthly_limit', label: '每月系统默认接口调用上限（含提示词优化，次，留空=不限）', type: 'number', value: values.monthly_limit ?? '' },
     { name: 'storage_limit_mb', label: '存储上限（MB，留空=不限）', type: 'number', value: values.storage_limit_mb ?? '' },
     { name: 'concurrent_limit', label: '并发上限（次，留空=不限）', type: 'number', value: values.concurrent_limit ?? '' }
   ];

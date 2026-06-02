@@ -266,20 +266,20 @@ async function openUsageDrawer() {
       <div class="user-detail">
         <section class="user-detail-block">
           <h3>今日</h3>
-          ${progressBar(today.calls || 0, q.daily_limit, '额度调用次数')}
-          <p class="hint">失败 ${today.fails || 0} 次 · 入库 ${today.images || 0} 张</p>
+          ${progressBar(today.calls || 0, q.daily_limit, '额度调用次数（系统默认接口）')}
+          <p class="hint">提示词优化 ${today.promptOptimizations || 0} 次 · 失败 ${today.fails || 0} 次 · 入库 ${today.images || 0} 张</p>
         </section>
         <section class="user-detail-block">
           <h3>本月</h3>
-          ${progressBar(month.calls || 0, q.monthly_limit, '额度调用次数')}
-          <p class="hint">失败 ${month.fails || 0} 次 · 入库 ${month.images || 0} 张</p>
+          ${progressBar(month.calls || 0, q.monthly_limit, '额度调用次数（系统默认接口）')}
+          <p class="hint">提示词优化 ${month.promptOptimizations || 0} 次 · 失败 ${month.fails || 0} 次 · 入库 ${month.images || 0} 张</p>
         </section>
         <section class="user-detail-block">
           <h3>存储</h3>
           ${storageBar(storage.bytes || 0, q.storage_limit_mb)}
           <p class="hint">本地图库共 ${storage.images || 0} 张</p>
         </section>
-        <p class="hint">额度由管理员维护；日/月次数仅统计系统默认接口，存储与并发对系统默认和个人自定义接口都生效。</p>
+        <p class="hint">额度由管理员维护；日/月次数统计系统默认接口调用（含生图与提示词优化），存储与并发对系统默认和个人自定义接口都生效。</p>
       </div>
     `;
     drawer.update({ body: html });

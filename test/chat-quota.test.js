@@ -147,6 +147,7 @@ test('system default chat requests use managed quota while custom chat bypasses 
   user.role = 'user';
   const body = {
     useSystemDefault: true,
+    quotaPurpose: 'prompt_optimize',
     model: 'gpt-test',
     messages: [{ role: 'user', content: '请优化提示词' }]
   };
@@ -154,6 +155,7 @@ test('system default chat requests use managed quota while custom chat bypasses 
   const first = await callChat(handleChat, body, user);
   assert.equal(first.statusCode, 200);
   assert.equal(quota.usageSnapshot(user.id).today.calls, 1);
+  assert.equal(quota.usageSnapshot(user.id).today.promptOptimizations, 1);
 
   const second = await callChat(handleChat, body, user);
   assert.equal(second.statusCode, 429);
@@ -183,6 +185,7 @@ test('system default chat requests use managed quota while custom chat bypasses 
   const firstConcurrentResult = await firstConcurrent;
   assert.equal(firstConcurrentResult.statusCode, 200);
   assert.equal(quota.usageSnapshot(concurrentUser.id).today.calls, 1);
+  assert.equal(quota.usageSnapshot(concurrentUser.id).today.promptOptimizations, 1);
   assert.equal(upstreamHits, 2);
 
   const customUser = auth.register({
@@ -199,6 +202,7 @@ test('system default chat requests use managed quota while custom chat bypasses 
   }, customUser);
   assert.equal(custom.statusCode, 200);
   assert.equal(quota.usageSnapshot(customUser.id).today.calls, 1);
+  assert.equal(quota.usageSnapshot(customUser.id).today.promptOptimizations, 0);
   assert.equal(upstreamHits, 3);
 
   const storageFullUser = auth.register({
@@ -224,5 +228,6 @@ test('system default chat requests use managed quota while custom chat bypasses 
   const storageFullChat = await callChat(handleChat, body, storageFullUser);
   assert.equal(storageFullChat.statusCode, 200);
   assert.equal(quota.usageSnapshot(storageFullUser.id).today.calls, 1);
+  assert.equal(quota.usageSnapshot(storageFullUser.id).today.promptOptimizations, 1);
   assert.equal(upstreamHits, 4);
 });

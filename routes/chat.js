@@ -22,6 +22,7 @@ const DEFAULT_CHAT_MAX_COMPLETION_TOKENS = 1_200;
 const DEFAULT_CHAT_COMPLETION_TOKEN_CEILING = 2_000;
 const DEFAULT_CHAT_COMPLETION_TIMEOUT_MS = 180_000;
 const CHAT_QUOTA_COST = 1;
+const CHAT_QUOTA_PURPOSES = new Set(['prompt_optimize']);
 
 let activeChatRequests = 0;
 
@@ -192,6 +193,19 @@ function resolveChatRequest(body = {}) {
   };
 }
 
+function normalizeQuotaPurpose(body = {}) {
+  const raw = String(body.quotaPurpose || body.usagePurpose || body.purpose || '').trim();
+  return CHAT_QUOTA_PURPOSES.has(raw) ? raw : '';
+}
+
+function chatQuotaMeta(body = {}) {
+  const purpose = normalizeQuotaPurpose(body);
+  return {
+    purpose,
+    promptOptimizations: purpose === 'prompt_optimize' ? CHAT_QUOTA_COST : 0
+  };
+}
+
 function checkChatQuota(userInfo, { model, usingSystemDefault = false } = {}) {
   if (!usingSystemDefault) return { ok: true, cost: 0 };
   if (!userInfo?.id || userInfo.role === 'admin') return { ok: true, cost: CHAT_QUOTA_COST };
@@ -209,9 +223,9 @@ function checkChatQuota(userInfo, { model, usingSystemDefault = false } = {}) {
   return { ...check, cost: CHAT_QUOTA_COST };
 }
 
-function recordChatQuotaAttempt(userInfo, { usingSystemDefault = false } = {}) {
+function recordChatQuotaAttempt(userInfo, { usingSystemDefault = false, promptOptimizations = 0 } = {}) {
   if (!usingSystemDefault || !userInfo?.id) return;
-  recordAttempt(userInfo.id, { calls: CHAT_QUOTA_COST });
+  recordAttempt(userInfo.id, { calls: CHAT_QUOTA_COST, promptOptimizations });
 }
 
 function recordChatQuotaFailure(userInfo, { reserved = false, usingSystemDefault = false } = {}) {
@@ -234,6 +248,7 @@ export async function handleChat(req, res) {
 
     const requestConfig = resolveChatRequest(body);
     const { apiKey, targetUrl, bodyForPayload, usingSystemDefault } = requestConfig;
+    const quotaMeta = chatQuotaMeta(body);
     await assertAllowedUpstreamUrl(targetUrl);
     const payload = buildChatPayload(bodyForPayload);
 
@@ -254,7 +269,7 @@ export async function handleChat(req, res) {
       return sendJson(res, 429, { error: slot.message, code: 'chat_concurrent_limit_exceeded' });
     }
     releaseChatSlot = slot.release;
-    recordChatQuotaAttempt(req.session.user, { usingSystemDefault });
+    recordChatQuotaAttempt(req.session.user, { usingSystemDefault, ...quotaMeta });
     quotaReserved = usingSystemDefault;
 
     logger.info('chat.completion.request', {
@@ -262,6 +277,7 @@ export async function handleChat(req, res) {
       model: payload.model,
       profileName: requestConfig.profileName,
       usingSystemDefault,
+      quotaPurpose: quotaMeta.purpose || undefined,
       userId: req.session.user.id,
       apiKey: maskApiKey(apiKey)
     });

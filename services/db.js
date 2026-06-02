@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   call_count  INTEGER NOT NULL DEFAULT 0,
   image_count INTEGER NOT NULL DEFAULT 0,
   bytes       INTEGER NOT NULL DEFAULT 0,
+  prompt_optimize_count INTEGER NOT NULL DEFAULT 0,
   fail_count  INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, day)
 );
@@ -305,6 +306,7 @@ export function migrate() {
   db.exec(SCHEMA);
   migrateUserAbuseColumns(db);
   migrateImagePublicColumns(db);
+  migrateUsageDailyColumns(db);
   migrateComicProjectTables(db);
   migrateRegistrationInviteTables(db);
   db.exec(DATA_LIFECYCLE_INDEXES);
@@ -323,6 +325,15 @@ function migrateUserAbuseColumns(db) {
   addColumnIfMissing(db, 'users', 'signup_ip', 'signup_ip TEXT');
   addColumnIfMissing(db, 'users', 'signup_user_agent', 'signup_user_agent TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_users_signup_ip ON users(signup_ip);');
+}
+
+function migrateUsageDailyColumns(db) {
+  addColumnIfMissing(
+    db,
+    'usage_daily',
+    'prompt_optimize_count',
+    'prompt_optimize_count INTEGER NOT NULL DEFAULT 0'
+  );
 }
 
 function migrateRegistrationInviteTables(db) {
@@ -1359,7 +1370,7 @@ export const usageDaily = {
     ).get(userId, day) || null;
   },
   // 增量累加。若行不存在则插入。
-  bump(userId, day, { calls = 0, images = 0, bytes = 0, fails = 0 } = {}) {
+  bump(userId, day, { calls = 0, images = 0, bytes = 0, fails = 0, promptOptimizations = 0 } = {}) {
     const db = open();
     const cur = this.get(userId, day);
     if (cur) {
@@ -1368,14 +1379,16 @@ export const usageDaily = {
           call_count  = call_count  + ?,
           image_count = image_count + ?,
           bytes       = bytes       + ?,
+          prompt_optimize_count = prompt_optimize_count + ?,
           fail_count  = fail_count  + ?
         WHERE user_id = ? AND day = ?
-      `).run(calls, images, bytes, fails, userId, day);
+      `).run(calls, images, bytes, promptOptimizations, fails, userId, day);
     } else {
       db.prepare(`
-        INSERT INTO usage_daily (user_id, day, call_count, image_count, bytes, fail_count)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(userId, day, calls, images, bytes, fails);
+        INSERT INTO usage_daily
+          (user_id, day, call_count, image_count, bytes, prompt_optimize_count, fail_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(userId, day, calls, images, bytes, promptOptimizations, fails);
     }
   },
   // 区间聚合：[fromDay, toDay] 含端点，YYYY-MM-DD。
@@ -1385,6 +1398,7 @@ export const usageDaily = {
         COALESCE(SUM(call_count), 0)  AS calls,
         COALESCE(SUM(image_count), 0) AS images,
         COALESCE(SUM(bytes), 0)       AS bytes,
+        COALESCE(SUM(prompt_optimize_count), 0) AS promptOptimizations,
         COALESCE(SUM(fail_count), 0)  AS fails
       FROM usage_daily
       WHERE user_id = ? AND day >= ? AND day <= ?
@@ -1393,6 +1407,7 @@ export const usageDaily = {
       calls: Number(row?.calls) || 0,
       images: Number(row?.images) || 0,
       bytes: Number(row?.bytes) || 0,
+      promptOptimizations: Number(row?.promptOptimizations) || 0,
       fails: Number(row?.fails) || 0
     };
   },
@@ -1402,6 +1417,7 @@ export const usageDaily = {
         COALESCE(SUM(d.call_count), 0)  AS calls,
         COALESCE(SUM(d.image_count), 0) AS images,
         COALESCE(SUM(d.bytes), 0)       AS bytes,
+        COALESCE(SUM(d.prompt_optimize_count), 0) AS promptOptimizations,
         COALESCE(SUM(d.fail_count), 0)  AS fails
       FROM usage_daily d
       JOIN users u ON u.id = d.user_id
@@ -1411,6 +1427,7 @@ export const usageDaily = {
       calls: Number(row?.calls) || 0,
       images: Number(row?.images) || 0,
       bytes: Number(row?.bytes) || 0,
+      promptOptimizations: Number(row?.promptOptimizations) || 0,
       fails: Number(row?.fails) || 0
     };
   },
