@@ -1,7 +1,7 @@
 // 注册防护：UI 可配置注册入口、一次性/多次邀请码、IP 频率限制、邮箱域策略和蜜罐字段。
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { registrationInvites, systemSettings } from './db.js';
+import { registrationInviteRedemptions, registrationInvites, systemSettings } from './db.js';
 import { hit as rateLimitHit } from './rate-limit.js';
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
@@ -201,7 +201,8 @@ export function adminRegistrationSnapshot() {
   const settings = registrationSettingsSnapshot();
   return {
     settings,
-    invites: settings.source === 'db' ? registrationInvites.list() : [],
+    invites: settings.source === 'db' ? registrationInvites.list({ includeDisabled: true }) : [],
+    redemptions: settings.source === 'db' ? registrationInviteRedemptions.list() : [],
     limits: {
       maxInviteBatchSize: MAX_INVITE_BATCH_SIZE,
       maxDefaultInviteUses: MAX_DEFAULT_INVITE_USES
@@ -257,8 +258,24 @@ export function resetRegistrationInviteCodes() {
   return registrationInvites.reset();
 }
 
-export function consumeRegistrationInviteCode(code) {
-  return registrationInvites.consume(code);
+export function disableRegistrationInviteCode(code, { disabledBy = null } = {}) {
+  return registrationInvites.disable(code, { disabledBy });
+}
+
+export function cleanupRegistrationInviteRedemptions({
+  before,
+  disableUnusedInvites = false,
+  disabledBy = null
+} = {}) {
+  const removedRedemptions = registrationInviteRedemptions.cleanupBefore(before);
+  const disabledInvites = disableUnusedInvites
+    ? registrationInvites.disableUnusedBefore(before, { disabledBy })
+    : 0;
+  return { removedRedemptions, disabledInvites };
+}
+
+export function consumeRegistrationInviteCode(code, { userId = null } = {}) {
+  return registrationInvites.consume(code, { userId });
 }
 
 export function checkRegistrationRateLimit({ ip }) {

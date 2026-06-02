@@ -38,6 +38,7 @@ after(() => {
 afterEach(() => {
   rateLimit.clear();
   db.registrationInvites.reset();
+  db.registrationInviteRedemptions.cleanupBefore('9999-12-31T23:59:59.999Z');
   db.systemSettings.delete('registration.settings');
 });
 
@@ -196,6 +197,85 @@ test('resetting invite codes clears codes without changing registration settings
     assert.equal(snapshot.invites.length, 0);
     assert.equal(snapshot.settings.allowInviteRegistration, true);
     assert.equal(snapshot.settings.defaultInviteUses, 3);
+  });
+});
+
+test('invite redemption records the registered user and invites can be disabled', () => {
+  return withEnv({}, () => {
+    guard.setRegistrationSettings({
+      allowPublicRegistration: false,
+      allowInviteRegistration: true,
+      defaultInviteUses: 2
+    }, 'admin-1');
+    const [invite] = guard.generateRegistrationInviteCodes({ count: 1, maxUses: 2, createdBy: 'admin-1' });
+    const user = db.users.create({
+      username: 'invite-redeemer-1',
+      email: 'invite-redeemer-1@example.com',
+      passwordHash: 'hash',
+      passwordSalt: 'salt'
+    });
+
+    const consumed = guard.consumeRegistrationInviteCode(invite.code, { userId: user.id });
+    assert.equal(consumed.usedCount, 1);
+    assert.equal(consumed.remainingUses, 1);
+
+    const snapshot = guard.adminRegistrationSnapshot();
+    assert.equal(snapshot.redemptions.length, 1);
+    assert.equal(snapshot.redemptions[0].code, invite.code);
+    assert.equal(snapshot.redemptions[0].userId, user.id);
+    assert.equal(snapshot.redemptions[0].username, user.username);
+    assert.equal(snapshot.redemptions[0].email, user.email);
+
+    const disabled = guard.disableRegistrationInviteCode(invite.code, { disabledBy: 'admin-1' });
+    assert.equal(disabled.active, false);
+    assert.ok(disabled.disabledAt);
+    assert.equal(disabled.disabledBy, 'admin-1');
+    assert.throws(
+      () => guard.assertRegistrationAllowed({
+        body: { email: 'b@example.com', registrationCode: invite.code },
+        isAdminBootstrap: false
+      }),
+      (err) => err instanceof guard.RegistrationRejectedError &&
+        err.code === 'invalid_registration_invite_code'
+    );
+  });
+});
+
+test('redemption cleanup can also disable old unused invites', () => {
+  return withEnv({}, () => {
+    guard.setRegistrationSettings({
+      allowPublicRegistration: false,
+      allowInviteRegistration: true,
+      defaultInviteUses: 2
+    }, 'admin-1');
+    const [usedInvite, unusedInvite] = guard.generateRegistrationInviteCodes({
+      count: 2,
+      maxUses: 2,
+      createdBy: 'admin-1'
+    });
+    const user = db.users.create({
+      username: 'invite-redeemer-2',
+      email: 'invite-redeemer-2@example.com',
+      passwordHash: 'hash',
+      passwordSalt: 'salt'
+    });
+    guard.consumeRegistrationInviteCode(usedInvite.code, { userId: user.id });
+
+    const result = guard.cleanupRegistrationInviteRedemptions({
+      before: '9999-01-01T00:00:00.000Z',
+      disableUnusedInvites: true,
+      disabledBy: 'admin-1'
+    });
+    assert.equal(result.removedRedemptions, 1);
+    assert.equal(result.disabledInvites, 1);
+
+    const snapshot = guard.adminRegistrationSnapshot();
+    assert.equal(snapshot.redemptions.length, 0);
+    const used = snapshot.invites.find((item) => item.code === usedInvite.code);
+    const unused = snapshot.invites.find((item) => item.code === unusedInvite.code);
+    assert.equal(used.disabledAt, null);
+    assert.ok(unused.disabledAt);
+    assert.equal(unused.disabledBy, 'admin-1');
   });
 });
 

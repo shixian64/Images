@@ -253,12 +253,28 @@ CREATE TABLE IF NOT EXISTS registration_invites (
   created_at  TEXT NOT NULL,
   created_by  TEXT,
   updated_at  TEXT NOT NULL,
-  disabled_at TEXT
+  disabled_at TEXT,
+  disabled_by TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_registration_invites_created
   ON registration_invites(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_registration_invites_active
   ON registration_invites(disabled_at, used_count, max_uses);
+
+CREATE TABLE IF NOT EXISTS registration_invite_redemptions (
+  id            TEXT PRIMARY KEY,
+  code          TEXT NOT NULL,
+  user_id       TEXT,
+  user_username TEXT,
+  user_email    TEXT,
+  used_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_code
+  ON registration_invite_redemptions(code, used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_user
+  ON registration_invite_redemptions(user_id, used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_used
+  ON registration_invite_redemptions(used_at DESC);
 
 CREATE TABLE IF NOT EXISTS system_settings (
   key        TEXT PRIMARY KEY,
@@ -290,6 +306,7 @@ export function migrate() {
   migrateUserAbuseColumns(db);
   migrateImagePublicColumns(db);
   migrateComicProjectTables(db);
+  migrateRegistrationInviteTables(db);
   db.exec(DATA_LIFECYCLE_INDEXES);
   migratePromptSquareNullableOwner(db);
   seedPromptSquareDefaults(db);
@@ -306,6 +323,26 @@ function migrateUserAbuseColumns(db) {
   addColumnIfMissing(db, 'users', 'signup_ip', 'signup_ip TEXT');
   addColumnIfMissing(db, 'users', 'signup_user_agent', 'signup_user_agent TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_users_signup_ip ON users(signup_ip);');
+}
+
+function migrateRegistrationInviteTables(db) {
+  addColumnIfMissing(db, 'registration_invites', 'disabled_by', 'disabled_by TEXT');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS registration_invite_redemptions (
+      id            TEXT PRIMARY KEY,
+      code          TEXT NOT NULL,
+      user_id       TEXT,
+      user_username TEXT,
+      user_email    TEXT,
+      used_at       TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_code
+      ON registration_invite_redemptions(code, used_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_user
+      ON registration_invite_redemptions(user_id, used_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_used
+      ON registration_invite_redemptions(used_at DESC);
+  `);
 }
 
 function migrateImagePublicColumns(db) {
@@ -1703,7 +1740,23 @@ function parseInvite(row) {
     createdBy: row.created_by || null,
     updatedAt: row.updated_at,
     disabledAt: row.disabled_at || null,
+    disabledBy: row.disabled_by || null,
     active: !row.disabled_at && remainingUses > 0
+  };
+}
+
+function parseInviteRedemption(row) {
+  if (!row) return null;
+  const currentUsername = row.current_username || null;
+  const currentEmail = row.current_email || null;
+  return {
+    id: row.id,
+    code: row.code,
+    userId: row.user_id || null,
+    username: currentUsername || row.user_username || null,
+    email: currentEmail || row.user_email || null,
+    userDeleted: Boolean(row.user_id && !currentUsername && !currentEmail),
+    usedAt: row.used_at
   };
 }
 
@@ -1741,8 +1794,8 @@ export const registrationInvites = {
     const createdAt = nowIso();
     const stmt = db.prepare(`
       INSERT INTO registration_invites
-      (code, max_uses, used_count, created_at, created_by, updated_at, disabled_at)
-      VALUES (?, ?, 0, ?, ?, ?, NULL)
+      (code, max_uses, used_count, created_at, created_by, updated_at, disabled_at, disabled_by)
+      VALUES (?, ?, 0, ?, ?, ?, NULL, NULL)
     `);
     const created = [];
     db.exec('BEGIN;');
@@ -1759,7 +1812,8 @@ export const registrationInvites = {
           created_at: createdAt,
           created_by: createdBy || null,
           updated_at: createdAt,
-          disabled_at: null
+          disabled_at: null,
+          disabled_by: null
         }));
       }
       db.exec('COMMIT;');
@@ -1769,24 +1823,109 @@ export const registrationInvites = {
     }
     return created;
   },
-  consume(code) {
+  consume(code, { userId = null } = {}) {
     const text = String(code || '').trim();
     if (!text) return null;
+    const db = open();
+    const usedAt = nowIso();
+    db.exec('BEGIN;');
+    try {
+      const res = db.prepare(`
+        UPDATE registration_invites
+        SET used_count = used_count + 1,
+            updated_at = ?
+        WHERE code = ?
+          AND disabled_at IS NULL
+          AND used_count < max_uses
+      `).run(usedAt, text);
+      if (!res.changes) {
+        db.exec('ROLLBACK;');
+        return null;
+      }
+      const safeUserId = String(userId || '').trim();
+      const user = safeUserId
+        ? db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(safeUserId)
+        : null;
+      db.prepare(`
+        INSERT INTO registration_invite_redemptions
+        (id, code, user_id, user_username, user_email, used_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(),
+        text,
+        user?.id || safeUserId || null,
+        user?.username || null,
+        user?.email || null,
+        usedAt
+      );
+      const invite = parseInvite(db.prepare(
+        'SELECT * FROM registration_invites WHERE code = ?'
+      ).get(text));
+      db.exec('COMMIT;');
+      return invite;
+    } catch (err) {
+      db.exec('ROLLBACK;');
+      throw err;
+    }
+  },
+  disable(code, { disabledBy = null } = {}) {
+    const text = String(code || '').trim();
+    if (!text) return null;
+    const db = open();
+    const existing = db.prepare('SELECT * FROM registration_invites WHERE code = ?').get(text);
+    if (!existing) return null;
+    if (existing.disabled_at) return parseInvite(existing);
+    const disabledAt = nowIso();
+    db.prepare(`
+      UPDATE registration_invites
+      SET disabled_at = ?,
+          disabled_by = ?,
+          updated_at = ?
+      WHERE code = ? AND disabled_at IS NULL
+    `).run(disabledAt, disabledBy || null, disabledAt, text);
+    return parseInvite(db.prepare('SELECT * FROM registration_invites WHERE code = ?').get(text));
+  },
+  disableUnusedBefore(cutoffIso, { disabledBy = null } = {}) {
+    const cutoff = String(cutoffIso || '').trim();
+    if (!cutoff) return 0;
+    const disabledAt = nowIso();
     const res = open().prepare(`
       UPDATE registration_invites
-      SET used_count = used_count + 1,
+      SET disabled_at = ?,
+          disabled_by = ?,
           updated_at = ?
-      WHERE code = ?
-        AND disabled_at IS NULL
-        AND used_count < max_uses
-    `).run(nowIso(), text);
-    if (!res.changes) return null;
-    return this.findUsable(text) || parseInvite(open().prepare(
-      'SELECT * FROM registration_invites WHERE code = ?'
-    ).get(text));
+      WHERE disabled_at IS NULL
+        AND used_count = 0
+        AND created_at < ?
+    `).run(disabledAt, disabledBy || null, disabledAt, cutoff);
+    return res.changes || 0;
   },
   reset() {
     const res = open().prepare('DELETE FROM registration_invites').run();
+    return res.changes || 0;
+  }
+};
+
+export const registrationInviteRedemptions = {
+  list({ limit = 1000 } = {}) {
+    const safeLimit = Math.max(1, Math.min(5000, Math.floor(Number(limit) || 1000)));
+    return open().prepare(`
+      SELECT
+        r.*,
+        u.username AS current_username,
+        u.email AS current_email
+      FROM registration_invite_redemptions r
+      LEFT JOIN users u ON u.id = r.user_id
+      ORDER BY r.used_at DESC, r.id DESC
+      LIMIT ?
+    `).all(safeLimit).map(parseInviteRedemption);
+  },
+  cleanupBefore(cutoffIso) {
+    const cutoff = String(cutoffIso || '').trim();
+    if (!cutoff) return 0;
+    const res = open().prepare(
+      'DELETE FROM registration_invite_redemptions WHERE used_at < ?'
+    ).run(cutoff);
     return res.changes || 0;
   }
 };

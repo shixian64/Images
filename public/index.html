@@ -739,7 +739,7 @@
             aria-controls="registrationManagement"
             aria-selected="false"
             data-management-tab="registrationManagement"
-          >注册管理</button>
+          >注册与兑换码</button>
           <button
             class="management-tab"
             id="managementTabQuota"
@@ -824,9 +824,9 @@
         <section id="registrationManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabRegistration" hidden>
           <header class="panel-head">
             <div>
-              <p class="eyebrow">注册管理</p>
-              <h2>注册与邀请码</h2>
-              <p class="hint">通过 UI 控制免邀请码注册、邀请码注册和邀请码使用次数；重置邀请码只清空未使用/可继续使用的邀请码，不影响已注册用户。</p>
+              <p class="eyebrow">注册与兑换码</p>
+              <h2>注册与邀请码 / 兑换码</h2>
+              <p class="hint">通过 UI 控制免邀请码注册、邀请码注册和邀请码使用次数；停用或重置邀请码不会影响已注册用户。</p>
             </div>
             <div class="management-actions">
               <button class="ghost small" id="registrationRefresh" type="button">刷新</button>
@@ -874,7 +874,30 @@
             </div>
           </form>
 
+          <form class="profile-form admin-registration-cleanup-form" id="registrationCleanupForm" autocomplete="off" onsubmit="return false;">
+            <div class="form-grid">
+              <label class="field">
+                <span>清理此日期前的兑换记录</span>
+                <input id="registrationCleanupBefore" type="date" />
+              </label>
+              <div class="field span-2 switch-field">
+                <span>同步清理未使用兑换码</span>
+                <label class="switch-row">
+                  <input id="registrationCleanupDisableUnused" type="checkbox" />
+                  <span>清理记录时，同时停用该日期前创建且从未使用的邀请码。</span>
+                </label>
+              </div>
+              <div class="field span-2">
+                <span>兑换记录操作</span>
+                <div class="row wrap-row action-row">
+                  <button class="danger ghost" id="registrationCleanup" type="button">清理兑换记录</button>
+                </div>
+              </div>
+            </div>
+          </form>
+
           <div id="registrationInviteTableWrap"></div>
+          <div id="registrationRedemptionTableWrap"></div>
         </section>
 
         <section id="quotaManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabQuota" hidden>

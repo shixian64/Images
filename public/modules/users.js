@@ -271,12 +271,56 @@ function registrationSettings() {
   return registrationAdmin?.settings || {};
 }
 
+function registrationRedemptions() {
+  return Array.isArray(registrationAdmin?.redemptions) ? registrationAdmin.redemptions : [];
+}
+
 function modeLabel(settings) {
   if (settings.allowPublicRegistration) {
     return settings.allowInviteRegistration ? '开放注册 + 邀请码注册' : '开放注册';
   }
   if (settings.allowInviteRegistration) return '仅邀请码注册';
   return '关闭注册';
+}
+
+function inviteStatus(item) {
+  if (item?.disabledAt) return { className: 'err', label: '已停用' };
+  if ((Number(item?.remainingUses) || 0) <= 0) return { className: '', label: '已用完' };
+  return { className: 'ok', label: '可用' };
+}
+
+function redemptionUserLabel(item) {
+  const name = item?.username || item?.email || item?.userId || '未知用户';
+  const email = item?.email && item.email !== name ? ` · ${item.email}` : '';
+  const deleted = item?.userDeleted ? ' · 用户已删除' : '';
+  return `${name}${email}${deleted}`;
+}
+
+function redemptionsByCode() {
+  const map = new Map();
+  for (const item of registrationRedemptions()) {
+    const code = String(item?.code || '').trim();
+    if (!code) continue;
+    if (!map.has(code)) map.set(code, []);
+    map.get(code).push(item);
+  }
+  return map;
+}
+
+function renderInviteUsers(code, records = [], usedCount = 0) {
+  if (!records.length) {
+    return (Number(usedCount) || 0) > 0
+      ? '<span class="muted">兑换记录已清理</span>'
+      : '<span class="muted">未使用</span>';
+  }
+  const shown = records.slice(0, 3).map((item) => `
+    <div class="management-user-cell">
+      <strong>${escapeHtml(item.username || item.email || item.userId || '未知用户')}</strong>
+      <small>${escapeHtml([item.email, formatTime(item.usedAt)].filter(Boolean).join(' · '))}</small>
+    </div>
+  `).join('');
+  const more = records.length > 3 ? `<small class="muted">另有 ${records.length - 3} 条兑换记录</small>` : '';
+  return `${shown}${more}`;
 }
 
 function renderRegistrationSummary() {
@@ -288,13 +332,17 @@ function renderRegistrationSummary() {
   }
   const settings = registrationSettings();
   const invites = Array.isArray(registrationAdmin.invites) ? registrationAdmin.invites : [];
+  const redemptions = registrationRedemptions();
   const active = invites.filter((item) => item.active).length;
+  const disabled = invites.filter((item) => item.disabledAt).length;
   const totalRemaining = invites.reduce((sum, item) => sum + (Number(item.remainingUses) || 0), 0);
   host.innerHTML = `
     <span class="chip ${settings.allowPublicRegistration || settings.allowInviteRegistration ? 'ok' : 'error'}">${escapeHtml(modeLabel(settings))}</span>
     <span class="chip ${settings.allowInviteRegistration ? 'ok' : ''}">邀请码注册：${settings.allowInviteRegistration ? '允许' : '关闭'}</span>
     <span class="chip">默认次数：${Number(settings.defaultInviteUses) || 1}</span>
     <span class="chip info">可用邀请码：${active} 个 / 剩余 ${totalRemaining} 次</span>
+    <span class="chip">已停用：${disabled} 个</span>
+    <span class="chip">兑换记录：${redemptions.length} 条</span>
     ${settings.source === 'env' ? '<span class="chip">当前来自环境变量；保存后改由 UI 配置接管</span>' : ''}
   `;
 }
@@ -309,6 +357,7 @@ function renderRegistrationForm() {
   if (defaultUses) defaultUses.value = String(Number(settings.defaultInviteUses) || 1);
   renderRegistrationSummary();
   renderRegistrationInvites();
+  renderRegistrationRedemptions();
 }
 
 function renderRegistrationInvites() {
@@ -323,28 +372,71 @@ function renderRegistrationInvites() {
     wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>还没有 UI 生成的邀请码。可在上方批量生成。</p></div>`;
     return;
   }
+  const byCode = redemptionsByCode();
   wrap.innerHTML = `
+    <h3>邀请码 / 兑换码</h3>
     <table class="users-table management-table registration-invites-table">
       <thead>
         <tr>
           <th>邀请码</th>
           <th>已用 / 总次数</th>
           <th>剩余</th>
+          <th>使用用户</th>
           <th>状态</th>
           <th>创建时间</th>
+          <th>操作</th>
         </tr>
       </thead>
       <tbody>
         ${invites.map((item) => {
-          const active = item.active && Number(item.remainingUses) > 0;
+          const status = inviteStatus(item);
+          const code = item.code || '';
+          const canDisable = !item.disabledAt;
           return `<tr>
-            <td><code>${escapeHtml(item.code || '-')}</code></td>
+            <td><code>${escapeHtml(code || '-')}</code></td>
             <td>${Number(item.usedCount) || 0} / ${Number(item.maxUses) || 1}</td>
             <td>${Number(item.remainingUses) || 0}</td>
-            <td><span class="chip ${active ? 'ok' : 'err'}">${active ? '可用' : '已耗尽'}</span></td>
+            <td>${renderInviteUsers(code, byCode.get(code) || [], item.usedCount)}</td>
+            <td><span class="chip ${status.className}">${status.label}</span></td>
             <td>${escapeHtml(formatTime(item.createdAt))}</td>
+            <td>${canDisable ? `<button class="danger ghost small" type="button" data-disable-invite="${escapeHtml(code)}">停用</button>` : '<span class="muted">-</span>'}</td>
           </tr>`;
         }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderRegistrationRedemptions() {
+  const wrap = $('registrationRedemptionTableWrap');
+  if (!wrap) return;
+  if (!registrationAdmin) {
+    wrap.innerHTML = '';
+    return;
+  }
+  const redemptions = registrationRedemptions();
+  if (!redemptions.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无兑换记录。</p></div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <h3>兑换记录</h3>
+    <table class="users-table management-table registration-redemptions-table">
+      <thead>
+        <tr>
+          <th>邀请码</th>
+          <th>注册用户</th>
+          <th>用户 ID</th>
+          <th>兑换时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${redemptions.map((item) => `<tr>
+          <td><code>${escapeHtml(item.code || '-')}</code></td>
+          <td>${escapeHtml(redemptionUserLabel(item))}</td>
+          <td><code>${escapeHtml(item.userId || '-')}</code></td>
+          <td>${escapeHtml(formatTime(item.usedAt))}</td>
+        </tr>`).join('')}
       </tbody>
     </table>
   `;
@@ -443,7 +535,7 @@ async function generateRegistrationInvites() {
 }
 
 async function resetRegistrationInvites() {
-  if (!confirm('确定要重置邀请码吗？这会删除所有现有邀请码，但不会影响已注册用户。')) return;
+  if (!confirm('确定要重置邀请码吗？这会删除所有现有邀请码，但不会影响已注册用户和兑换记录。')) return;
   try {
     const resp = await apiFetch('/api/admin/registration/invites/reset', { method: 'DELETE' });
     const data = await resp.json().catch(() => ({}));
@@ -460,11 +552,70 @@ async function resetRegistrationInvites() {
   }
 }
 
+async function disableRegistrationInvite(code) {
+  const text = String(code || '').trim();
+  if (!text) return;
+  if (!confirm(`确定要停用邀请码 ${text} 吗？已注册用户不受影响。`)) return;
+  try {
+    const resp = await apiFetch(`/api/admin/registration/invites/${encodeURIComponent(text)}`, { method: 'DELETE' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    renderRegistrationForm();
+    setStatus('邀请码已停用', 'ok', 1600);
+  } catch (err) {
+    setStatus(`停用邀请码失败：${err?.message || err}`, 'err', 2400);
+  }
+}
+
+function readRegistrationCleanupForm() {
+  const before = $('registrationCleanupBefore')?.value.trim();
+  if (!before) throw new Error('请选择清理日期');
+  return {
+    before,
+    disableUnusedInvites: Boolean($('registrationCleanupDisableUnused')?.checked)
+  };
+}
+
+async function cleanupRegistrationRedemptions() {
+  let body;
+  try {
+    body = readRegistrationCleanupForm();
+  } catch (err) {
+    setStatus(err?.message || '清理参数不合法', 'err', 2200);
+    return;
+  }
+  const extra = body.disableUnusedInvites ? '，并停用该日期前创建且未使用的邀请码' : '';
+  if (!confirm(`确定要清理 ${body.before} 前的兑换记录${extra}吗？`)) return;
+  try {
+    const resp = await apiFetch('/api/admin/registration/redemptions/cleanup', {
+      method: 'POST',
+      body
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    renderRegistrationForm();
+    const cleanup = data.cleanup || {};
+    setStatus(`已清理 ${Number(cleanup.removedRedemptions) || 0} 条兑换记录，停用 ${Number(cleanup.disabledInvites) || 0} 个未使用邀请码`, 'ok', 2200);
+  } catch (err) {
+    setStatus(`清理兑换记录失败：${err?.message || err}`, 'err', 2600);
+  }
+}
+
 function bindRegistrationPanel() {
   $('registrationRefresh')?.addEventListener('click', () => refreshRegistration());
   $('registrationSave')?.addEventListener('click', () => saveRegistrationSettings());
   $('registrationGenerate')?.addEventListener('click', () => generateRegistrationInvites());
   $('registrationResetInvites')?.addEventListener('click', () => resetRegistrationInvites());
+  $('registrationCleanup')?.addEventListener('click', () => cleanupRegistrationRedemptions());
+  $('registrationInviteTableWrap')?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-disable-invite]');
+    if (!button) return;
+    disableRegistrationInvite(button.dataset.disableInvite);
+  });
 }
 
 function applyFilters(list) {

@@ -5,6 +5,8 @@ import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
   adminRegistrationSnapshot,
+  cleanupRegistrationInviteRedemptions,
+  disableRegistrationInviteCode,
   generateRegistrationInviteCodes,
   resetRegistrationInviteCodes,
   setRegistrationSettings
@@ -26,6 +28,19 @@ function positiveIntOrUndefined(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 1) throw new Error('invalid number');
   return Math.floor(n);
+}
+
+function cutoffIso(value) {
+  const text = String(value || '').trim();
+  if (!text) throw new Error('cleanup cutoff is required');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const date = new Date(`${text}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime())) throw new Error('invalid cleanup cutoff');
+    return date.toISOString();
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) throw new Error('invalid cleanup cutoff');
+  return date.toISOString();
 }
 
 function settingsPatch(body = {}) {
@@ -107,6 +122,54 @@ async function handleResetInvites(req, res) {
   sendJson(res, 200, { ...adminRegistrationSnapshot(), removed });
 }
 
+async function handleDisableInvite(req, res, code) {
+  if (req.method !== 'DELETE' && req.method !== 'POST') {
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  const invite = disableRegistrationInviteCode(code, { disabledBy: req.session.user.id });
+  if (!invite) {
+    sendJson(res, 404, { error: 'invite code not found' });
+    return;
+  }
+  auditRecord(req, 'registration.invite_disable', { type: 'registration_invite', id: invite.code }, {
+    code: invite.code,
+    disabledAt: invite.disabledAt
+  });
+  sendJson(res, 200, { ...adminRegistrationSnapshot(), disabled: invite });
+}
+
+async function handleCleanupRedemptions(req, res) {
+  if (req.method !== 'POST' && req.method !== 'DELETE') {
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  const body = await readBody(req, res);
+  if (body === null) return;
+  try {
+    const before = cutoffIso(body?.before ?? body?.beforeDate ?? body?.cutoff);
+    const disableUnusedInvites = Boolean(booleanOrUndefined(
+      body?.disableUnusedInvites ?? body?.disableUnused ?? body?.syncDisableUnusedInvites
+    ));
+    const result = cleanupRegistrationInviteRedemptions({
+      before,
+      disableUnusedInvites,
+      disabledBy: req.session.user.id
+    });
+    auditRecord(req, 'registration.redemptions_cleanup', {
+      type: 'system',
+      id: 'registration.redemptions'
+    }, {
+      before,
+      disableUnusedInvites,
+      ...result
+    });
+    sendJson(res, 200, { ...adminRegistrationSnapshot(), cleanup: result });
+  } catch (err) {
+    sendJson(res, 400, { error: err.message || 'failed to cleanup redemptions' });
+  }
+}
+
 export async function handleRegistrationRoute(req, res, pathname) {
   if (!requireAdmin(req, res)) return;
 
@@ -121,6 +184,14 @@ export async function handleRegistrationRoute(req, res, pathname) {
   }
   if (pathname === '/api/admin/registration/invites/reset') {
     return handleResetInvites(req, res);
+  }
+  if (pathname === '/api/admin/registration/redemptions/cleanup') {
+    return handleCleanupRedemptions(req, res);
+  }
+  const invitePrefix = '/api/admin/registration/invites/';
+  if (pathname.startsWith(invitePrefix)) {
+    const code = decodeURIComponent(pathname.slice(invitePrefix.length));
+    return handleDisableInvite(req, res, code);
   }
 
   sendJson(res, 404, { error: 'not found' });
