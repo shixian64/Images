@@ -81,6 +81,18 @@ function pageStoryboardEditorValue(value) {
   return comicPageStoryboardToJson(value);
 }
 
+function encodeEditorOriginalValue(value = '') {
+  return encodeURIComponent(String(value ?? ''));
+}
+
+function decodeEditorOriginalValue(value = '') {
+  try {
+    return decodeURIComponent(String(value || ''));
+  } catch {
+    return String(value || '');
+  }
+}
+
 function pageStoryboardContentFromSubPanels(pageStoryboard = {}) {
   const subPanels = Array.isArray(pageStoryboard.subPanels) ? pageStoryboard.subPanels : [];
   return subPanels
@@ -400,11 +412,11 @@ function renderStoryboard() {
       <div class="comic-page-editor-grid">
         <label class="field">
           <span>本页分镜格数（可改）</span>
-          <input type="number" min="${COMIC_PAGE_PANEL_LIMITS.min}" max="${COMIC_PAGE_PANEL_LIMITS.max}" value="${pagePanelCount}" data-comic-page-panel-count="${index}" />
+          <input type="number" min="${COMIC_PAGE_PANEL_LIMITS.min}" max="${COMIC_PAGE_PANEL_LIMITS.max}" value="${pagePanelCount}" data-comic-page-panel-count="${index}" data-comic-page-panel-count-original="${pagePanelCount}" />
         </label>
         <label class="field comic-page-content-field">
           <span>本页分镜内容（可改）</span>
-          <textarea rows="5" data-comic-page-content="${index}">${escapeHtml(pageContent)}</textarea>
+          <textarea rows="5" data-comic-page-content="${index}" data-comic-page-content-original="${escapeHtml(encodeEditorOriginalValue(pageContent))}">${escapeHtml(pageContent)}</textarea>
         </label>
       </div>
       <details class="comic-page-json-details">
@@ -530,12 +542,18 @@ function syncStoryboardFromEditors() {
   document.querySelectorAll('[data-comic-page-panel-count]').forEach((el) => {
     const index = Number(el.dataset.comicPagePanelCount);
     if (!Number.isInteger(index) || !storyboard.panels[index]) return;
-    pagePanelCountByIndex.set(index, clampComicPagePanelCount(el.value));
+    const nextCount = clampComicPagePanelCount(el.value);
+    const originalCount = clampComicPagePanelCount(
+      el.dataset.comicPagePanelCountOriginal ?? nextCount
+    );
+    if (nextCount !== originalCount) pagePanelCountByIndex.set(index, nextCount);
   });
   document.querySelectorAll('[data-comic-page-content]').forEach((el) => {
     const index = Number(el.dataset.comicPageContent);
     if (!Number.isInteger(index) || !storyboard.panels[index]) return;
-    pageContentByIndex.set(index, el.value.trim());
+    const nextContent = el.value.trim();
+    const originalContent = decodeEditorOriginalValue(el.dataset.comicPageContentOriginal).trim();
+    if (nextContent !== originalContent) pageContentByIndex.set(index, nextContent);
   });
 
   const pageIndexes = new Set([
