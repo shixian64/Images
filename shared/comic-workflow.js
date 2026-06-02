@@ -22,7 +22,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['全彩', '竖屏', '强情绪'],
     summary: '适合手机阅读的竖向彩漫：明亮色块、干净线稿、夸张表情和清晰留白。',
     stylePrompt: [
-      'vertical color webtoon comic style',
+      'vertical color webtoon illustration style',
       'clean crisp line art',
       'bright cinematic color palette',
       'soft gradients and subtle rim light',
@@ -30,7 +30,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
       'mobile-first composition with breathing room'
     ].join(', '),
     consistencyPrompt: '角色脸型、发型、服装主色、线条粗细和高光方式必须跨格保持一致；每格都像同一部彩色条漫。',
-    negativePrompt: 'no photorealism, no inconsistent costume, no random art style shift, no watermark, no logo, no gibberish text'
+    negativePrompt: 'no photorealism, no inconsistent costume, no random art style shift, no watermark, no logo, no text, no typography, no floating graphic containers'
   }),
   Object.freeze({
     id: 'manhwa-romance',
@@ -38,7 +38,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['精致', '柔光', '都市'],
     summary: '偏韩漫/女性向彩漫：修长人物、精致五官、柔和皮肤光、时装感和浪漫氛围。',
     stylePrompt: [
-      'Korean manhwa romance comic style',
+      'Korean romance web illustration style',
       'elegant slim character proportions',
       'delicate facial features',
       'fashionable outfits',
@@ -46,7 +46,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
       'pastel highlights, polished digital painting'
     ].join(', '),
     consistencyPrompt: '保持同一套精致五官比例、发型轮廓、服装搭配和柔光肤色；情绪变化主要通过眼神和姿态表达。',
-    negativePrompt: 'no chibi unless requested, no gritty texture, no western superhero anatomy, no over-saturated neon, no watermark'
+    negativePrompt: 'no chibi unless requested, no gritty texture, no western superhero anatomy, no over-saturated neon, no watermark, no text, no typography, no floating graphic containers'
   }),
   Object.freeze({
     id: 'manga-bw',
@@ -54,15 +54,15 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['黑白', '网点', '速度线'],
     summary: '传统黑白漫画感：清晰墨线、网点阴影、速度线和强烈黑白节奏。',
     stylePrompt: [
-      'black and white manga panel',
+      'black and white manga-inspired illustration',
       'sharp ink line art',
       'screentone shading',
       'dynamic speed lines when needed',
       'high contrast composition',
-      'clean panel readability'
+      'clean visual readability'
     ].join(', '),
     consistencyPrompt: '统一墨线粗细、网点密度、角色轮廓和黑白明暗逻辑；不要突然变成彩色或写实照片。',
-    negativePrompt: 'no full color, no painterly oil texture, no muddy gray, no photographic lighting, no watermark'
+    negativePrompt: 'no full color, no painterly oil texture, no muddy gray, no photographic lighting, no watermark, no text, no typography, no floating graphic containers'
   }),
   Object.freeze({
     id: 'ink-wash',
@@ -70,7 +70,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['水墨', '留白', '东方'],
     summary: '以笔墨、留白和淡彩构建氛围，适合古风、寓言、山水与诗意故事。',
     stylePrompt: [
-      'Chinese ink wash comic illustration',
+      'Chinese ink wash narrative illustration',
       'expressive brush strokes',
       'rice paper texture',
       'elegant negative space',
@@ -78,7 +78,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
       'poetic cinematic framing'
     ].join(', '),
     consistencyPrompt: '统一纸张纹理、笔触浓淡、淡彩范围和角色服饰纹样；跨格保持同一水墨世界观。',
-    negativePrompt: 'no glossy 3D render, no heavy western superhero ink, no noisy background, no watermark, no random typography'
+    negativePrompt: 'no glossy 3D render, no heavy western superhero ink, no noisy background, no watermark, no text, no typography, no floating graphic containers'
   }),
   Object.freeze({
     id: 'american-comic',
@@ -86,7 +86,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['粗线', '高对比', '动作'],
     summary: '夸张透视、粗轮廓线、强对比阴影和英雄式动作节奏。',
     stylePrompt: [
-      'American comic book action panel',
+      'bold American action illustration',
       'bold outlines',
       'dramatic perspective',
       'high contrast cel shading',
@@ -94,7 +94,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
       'dynamic action pose'
     ].join(', '),
     consistencyPrompt: '保持角色体型、服装标识、阴影块面和动作夸张程度一致；每格都像同一期美漫。',
-    negativePrompt: 'no soft romance manhwa look, no photorealistic render, no inconsistent emblem, no watermark, no blurry anatomy'
+    negativePrompt: 'no soft romance manhwa look, no photorealistic render, no inconsistent emblem, no watermark, no text, no typography, no floating graphic containers'
   }),
   Object.freeze({
     id: 'children-picture-comic',
@@ -102,7 +102,7 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
     tags: ['温暖', '低龄', '治愈'],
     summary: '柔和、友好、图形化的绘本式分格，适合童话、亲子和治愈小故事。',
     stylePrompt: [
-      'children picture book comic panel',
+      'children picture book illustration',
       'warm soft colors',
       'rounded friendly shapes',
       'gentle paper texture',
@@ -110,22 +110,22 @@ export const COMIC_STYLE_TEMPLATES = Object.freeze([
       'whimsical details'
     ].join(', '),
     consistencyPrompt: '保持角色形状语言、温暖色盘、纸感纹理和低压叙事节奏一致；避免突然写实或阴暗。',
-    negativePrompt: 'no scary horror mood, no harsh gore, no photorealism, no tiny unreadable text, no watermark'
+    negativePrompt: 'no scary horror mood, no harsh gore, no photorealism, no text, no typography, no watermark, no floating graphic containers'
   })
 ]);
 
 const COMIC_PAGE_STORYBOARD_LAYOUT_GUIDE = Object.freeze([
-  '规整网格型：稳定、清楚、节奏均匀，适合对话、日常、说明、连续动作。',
+  '规整网格型：稳定、清楚、节奏均匀，适合日常、说明、连续动作。',
   '横向条带型：从上到下推进，阅读顺序明确，适合叙事推进和场景切换。',
   '竖向条带型：强调高度、压迫、坠落、人物登场和空间纵深。',
   '大格主视觉型：一个大画格统领页面，小格辅助，突出高潮、登场、爆发或关键情绪。',
   '单页大图型：整页作为冲击画面，适合高潮、世界观展示和人物高光。',
-  '破格分镜：角色、武器、特效或气泡冲出边界，增强动感和临场感。',
+  '破格分镜：角色、武器或视觉特效冲出边界，增强动感和临场感。',
   '斜切分镜：斜向边界制造不稳定、速度感和紧张感，适合打斗、追逐、惊慌。',
   '碎片化分镜：大量小格，节奏快、信息密集，适合回忆、混乱、连续细节和多人反应。',
   '留白型分镜：低密度、空间大，表现安静、孤独、震惊后的余韵。',
   '电影镜头型：远景→中景→特写→爆发等镜头组接，强调镜头语言。',
-  '对话节奏型：半身、表情特写、反应格递进，重点呈现对白和表情变化。',
+  '表情反应型：半身、表情特写、反应格递进，重点呈现表情和肢体变化。',
   '动作连续型：小格铺垫→斜切加速→大格爆发→特写收尾，适合战斗/运动/追逐。',
   '蒙太奇型：拼接不同时间、地点、记忆和象征画面，适合回忆、心理、时间流逝。',
   '非规则自由型：格子大小、方向、形状自由，但必须保持清晰阅读顺序。'
@@ -246,8 +246,6 @@ export function buildComicStoryboardMessages({
         setting: '地点/时间/天气/道具',
         action: '角色动作',
         emotion: '情绪',
-        dialogue: '如需对白，保持很短；否则空字符串',
-        caption: '如需旁白，保持很短；否则空字符串',
         image_prompt: '可直接用于单格生图的完整提示词',
         continuity_notes: '需要与前后格保持一致的角色/道具/空间',
         ...(includePageStoryboards ? { page_storyboard: pageStoryboardSchema } : {})
@@ -263,10 +261,10 @@ export function buildComicStoryboardMessages({
         taskLine,
         '设计原则：每格只表达一个清晰节拍；在远景/中景/近景/特写之间变化；用构图、景别、动作和表情推进叙事。',
         '一致性原则：先提炼角色设定表和 style_bible，再让每格 image_prompt 复用这些设定，避免角色服装、发型、色彩和画风漂移。',
-        '文字原则：除非故事强依赖对白，否则 image_prompt 里要求不要生成文字、Logo、水印或复杂气泡；对白/旁白字段保持短句。',
+        '文字原则：所有 image_prompt 都必须要求画面保持纯视觉叙事，不生成任何画面文字、Logo、水印、签名或悬浮图形容器；不要创建文字排版留空，剧情信息只用动作、表情、构图和场景表达。',
         includePageStoryboards ? `页面分镜开关已开启：先自动决定 page_count（1-${count} 页），panel_plan 的项目数必须等于 page_count；panel_plan 的每一项都代表一页漫画，不是单个小格；必须为每一页补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心、叙事功能和本页内容。` : '',
         includePageStoryboards ? `漫画页分镜分类参考：\n${pageStoryboardGuideText()}` : '',
-        includePageStoryboards ? `page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、对话节奏型、动作连续型、蒙太奇型、非规则自由型中选择；自动决定每页 panel_count（${COMIC_PAGE_PANEL_LIMITS.min}-${COMIC_PAGE_PANEL_LIMITS.max} 格），让 sub_panels 数量与 panel_count 一致，并让 sub_panels 描述页面内部小格位置、画面内容和阅读衔接。` : '',
+        includePageStoryboards ? `page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、表情反应型、动作连续型、蒙太奇型、非规则自由型中选择；自动决定每页 panel_count（${COMIC_PAGE_PANEL_LIMITS.min}-${COMIC_PAGE_PANEL_LIMITS.max} 格），让 sub_panels 数量与 panel_count 一致，并让 sub_panels 描述页面内部小格位置、画面内容和阅读衔接。` : '',
         `风格模板：${style.label}`,
         `风格摘要：${style.summary}`,
         `风格关键词：${style.stylePrompt}`,
@@ -409,8 +407,6 @@ function normalizePanel(item = {}, index = 0, pageStoryboardFallback = null) {
     setting: text(item.setting ?? item.scene),
     action: text(item.action),
     emotion: text(item.emotion ?? item.mood),
-    dialogue: text(item.dialogue),
-    caption: text(item.caption),
     imagePrompt: text(item.image_prompt ?? item.imagePrompt ?? item.prompt),
     continuityNotes: text(item.continuity_notes ?? item.continuityNotes)
   };
@@ -494,12 +490,8 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
   const style = getComicStyleTemplate(storyboard.styleId || styleId);
   const index = Number(panelIndex ?? panel.index) || 1;
   const total = Number(totalPanels) || (Array.isArray(storyboard.panels) ? storyboard.panels.length : index);
-  const dialogue = text(panel.dialogue);
-  const caption = text(panel.caption);
   const pageStoryboardJson = comicPageStoryboardToJson(panel.pageStoryboard ?? panel.page_storyboard);
-  const textRule = dialogue || caption
-    ? `如需文字，只预留干净对白/旁白区域；不要生成乱码。对白：${dialogue || '无'}；旁白：${caption || '无'}。`
-    : '不要生成任何文字、对白框、Logo、水印或签名。';
+  const textRule = '画面保持纯视觉叙事：不要生成任何文字、Logo、水印、签名或悬浮图形容器；不要预留文字排版空间。';
 
   return compactLines([
     `漫画项目：${nonEmpty(storyboard.title, '未命名漫画')}`,
