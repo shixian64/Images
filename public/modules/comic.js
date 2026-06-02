@@ -13,6 +13,7 @@ import {
   COMIC_PANEL_LIMITS,
   buildComicImagePrompt,
   buildComicStoryboardMessages,
+  buildComicStoryboardRepairMessages,
   clampComicPagePanelCount,
   clampComicPanelCount,
   comicPageStoryboardToJson,
@@ -661,12 +662,51 @@ async function analyzeStoryboard() {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    storyboard = parseComicStoryboardResponse(extractChatText(data), {
+    const storyboardOptions = {
       story,
       styleId,
       panelCount,
       autoPageCount: includePageStoryboards
-    });
+    };
+    const storyboardText = extractChatText(data);
+    try {
+      storyboard = parseComicStoryboardResponse(storyboardText, storyboardOptions);
+    } catch (parseErr) {
+      const parseMessage = parseErr.message || String(parseErr);
+      showComicProgress('分镜 JSON 格式不完整，正在自动修复一次…', 'busy');
+      addLog('warn', 'comic.storyboard.repairing', {
+        model,
+        profileName: profileInfo.profile.name,
+        durationMs: Date.now() - started,
+        error: parseMessage
+      });
+
+      const repairPayload = {
+        ...payload,
+        messages: buildComicStoryboardRepairMessages({
+          story,
+          styleId,
+          panelCount,
+          includePageStoryboards,
+          badResponse: storyboardText,
+          parseError: parseMessage
+        }),
+        temperature: 0
+      };
+      const repairResp = await apiFetch('/api/chat', {
+        method: 'POST',
+        body: repairPayload,
+        signal: controller.signal
+      });
+      const repairData = await repairResp.json().catch(() => ({}));
+      if (!repairResp.ok) throw new Error(repairData.error || `HTTP ${repairResp.status}`);
+      storyboard = parseComicStoryboardResponse(extractChatText(repairData), storyboardOptions);
+      addLog('info', 'comic.storyboard.repaired', {
+        model,
+        profileName: profileInfo.profile.name,
+        durationMs: Date.now() - started
+      });
+    }
     storyboard.pageStoryboardEnabled = includePageStoryboards || storyboardHasPageStoryboards(storyboard);
     if (storyboard.pageStoryboardEnabled) ensureStoryboardPageStoryboards(storyboard);
     generatedPanels = [];

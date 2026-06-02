@@ -179,20 +179,7 @@ function pageStoryboardGuideText() {
   return COMIC_PAGE_STORYBOARD_LAYOUT_GUIDE.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
 
-export function buildComicStoryboardMessages({
-  story = '',
-  styleId = DEFAULT_COMIC_STYLE_ID,
-  panelCount,
-  includePageStoryboards = false
-} = {}) {
-  const sourceStory = text(story);
-  if (!sourceStory) throw new Error('Story is required.');
-
-  const style = getComicStyleTemplate(styleId);
-  const count = clampComicPanelCount(panelCount);
-  const taskLine = includePageStoryboards
-    ? `任务：把用户的小故事拆成适合阅读节奏的漫画页，页数由你自动决定（1-${count} 页），并输出严格 JSON。`
-    : `任务：把用户的小故事拆成 exactly ${count} 个漫画分镜，并输出严格 JSON。`;
+function comicStoryboardOutputSchema(style, includePageStoryboards = false) {
   const pageStoryboardSchema = {
     layout_type: '页面布局类型，例如大格主视觉型/横向条带型/斜切分镜',
     layout_keywords: [
@@ -220,7 +207,8 @@ export function buildComicStoryboardMessages({
     design_notes: '给生图模型看的页面排版注意事项',
     ai_prompt_addon: '可直接拼入生图提示词的英文/中文排版关键词'
   };
-  const schema = {
+
+  return {
     title: '短标题',
     logline: '一句话概括',
     style_id: style.id,
@@ -246,12 +234,37 @@ export function buildComicStoryboardMessages({
         setting: '地点/时间/天气/道具',
         action: '角色动作',
         emotion: '情绪',
-        image_prompt: '可直接用于单格生图的完整提示词',
+        image_prompt: includePageStoryboards
+          ? '可直接用于整页漫画页生图的完整提示词，必须服务于本页 page_storyboard'
+          : '可直接用于单格生图的完整提示词',
         continuity_notes: '需要与前后格保持一致的角色/道具/空间',
         ...(includePageStoryboards ? { page_storyboard: pageStoryboardSchema } : {})
       }
     ]
   };
+}
+
+function clippedText(value, maxChars = 3600) {
+  const raw = text(value);
+  if (!raw || raw.length <= maxChars) return raw;
+  return `${raw.slice(0, maxChars)}\n...（原始输出过长，已截断）`;
+}
+
+export function buildComicStoryboardMessages({
+  story = '',
+  styleId = DEFAULT_COMIC_STYLE_ID,
+  panelCount,
+  includePageStoryboards = false
+} = {}) {
+  const sourceStory = text(story);
+  if (!sourceStory) throw new Error('Story is required.');
+
+  const style = getComicStyleTemplate(styleId);
+  const count = clampComicPanelCount(panelCount);
+  const taskLine = includePageStoryboards
+    ? `任务：把用户的小故事拆成适合阅读节奏的漫画页，页数由你自动决定（1-${count} 页），并输出严格 JSON。`
+    : `任务：把用户的小故事拆成 exactly ${count} 个漫画分镜，并输出严格 JSON。`;
+  const schema = comicStoryboardOutputSchema(style, includePageStoryboards);
 
   return [
     {
@@ -271,6 +284,7 @@ export function buildComicStoryboardMessages({
         `一致性锁定：${style.consistencyPrompt}`,
         `负面约束：${style.negativePrompt}`,
         '只输出 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
+        'JSON 语法硬性要求：所有键和字符串必须使用英文双引号；数组/对象元素之间必须有逗号；禁止尾逗号、注释、省略号、NaN、Infinity、undefined；不要把 JSON 放进字符串里。',
         `JSON 结构示例：${JSON.stringify(schema)}`
       ])
     },
@@ -285,22 +299,258 @@ export function buildComicStoryboardMessages({
   ];
 }
 
+export function buildComicStoryboardRepairMessages({
+  story = '',
+  styleId = DEFAULT_COMIC_STYLE_ID,
+  panelCount,
+  includePageStoryboards = false,
+  badResponse = '',
+  parseError = ''
+} = {}) {
+  const sourceStory = text(story);
+  if (!sourceStory) throw new Error('Story is required.');
+
+  const style = getComicStyleTemplate(styleId);
+  const count = clampComicPanelCount(panelCount);
+  const schema = comicStoryboardOutputSchema(style, includePageStoryboards);
+
+  return [
+    {
+      role: 'system',
+      content: compactLines([
+        '你是 JSON 语法修复器和资深漫画分镜导演。',
+        '任务：把用户故事和上一轮模型输出转换成一个可被 JSON.parse 解析的最终 JSON 对象。',
+        '如果上一轮输出没有可用 JSON、JSON 被截断或语法错误，就根据原始故事重新生成完整 JSON；不要复述错误。',
+        '只输出 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
+        'JSON 语法硬性要求：所有键和字符串必须使用英文双引号；数组/对象元素之间必须有逗号；禁止尾逗号、注释、省略号、NaN、Infinity、undefined；不要把 JSON 放进字符串里。',
+        includePageStoryboards
+          ? `页面分镜模式：自动决定 page_count（1-${count} 页），panel_plan.length 必须等于 page_count；panel_plan 每项代表一整页漫画，并且每页必须包含 page_storyboard，page_storyboard.sub_panels.length 必须等于 page_storyboard.panel_count。`
+          : `普通分镜模式：panel_plan.length 必须 exactly ${count}。`,
+        `style_id 必须是 "${style.id}"。`,
+        `JSON 结构示例：${JSON.stringify(schema)}`
+      ])
+    },
+    {
+      role: 'user',
+      content: compactLines([
+        `故事：${sourceStory}`,
+        includePageStoryboards ? `页数上限：${count}。` : `目标分镜数：${count}。`,
+        parseError ? `上一轮解析错误：${parseError}` : '',
+        badResponse
+          ? `上一轮原始输出（仅供修复/补全参考）：\n${clippedText(badResponse)}`
+          : '上一轮没有可用 JSON，请直接根据故事重新生成。',
+        '请输出修复后的最终 JSON 对象。'
+      ])
+    }
+  ];
+}
+
 function stripJsonFence(raw) {
-  let value = text(raw);
+  let value = text(raw).replace(/^\uFEFF/, '');
   const fence = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   if (fence) value = fence[1].trim();
+  const embeddedFence = value.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (embeddedFence && embeddedFence[1].includes('{')) value = embeddedFence[1].trim();
   return value;
 }
 
-export function extractJsonObject(textValue = '') {
+function jsonObjectCandidates(textValue = '') {
   const value = stripJsonFence(textValue);
   if (!value) throw new Error('Storyboard response is empty.');
+
+  const candidates = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push(value.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return { value, candidates };
+}
+
+export function extractJsonObject(textValue = '') {
+  const { value, candidates } = jsonObjectCandidates(textValue);
   if (value.startsWith('{') && value.endsWith('}')) return value;
+  if (candidates.length) return candidates[0];
 
   const first = value.indexOf('{');
-  const last = value.lastIndexOf('}');
-  if (first >= 0 && last > first) return value.slice(first, last + 1);
+  if (first >= 0) return value.slice(first).trim();
   throw new Error('Storyboard response does not contain a JSON object.');
+}
+
+function stripJsonComments(source) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    if (inString) {
+      out += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      while (i < source.length && source[i] !== '\n') i += 1;
+      out += '\n';
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i += 1;
+      i += 1;
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
+
+function insertMissingCommasBetweenCompositeValues(source) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    out += ch;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '}' || ch === ']') {
+      let j = i + 1;
+      while (/\s/.test(source[j] || '')) j += 1;
+      if (source[j] === '{' || source[j] === '[') out += ',';
+    }
+  }
+
+  return out;
+}
+
+function removeTrailingCommas(source) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+
+    if (inString) {
+      out += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+
+    if (ch === ',') {
+      let j = i + 1;
+      while (/\s/.test(source[j] || '')) j += 1;
+      if (source[j] === '}' || source[j] === ']') continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
+
+function jsonRepairVariants(jsonText) {
+  const trimmed = text(jsonText);
+  const variants = [trimmed];
+  let repaired = removeTrailingCommas(stripJsonComments(trimmed));
+  repaired = insertMissingCommasBetweenCompositeValues(repaired);
+  if (repaired !== trimmed) variants.push(repaired);
+  return [...new Set(variants)];
+}
+
+function parseJsonObjectFromResponse(textValue = '') {
+  const { value, candidates } = jsonObjectCandidates(textValue);
+  const first = value.indexOf('{');
+  const sources = candidates.length ? candidates : (first >= 0 ? [value.slice(first).trim()] : []);
+  if (!sources.length) throw new Error('Storyboard response does not contain a JSON object.');
+
+  let firstError = null;
+  for (const source of sources) {
+    for (const variant of jsonRepairVariants(source)) {
+      try {
+        const parsed = JSON.parse(variant);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+      } catch (err) {
+        firstError ||= err;
+      }
+    }
+  }
+
+  throw firstError || new Error('Storyboard response JSON is invalid.');
 }
 
 function normalizeCharacters(value) {
@@ -459,8 +709,7 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
 }
 
 export function parseComicStoryboardResponse(textValue = '', options = {}) {
-  const jsonText = extractJsonObject(textValue);
-  const parsed = JSON.parse(jsonText);
+  const parsed = parseJsonObjectFromResponse(textValue);
   return normalizeComicStoryboard(parsed, options);
 }
 

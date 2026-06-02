@@ -5,6 +5,7 @@ import {
   COMIC_PAGE_PANEL_LIMITS,
   COMIC_PANEL_LIMITS,
   buildComicImagePrompt,
+  buildComicStoryboardRepairMessages,
   buildComicStoryboardMessages,
   clampComicPagePanelCount,
   clampComicPanelCount,
@@ -65,6 +66,24 @@ test('storyboard prompt can request per-page storyboard JSON', () => {
   assert.match(messages[1].content, /每一页额外生成 page_storyboard JSON/);
 });
 
+test('storyboard repair prompt asks for parseable JSON fallback', () => {
+  const messages = buildComicStoryboardRepairMessages({
+    story: '少年在天台遇见一只会发光的白鸽。',
+    styleId: 'american-comic',
+    panelCount: 2,
+    includePageStoryboards: true,
+    badResponse: '这里没有 JSON，只有解释。',
+    parseError: 'Storyboard response does not contain a JSON object.'
+  });
+
+  assert.equal(messages.length, 2);
+  assert.match(messages[0].content, /JSON\.parse/);
+  assert.match(messages[0].content, /禁止尾逗号/);
+  assert.match(messages[0].content, /page_storyboard/);
+  assert.match(messages[1].content, /上一轮解析错误/);
+  assert.match(messages[1].content, /这里没有 JSON/);
+});
+
 test('storyboard parser normalizes fenced JSON and panels', () => {
   const result = parseComicStoryboardResponse(`\`\`\`json
 {
@@ -117,6 +136,30 @@ test('storyboard parser normalizes fenced JSON and panels', () => {
   assert.equal(result.panels[0].pageStoryboard.content, '雨夜街角，女孩在旧楼入口遇见发光猫。');
   assert.equal(result.panels[0].pageStoryboard.subPanels[0].area, '顶部通栏');
   assert.match(result.panels[1].imagePrompt, /第 2 格/);
+});
+
+test('storyboard parser repairs common malformed JSON from chat models', () => {
+  const result = parseComicStoryboardResponse(`模型输出如下：
+\`\`\`json
+{
+  "title": "白鸽和薄荷",
+  "style_id": "american-comic",
+  "characters": [
+    { "name": "白鸽", "visual_signature": "白色羽毛" }
+    { "name": "薄荷", "visual_signature": "绿色围巾" }
+  ],
+  "panel_plan": [
+    { "index": 1, "beat": "白鸽落在薄荷窗边", "image_prompt": "窗边白鸽与绿色围巾少年" },
+  ],
+}
+\`\`\`
+请查收。`, { panelCount: 1 });
+
+  assert.equal(result.title, '白鸽和薄荷');
+  assert.equal(result.styleId, 'american-comic');
+  assert.equal(result.characters.length, 2);
+  assert.equal(result.panels.length, 1);
+  assert.equal(result.panels[0].beat, '白鸽落在薄荷窗边');
 });
 
 test('storyboard parser can keep model-selected page count in auto page mode', () => {
