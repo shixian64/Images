@@ -15,6 +15,11 @@ let mounted = false;
 
 let previewModal = null;
 let lastPreviewTrigger = null;
+let previewIndex = -1;
+
+function imageSrcFromGalleryItem(item = {}) {
+  return item?.url || item?.local_url || item?.localUrl || '';
+}
 
 function ensurePreviewModal() {
   if (previewModal) return previewModal;
@@ -42,11 +47,13 @@ function ensurePreviewModal() {
   return previewModal;
 }
 
-function openPreviewModal(item, trigger) {
-  const src = item?.url || item?.local_url || item?.localUrl || '';
+function openPreviewModal(item, trigger, index = -1) {
+  const src = imageSrcFromGalleryItem(item);
   if (!src) return;
 
   const prompt = item.prompt || item.revisedPrompt || '';
+  const nextIndex = Number(index);
+  previewIndex = Number.isInteger(nextIndex) && nextIndex >= 0 ? nextIndex : galleryItems.findIndex((galleryItem) => galleryItem === item);
   lastPreviewTrigger = trigger || null;
   const modal = ensurePreviewModal();
   const img = modal.querySelector('.image-preview-image');
@@ -65,6 +72,30 @@ function closePreviewModal() {
   document.body.classList.remove('preview-open');
   lastPreviewTrigger?.focus?.();
   lastPreviewTrigger = null;
+  previewIndex = -1;
+}
+
+function findAdjacentPreviewIndex(direction) {
+  if (!direction || !galleryItems.length) return -1;
+  const currentIndex = Number.isInteger(previewIndex)
+    ? previewIndex
+    : Number(lastPreviewTrigger?.dataset?.galleryIndex);
+  if (!Number.isInteger(currentIndex) || currentIndex < 0) return -1;
+
+  for (let index = currentIndex + direction; index >= 0 && index < galleryItems.length; index += direction) {
+    if (imageSrcFromGalleryItem(galleryItems[index])) return index;
+  }
+  return -1;
+}
+
+function switchPreviewByKeyboard(direction) {
+  if (!previewModal || previewModal.hidden) return false;
+  const nextIndex = findAdjacentPreviewIndex(direction);
+  if (nextIndex < 0) return false;
+
+  const trigger = $('savedGallery')?.querySelector(`.image-preview-trigger[data-gallery-index="${nextIndex}"]`) || null;
+  openPreviewModal(galleryItems[nextIndex], trigger, nextIndex);
+  return true;
 }
 
 function formatTime(iso) {
@@ -132,7 +163,7 @@ function emptyHtml(message = '还没有本地图片。生成成功后会自动�
 
 function renderImageCards(items = galleryItems) {
   return items.map((item, index) => {
-    const src = item.url || item.local_url || item.localUrl || '';
+    const src = imageSrcFromGalleryItem(item);
     const prompt = getImagePrompt(item);
     const promptText = prompt || '暂无提示词';
     const promptPreview = `<p class="prompt-preview${prompt ? '' : ' is-empty'}" title="${escapeHtml(promptText)}">${escapeHtml(promptText)}</p>`;
@@ -630,10 +661,19 @@ export function mountGalleryPanel() {
     const trigger = ev.target.closest('.image-preview-trigger');
     if (!trigger) return;
     const index = Number(trigger.dataset.galleryIndex);
-    openPreviewModal(galleryItems[index], trigger);
+    if (!Number.isInteger(index)) return;
+    openPreviewModal(galleryItems[index], trigger, index);
   });
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') closePreviewModal();
+    if (ev.key === 'Escape') {
+      closePreviewModal();
+      return;
+    }
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    if (!previewModal || previewModal.hidden) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    switchPreviewByKeyboard(ev.key === 'ArrowRight' ? 1 : -1);
   });
   window.addEventListener('comic-project-saved', async () => {
     if (galleryScope === 'comic') {
