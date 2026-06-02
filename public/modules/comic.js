@@ -653,9 +653,11 @@ async function generateComic({ onSavedImages } = {}) {
       generatedPanels[i] = { status: 'succeeded', jobId, item, prompt: payload.prompt };
       renderComicResults();
       onSavedImages?.([item]);
-      saveComicProject(i + 1 >= storyboard.panels.length ? 'completed' : 'generating').catch((err) => {
-        addLog('error', 'comic.project.save_failed', { error: err.message || String(err) });
-      });
+      try {
+        await saveComicProject(i + 1 >= storyboard.panels.length ? 'completed' : 'generating');
+      } catch (saveErr) {
+        addLog('error', 'comic.project.save_failed', { error: saveErr.message || String(saveErr) });
+      }
       showComicProgress(`第 ${i + 1}/${storyboard.panels.length} 格完成。${i + 1 < storyboard.panels.length ? '继续下一格…' : ''}`, 'ok');
     }
 
@@ -693,9 +695,11 @@ async function generateComic({ onSavedImages } = {}) {
       durationMs: Date.now() - started,
       error: message
     });
-    saveComicProject(stopped ? 'stopped' : 'failed').catch((saveErr) => {
+    try {
+      await saveComicProject(stopped ? 'stopped' : 'failed');
+    } catch (saveErr) {
       addLog('error', 'comic.project.save_failed', { error: saveErr.message || String(saveErr) });
-    });
+    }
     setStatus(stopped ? '漫画生成已停止' : '漫画生成失败', stopped ? 'ok' : 'err', 2200);
     showComicProgress(stopped ? '已停止；再次点击“逐格生成图片”会从未完成分镜继续。' : message, stopped ? 'muted' : 'err');
   } finally {

@@ -103,6 +103,32 @@ test('comic project images are saved under projects and hidden from my gallery',
   assert.equal(projectImages[0].id, result.saved[0].id);
 });
 
+test('saveGeneratedImages rejects comic projects owned by another user', async () => {
+  const other = auth.register({
+    username: 'comic_other_owner',
+    email: 'comic-other-owner@example.com',
+    password: 'longenough1'
+  });
+  const projectId = 'foreign-comic-project-gallery-test';
+  db.comicProjects.upsert({
+    id: projectId,
+    userId: other.id,
+    title: 'Foreign project',
+    story: 'Other story',
+    panelCount: 1,
+    storyboard: { title: 'Foreign project', panels: [{ beat: 'one' }] }
+  });
+
+  await assert.rejects(
+    () => gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'comic panel', outputFormat: 'png', comicProjectId: projectId, comicPanelIndex: 1 },
+      { userId: user.id }
+    ),
+    /comic project not found/
+  );
+});
+
 test('saveGeneratedImages rejects URL downloads over byte limit', async () => {
   await withEnv({ MAX_IMAGE_DOWNLOAD_BYTES: '4' }, async () => {
     const result = await gallery.saveGeneratedImages(

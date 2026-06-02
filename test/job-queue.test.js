@@ -130,6 +130,25 @@ test('queued jobs persist only safe worker payload fields', async () => {
   jobQueue.cancelJob(job.id, u);
 });
 
+test('enqueue rejects comic projects owned by another user', async () => {
+  const owner = user('job_comic_owner');
+  const requester = user('job_comic_requester');
+  const projectId = 'job-foreign-comic-project';
+  db.comicProjects.upsert({
+    id: projectId,
+    userId: owner.id,
+    title: 'Foreign project',
+    story: 'Other story',
+    panelCount: 1,
+    storyboard: { title: 'Foreign project', panels: [{ beat: 'one' }] }
+  });
+
+  await assert.rejects(
+    () => jobQueue.enqueueImageGeneration({ ...payload(1), comicProjectId: projectId }, requester),
+    /comic project not found/
+  );
+});
+
 test('compactGenerationResult strips inline b64_json from failed save items', () => {
   const input = {
     data: [

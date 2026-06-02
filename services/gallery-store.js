@@ -330,11 +330,20 @@ function rowToItem(row) {
   };
 }
 
+function comicProjectIdForUser(projectId, userId) {
+  const id = String(projectId || '').trim();
+  if (!id) return '';
+  const project = comicProjects.findById(id);
+  if (!project || project.user_id !== userId) throw new Error('comic project not found');
+  return id;
+}
+
 // 保存上游返回的图片到当前用户目录，并写入 SQLite。
 export async function saveGeneratedImages(items, context = {}, options = {}) {
   const userId = options?.userId;
   if (!userId) throw new Error('saveGeneratedImages requires userId');
   if (!Array.isArray(items) || !items.length) return { items: [], saved: [] };
+  const comicProjectId = comicProjectIdForUser(context.comicProjectId, userId);
 
   // 确保用户图片目录存在。
   const userDir = userImageDir(userId);
@@ -395,12 +404,12 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         profileName: context.profileName || '',
         sourceType: asset.sourceType,
         index: imageIndex + 1,
-        comicProjectId: context.comicProjectId || '',
+        comicProjectId,
         comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
       });
 
-      if (context.comicProjectId) {
-        comicProjects.touch(context.comicProjectId, { status: context.comicProjectStatus || null });
+      if (comicProjectId) {
+        comicProjects.touch(comicProjectId, { status: context.comicProjectStatus || null });
       }
 
       const publicUrl = toPublicUrl(relPath);
@@ -426,7 +435,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         profileName: context.profileName || '',
         sourceType: asset.sourceType,
         index: imageIndex + 1,
-        comicProjectId: context.comicProjectId || '',
+        comicProjectId,
         comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
       };
 
@@ -436,7 +445,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         local_url: publicUrl,
         localUrl: publicUrl,
         gallery_id: id,
-        comic_project_id: context.comicProjectId || undefined,
+        comic_project_id: comicProjectId || undefined,
         comic_panel_index: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : undefined,
         file_name: fileName,
         mime_type: asset.mimeType,

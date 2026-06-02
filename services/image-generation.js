@@ -15,6 +15,7 @@ import {
 import { saveGeneratedImages } from './gallery-store.js';
 import { getSystemEndpoint } from './interface-defaults.js';
 import { recordSuccess, recordFailure } from './quota.js';
+import { comicProjects } from './db.js';
 import {
   publicReferencePayload,
   runnableReferenceImages,
@@ -86,6 +87,15 @@ export function sanitizeGenerationPayload(body = {}) {
     out.referenceImageCount = out.referenceImages.length;
   }
   return out;
+}
+
+function comicProjectIdForUser(projectId, userId) {
+  const id = String(projectId || '').trim();
+  if (!id) return '';
+  if (!userId) throw new Error('unauthorized');
+  const project = comicProjects.findById(id);
+  if (!project || project.user_id !== userId) throw new Error('comic project not found');
+  return id;
 }
 
 export function resolveImageRequest(body = {}) {
@@ -341,6 +351,10 @@ async function callImageEditUpstream({
 export async function prepareImageGenerationJob(body = {}, { jobId = '', userInfo = null } = {}) {
   const requestConfig = resolveImageRequest(body);
   const { bodyForPayload } = requestConfig;
+  const comicProjectId = comicProjectIdForUser(
+    bodyForPayload.comicProjectId || body.comicProjectId,
+    userInfo?.id
+  );
   const payload = buildImagePayload(bodyForPayload);
   const requestedImages = validateRequestedImages(payload.n);
   const referenceImages = await stageReferenceImages({ body, jobId, userInfo });
@@ -350,6 +364,8 @@ export async function prepareImageGenerationJob(body = {}, { jobId = '', userInf
   await assertAllowedUpstreamUrl(targetUrl);
   const sanitizedPayload = sanitizeGenerationPayload({
     ...body,
+    comicProjectId,
+    comicPanelIndex: bodyForPayload.comicPanelIndex ?? body.comicPanelIndex,
     model: payload.model,
     prompt: payload.prompt,
     n: requestedImages,
@@ -380,6 +396,10 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
   const started = Date.now();
   const requestConfig = resolveImageRequest(body);
   const { apiKey, bodyForPayload, usingSystemDefault } = requestConfig;
+  const comicProjectId = comicProjectIdForUser(
+    bodyForPayload.comicProjectId || body.comicProjectId,
+    userInfo?.id
+  );
   const referenceImages = Array.isArray(bodyForPayload.referenceImages) ? bodyForPayload.referenceImages : [];
   const mode = referenceImages.length ? 'edit' : 'generate';
   const targetUrl = imageTargetUrl(requestConfig.baseUrl, mode);
@@ -482,7 +502,7 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
         quality: bodyForPayload.quality || body.quality || '',
         outputFormat: bodyForPayload.output_format || body.output_format || '',
         profileName: requestConfig.profileName || body.name || '',
-        comicProjectId: bodyForPayload.comicProjectId || body.comicProjectId || '',
+        comicProjectId,
         comicPanelIndex: Number(bodyForPayload.comicPanelIndex ?? body.comicPanelIndex),
         comicProjectStatus: 'generating',
         generationMode: mode,

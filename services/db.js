@@ -128,7 +128,6 @@ CREATE TABLE IF NOT EXISTS images (
 CREATE INDEX IF NOT EXISTS idx_images_user_created ON images(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_created      ON images(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_model        ON images(model);
-CREATE INDEX IF NOT EXISTS idx_images_comic_project ON images(comic_project_id, comic_panel_index, created_at);
 
 CREATE TABLE IF NOT EXISTS comic_projects (
   id              TEXT PRIMARY KEY,
