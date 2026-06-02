@@ -15,6 +15,7 @@ import {
 import {
   assertRegistrationAllowed,
   checkRegistrationRateLimit,
+  consumeRegistrationInviteCode,
   registrationSettingsSnapshot,
   RegistrationRejectedError
 } from '../services/registration-guard.js';
@@ -117,6 +118,15 @@ async function handleRegister(req, res) {
       signupIp: ip,
       signupUserAgent: userAgent(req)
     });
+    if (!canBootstrapAdmin && registrationPolicy.inviteAccepted && registrationPolicy.inviteSource === 'db') {
+      const consumed = consumeRegistrationInviteCode(registrationPolicy.inviteCode);
+      if (!consumed) {
+        throw new RegistrationRejectedError('invalid registration invite code', {
+          status: 403,
+          code: 'invalid_registration_invite_code'
+        });
+      }
+    }
     // 注册成功自动登录：创建一条 session，下发 cookie
     const sid = createSession({ userId: user.id, ua: userAgent(req), ip });
     setSessionCookie(res, sid);
@@ -198,7 +208,9 @@ export async function handleAuthRoute(req, res, pathname) {
     return sendJson(res, 200, {
       mode: settings.mode,
       inviteRequired: settings.inviteRequired,
-      inviteConfigured: settings.inviteConfigured
+      inviteConfigured: settings.inviteConfigured,
+      allowPublicRegistration: settings.allowPublicRegistration,
+      allowInviteRegistration: settings.allowInviteRegistration
     });
   }
   if (pathname === '/api/auth/me' && method === 'GET') {

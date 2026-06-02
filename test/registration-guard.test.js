@@ -1,13 +1,8 @@
-import { test, afterEach } from 'node:test';
+import { test, before, after, afterEach } from 'node:test';
 import { strict as assert } from 'node:assert';
-
-import {
-  assertRegistrationAllowed,
-  checkRegistrationRateLimit,
-  registrationSettingsSnapshot,
-  RegistrationRejectedError
-} from '../services/registration-guard.js';
-import { clear as clearRateLimit } from '../services/rate-limit.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const ENV_KEYS = [
   'REGISTRATION_MODE',
@@ -19,8 +14,31 @@ const ENV_KEYS = [
   'REGISTRATION_EMAIL_DOMAIN_BLOCKLIST'
 ];
 
+let workDir;
+let prevCwd;
+let db;
+let guard;
+let rateLimit;
+
+before(async () => {
+  prevCwd = process.cwd();
+  workDir = mkdtempSync(join(tmpdir(), 'image-studio-registration-'));
+  process.chdir(workDir);
+  db = await import('../services/db.js');
+  guard = await import('../services/registration-guard.js');
+  rateLimit = await import('../services/rate-limit.js');
+  db.migrate();
+});
+
+after(() => {
+  process.chdir(prevCwd);
+  try { rmSync(workDir, { recursive: true, force: true }); } catch {}
+});
+
 afterEach(() => {
-  clearRateLimit();
+  rateLimit.clear();
+  db.registrationInvites.reset();
+  db.systemSettings.delete('registration.settings');
 });
 
 async function withEnv(patch, fn) {
@@ -45,31 +63,32 @@ test('invite mode rejects missing code and accepts configured code', () => {
     REGISTRATION_INVITE_CODE: 'team-code'
   }, () => {
     assert.throws(
-      () => assertRegistrationAllowed({
+      () => guard.assertRegistrationAllowed({
         body: { email: 'a@example.com' },
         isAdminBootstrap: false
       }),
-      (err) => err instanceof RegistrationRejectedError &&
+      (err) => err instanceof guard.RegistrationRejectedError &&
         err.code === 'invalid_registration_invite_code'
     );
 
-    const settings = assertRegistrationAllowed({
+    const settings = guard.assertRegistrationAllowed({
       body: { email: 'a@example.com', registrationCode: 'team-code' },
       isAdminBootstrap: false
     });
     assert.equal(settings.inviteRequired, true);
+    assert.equal(settings.inviteSource, 'env');
   });
 });
 
 test('registration is closed by default unless explicitly opened', () => {
   return withEnv({}, () => {
-    assert.equal(registrationSettingsSnapshot().mode, 'closed');
+    assert.equal(guard.registrationSettingsSnapshot().mode, 'closed');
     assert.throws(
-      () => assertRegistrationAllowed({
+      () => guard.assertRegistrationAllowed({
         body: { email: 'a@example.com' },
         isAdminBootstrap: false
       }),
-      (err) => err instanceof RegistrationRejectedError &&
+      (err) => err instanceof guard.RegistrationRejectedError &&
         err.code === 'registration_closed'
     );
   });
@@ -77,21 +96,106 @@ test('registration is closed by default unless explicitly opened', () => {
 
 test('open registration mode must be explicit', () => {
   return withEnv({ REGISTRATION_MODE: 'open' }, () => {
-    const settings = assertRegistrationAllowed({
+    const settings = guard.assertRegistrationAllowed({
       body: { email: 'a@example.com' },
       isAdminBootstrap: false
     });
     assert.equal(settings.mode, 'open');
+    assert.equal(settings.allowPublicRegistration, true);
   });
 });
 
 test('admin bootstrap can bypass closed registration', () => {
   return withEnv({ REGISTRATION_MODE: 'closed' }, () => {
-    const settings = assertRegistrationAllowed({
+    const settings = guard.assertRegistrationAllowed({
       body: { email: 'root@example.com' },
       isAdminBootstrap: true
     });
     assert.equal(settings.mode, 'closed');
+  });
+});
+
+test('UI settings can enable invite-only registration with single-use codes', () => {
+  return withEnv({}, () => {
+    const saved = guard.setRegistrationSettings({
+      allowPublicRegistration: false,
+      allowInviteRegistration: true,
+      defaultInviteUses: 1
+    }, 'admin-1');
+    assert.equal(saved.source, 'db');
+    assert.equal(saved.inviteRequired, true);
+
+    const [invite] = guard.generateRegistrationInviteCodes({ count: 1, createdBy: 'admin-1' });
+    assert.ok(invite.code);
+    assert.equal(invite.maxUses, 1);
+
+    assert.throws(
+      () => guard.assertRegistrationAllowed({
+        body: { email: 'a@example.com' },
+        isAdminBootstrap: false
+      }),
+      (err) => err instanceof guard.RegistrationRejectedError &&
+        err.code === 'invalid_registration_invite_code'
+    );
+
+    const accepted = guard.assertRegistrationAllowed({
+      body: { email: 'a@example.com', registrationCode: invite.code },
+      isAdminBootstrap: false
+    });
+    assert.equal(accepted.inviteSource, 'db');
+    assert.equal(accepted.inviteAccepted, true);
+
+    const consumed = guard.consumeRegistrationInviteCode(invite.code);
+    assert.equal(consumed.remainingUses, 0);
+    assert.throws(
+      () => guard.assertRegistrationAllowed({
+        body: { email: 'b@example.com', registrationCode: invite.code },
+        isAdminBootstrap: false
+      }),
+      (err) => err instanceof guard.RegistrationRejectedError &&
+        err.code === 'invalid_registration_invite_code'
+    );
+  });
+});
+
+test('UI settings can allow public registration while also managing invite codes', () => {
+  return withEnv({}, () => {
+    guard.setRegistrationSettings({
+      allowPublicRegistration: true,
+      allowInviteRegistration: true,
+      defaultInviteUses: 2
+    }, 'admin-1');
+    const settings = guard.assertRegistrationAllowed({
+      body: { email: 'open@example.com' },
+      isAdminBootstrap: false
+    });
+    assert.equal(settings.mode, 'open');
+    assert.equal(settings.inviteRequired, false);
+
+    const [invite] = guard.generateRegistrationInviteCodes({ count: 1, createdBy: 'admin-1' });
+    const withInvite = guard.assertRegistrationAllowed({
+      body: { email: 'open2@example.com', registrationCode: invite.code },
+      isAdminBootstrap: false
+    });
+    assert.equal(withInvite.inviteAccepted, true);
+  });
+});
+
+test('resetting invite codes clears codes without changing registration settings', () => {
+  return withEnv({}, () => {
+    guard.setRegistrationSettings({
+      allowPublicRegistration: false,
+      allowInviteRegistration: true,
+      defaultInviteUses: 3
+    }, 'admin-1');
+    guard.generateRegistrationInviteCodes({ count: 3, createdBy: 'admin-1' });
+    assert.equal(guard.adminRegistrationSnapshot().invites.length, 3);
+    const removed = guard.resetRegistrationInviteCodes();
+    assert.equal(removed, 3);
+    const snapshot = guard.adminRegistrationSnapshot();
+    assert.equal(snapshot.invites.length, 0);
+    assert.equal(snapshot.settings.allowInviteRegistration, true);
+    assert.equal(snapshot.settings.defaultInviteUses, 3);
   });
 });
 
@@ -100,9 +204,9 @@ test('registration IP daily limiter trips after configured attempts', () => {
     REGISTRATION_IP_MAX_PER_10MIN: '0',
     REGISTRATION_IP_MAX_PER_DAY: '2'
   }, () => {
-    assert.equal(checkRegistrationRateLimit({ ip: '198.51.100.7' }).ok, true);
-    assert.equal(checkRegistrationRateLimit({ ip: '198.51.100.7' }).ok, true);
-    const third = checkRegistrationRateLimit({ ip: '198.51.100.7' });
+    assert.equal(guard.checkRegistrationRateLimit({ ip: '198.51.100.7' }).ok, true);
+    assert.equal(guard.checkRegistrationRateLimit({ ip: '198.51.100.7' }).ok, true);
+    const third = guard.checkRegistrationRateLimit({ ip: '198.51.100.7' });
     assert.equal(third.ok, false);
     assert.equal(third.code, 'registration_rate_limited');
   });

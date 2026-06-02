@@ -733,6 +733,15 @@
           >用户管理</button>
           <button
             class="management-tab"
+            id="managementTabRegistration"
+            type="button"
+            role="tab"
+            aria-controls="registrationManagement"
+            aria-selected="false"
+            data-management-tab="registrationManagement"
+          >注册管理</button>
+          <button
+            class="management-tab"
             id="managementTabQuota"
             type="button"
             role="tab"
@@ -810,6 +819,66 @@
             <span class="users-summary" id="usersSummary" aria-live="polite"></span>
           </div>
           <div id="usersTableWrap"></div>
+        </section>
+
+        <section id="registrationManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabRegistration" hidden>
+          <header class="panel-head">
+            <div>
+              <p class="eyebrow">注册管理</p>
+              <h2>注册与邀请码</h2>
+              <p class="hint">通过 UI 控制免邀请码注册、邀请码注册和邀请码使用次数；重置邀请码只清空未使用/可继续使用的邀请码，不影响已注册用户。</p>
+            </div>
+            <div class="management-actions">
+              <button class="ghost small" id="registrationRefresh" type="button">刷新</button>
+              <button class="primary small" id="registrationSave" type="button">保存注册设置</button>
+            </div>
+          </header>
+
+          <div id="registrationSummary" class="management-summary" aria-live="polite"></div>
+
+          <form class="profile-form admin-registration-form" id="registrationForm" autocomplete="off" onsubmit="return false;">
+            <div class="form-grid">
+              <div class="field span-2 switch-field">
+                <span>允许新用户注册</span>
+                <label class="switch-row">
+                  <input id="registrationAllowPublic" type="checkbox" />
+                  <span>开启后，用户可不填写邀请码直接注册普通账号。</span>
+                </label>
+              </div>
+              <div class="field span-2 switch-field">
+                <span>允许通过邀请码注册</span>
+                <label class="switch-row">
+                  <input id="registrationAllowInvite" type="checkbox" />
+                  <span>开启后，用户可填写有效邀请码注册；若关闭免邀请码注册，则邀请码为必填。</span>
+                </label>
+              </div>
+              <label class="field">
+                <span>邀请码可使用次数（默认 1）</span>
+                <input id="registrationDefaultInviteUses" type="number" min="1" step="1" value="1" />
+              </label>
+              <label class="field">
+                <span>批量生成数量</span>
+                <input id="registrationGenerateCount" type="number" min="1" max="500" step="1" value="10" />
+              </label>
+              <label class="field">
+                <span>本批每个邀请码可用次数</span>
+                <input id="registrationGenerateUses" type="number" min="1" step="1" placeholder="留空 = 使用默认次数" />
+              </label>
+              <div class="field span-2">
+                <span>邀请码操作</span>
+                <div class="row wrap-row action-row">
+                  <button class="ghost" id="registrationGenerate" type="button">批量生成邀请码</button>
+                  <button class="danger ghost" id="registrationResetInvites" type="button">重置邀请码</button>
+                </div>
+              </div>
+              <label class="field span-2">
+                <span>本次生成的邀请码（仅生成后展示，便于复制）</span>
+                <textarea id="registrationGeneratedCodes" rows="4" readonly placeholder="生成后会显示在这里"></textarea>
+              </label>
+            </div>
+          </form>
+
+          <div id="registrationInviteTableWrap"></div>
         </section>
 
         <section id="quotaManagement" class="management-pane" role="tabpanel" aria-labelledby="managementTabQuota" hidden>

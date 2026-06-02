@@ -246,6 +246,20 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_status
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_finished
   ON generation_jobs(finished_at DESC);
 
+CREATE TABLE IF NOT EXISTS registration_invites (
+  code        TEXT PRIMARY KEY,
+  max_uses    INTEGER NOT NULL DEFAULT 1,
+  used_count  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  updated_at  TEXT NOT NULL,
+  disabled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_registration_invites_created
+  ON registration_invites(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_registration_invites_active
+  ON registration_invites(disabled_at, used_count, max_uses);
+
 CREATE TABLE IF NOT EXISTS system_settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,
@@ -1673,6 +1687,110 @@ export const generationJobs = {
   }
 };
 
+// ---- registration_invites ----
+
+function parseInvite(row) {
+  if (!row) return null;
+  const maxUses = Math.max(1, Math.floor(Number(row.max_uses) || 1));
+  const usedCount = Math.max(0, Math.floor(Number(row.used_count) || 0));
+  const remainingUses = Math.max(0, maxUses - usedCount);
+  return {
+    code: row.code,
+    maxUses,
+    usedCount,
+    remainingUses,
+    createdAt: row.created_at,
+    createdBy: row.created_by || null,
+    updatedAt: row.updated_at,
+    disabledAt: row.disabled_at || null,
+    active: !row.disabled_at && remainingUses > 0
+  };
+}
+
+export const registrationInvites = {
+  list({ includeDisabled = false } = {}) {
+    const where = includeDisabled ? '' : 'WHERE disabled_at IS NULL';
+    return open().prepare(`
+      SELECT * FROM registration_invites
+      ${where}
+      ORDER BY created_at DESC
+    `).all().map(parseInvite);
+  },
+  activeCount() {
+    const row = open().prepare(`
+      SELECT COUNT(*) AS n
+      FROM registration_invites
+      WHERE disabled_at IS NULL AND used_count < max_uses
+    `).get();
+    return Number(row?.n) || 0;
+  },
+  findUsable(code) {
+    const text = String(code || '').trim();
+    if (!text) return null;
+    const row = open().prepare(`
+      SELECT * FROM registration_invites
+      WHERE code = ? AND disabled_at IS NULL AND used_count < max_uses
+      LIMIT 1
+    `).get(text);
+    return parseInvite(row);
+  },
+  createMany(items = [], { createdBy = null } = {}) {
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) return [];
+    const db = open();
+    const createdAt = nowIso();
+    const stmt = db.prepare(`
+      INSERT INTO registration_invites
+      (code, max_uses, used_count, created_at, created_by, updated_at, disabled_at)
+      VALUES (?, ?, 0, ?, ?, ?, NULL)
+    `);
+    const created = [];
+    db.exec('BEGIN;');
+    try {
+      for (const item of rows) {
+        const code = String(item?.code || '').trim();
+        if (!code) continue;
+        const maxUses = Math.max(1, Math.floor(Number(item?.maxUses) || 1));
+        stmt.run(code, maxUses, createdAt, createdBy || null, createdAt);
+        created.push(parseInvite({
+          code,
+          max_uses: maxUses,
+          used_count: 0,
+          created_at: createdAt,
+          created_by: createdBy || null,
+          updated_at: createdAt,
+          disabled_at: null
+        }));
+      }
+      db.exec('COMMIT;');
+    } catch (err) {
+      db.exec('ROLLBACK;');
+      throw err;
+    }
+    return created;
+  },
+  consume(code) {
+    const text = String(code || '').trim();
+    if (!text) return null;
+    const res = open().prepare(`
+      UPDATE registration_invites
+      SET used_count = used_count + 1,
+          updated_at = ?
+      WHERE code = ?
+        AND disabled_at IS NULL
+        AND used_count < max_uses
+    `).run(nowIso(), text);
+    if (!res.changes) return null;
+    return this.findUsable(text) || parseInvite(open().prepare(
+      'SELECT * FROM registration_invites WHERE code = ?'
+    ).get(text));
+  },
+  reset() {
+    const res = open().prepare('DELETE FROM registration_invites').run();
+    return res.changes || 0;
+  }
+};
+
 // ---- system_settings ----
 
 export const systemSettings = {
@@ -1694,6 +1812,9 @@ export const systemSettings = {
         'INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)'
       ).run(key, json, nowIso(), updatedBy || null);
     }
+  },
+  delete(key) {
+    return open().prepare('DELETE FROM system_settings WHERE key = ?').run(key).changes || 0;
   }
 };
 

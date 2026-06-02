@@ -20,6 +20,7 @@ import { handlePromptSquareRoute } from './routes/prompt-square.js';
 import { handleJobsRoute } from './routes/jobs.js';
 import { handleClientLogsRoute } from './routes/client-logs.js';
 import { handleComicProjectsRoute } from './routes/comic-projects.js';
+import { handleRegistrationRoute } from './routes/registration.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
@@ -76,6 +77,9 @@ async function handleRequest(req, res) {
     }
     if (pathname.startsWith('/api/admin/gallery')) {
       return handleAdminGalleryRoute(req, res, pathname, url);
+    }
+    if (pathname.startsWith('/api/admin/registration')) {
+      return handleRegistrationRoute(req, res, pathname);
     }
     if (pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me') {
       return handleQuotaRoute(req, res, pathname);

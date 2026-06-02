@@ -13,6 +13,9 @@ let galleryLoaded = false;
 let mounted = false;
 let globalInterface = null;
 let globalInterfaceLoaded = false;
+let registrationAdmin = null;
+let registrationLoaded = false;
+let lastGeneratedRegistrationCodes = [];
 
 let filterState = { search: '', role: 'all', status: 'all' };
 let openDetailUserId = null;
@@ -33,6 +36,7 @@ const gallerySelected = new Set();
 
 const MANAGEMENT_TABS = new Set([
   'usersManagement',
+  'registrationManagement',
   'quotaManagement',
   'jobManagement',
   'clientLogManagement',
@@ -259,6 +263,209 @@ function bindGlobalInterfacePanel() {
   $('globalInterfaceSave')?.addEventListener('click', () => saveGlobalInterface());
   $('globalTestImage')?.addEventListener('click', () => testGlobalInterface('image'));
   $('globalTestChat')?.addEventListener('click', () => testGlobalInterface('chat'));
+}
+
+// ---------- 注册管理 ----------
+
+function registrationSettings() {
+  return registrationAdmin?.settings || {};
+}
+
+function modeLabel(settings) {
+  if (settings.allowPublicRegistration) {
+    return settings.allowInviteRegistration ? '开放注册 + 邀请码注册' : '开放注册';
+  }
+  if (settings.allowInviteRegistration) return '仅邀请码注册';
+  return '关闭注册';
+}
+
+function renderRegistrationSummary() {
+  const host = $('registrationSummary');
+  if (!host) return;
+  if (!registrationAdmin) {
+    host.innerHTML = '<span class="chip">尚未加载</span>';
+    return;
+  }
+  const settings = registrationSettings();
+  const invites = Array.isArray(registrationAdmin.invites) ? registrationAdmin.invites : [];
+  const active = invites.filter((item) => item.active).length;
+  const totalRemaining = invites.reduce((sum, item) => sum + (Number(item.remainingUses) || 0), 0);
+  host.innerHTML = `
+    <span class="chip ${settings.allowPublicRegistration || settings.allowInviteRegistration ? 'ok' : 'error'}">${escapeHtml(modeLabel(settings))}</span>
+    <span class="chip ${settings.allowInviteRegistration ? 'ok' : ''}">邀请码注册：${settings.allowInviteRegistration ? '允许' : '关闭'}</span>
+    <span class="chip">默认次数：${Number(settings.defaultInviteUses) || 1}</span>
+    <span class="chip info">可用邀请码：${active} 个 / 剩余 ${totalRemaining} 次</span>
+    ${settings.source === 'env' ? '<span class="chip">当前来自环境变量；保存后改由 UI 配置接管</span>' : ''}
+  `;
+}
+
+function renderRegistrationForm() {
+  const settings = registrationSettings();
+  const allowPublic = $('registrationAllowPublic');
+  const allowInvite = $('registrationAllowInvite');
+  const defaultUses = $('registrationDefaultInviteUses');
+  if (allowPublic) allowPublic.checked = Boolean(settings.allowPublicRegistration);
+  if (allowInvite) allowInvite.checked = Boolean(settings.allowInviteRegistration);
+  if (defaultUses) defaultUses.value = String(Number(settings.defaultInviteUses) || 1);
+  renderRegistrationSummary();
+  renderRegistrationInvites();
+}
+
+function renderRegistrationInvites() {
+  const wrap = $('registrationInviteTableWrap');
+  if (!wrap) return;
+  const invites = Array.isArray(registrationAdmin?.invites) ? registrationAdmin.invites : [];
+  if (!registrationAdmin) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>正在等待注册配置加载。</p></div>`;
+    return;
+  }
+  if (!invites.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>还没有 UI 生成的邀请码。可在上方批量生成。</p></div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <table class="users-table management-table registration-invites-table">
+      <thead>
+        <tr>
+          <th>邀请码</th>
+          <th>已用 / 总次数</th>
+          <th>剩余</th>
+          <th>状态</th>
+          <th>创建时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${invites.map((item) => {
+          const active = item.active && Number(item.remainingUses) > 0;
+          return `<tr>
+            <td><code>${escapeHtml(item.code || '-')}</code></td>
+            <td>${Number(item.usedCount) || 0} / ${Number(item.maxUses) || 1}</td>
+            <td>${Number(item.remainingUses) || 0}</td>
+            <td><span class="chip ${active ? 'ok' : 'err'}">${active ? '可用' : '已耗尽'}</span></td>
+            <td>${escapeHtml(formatTime(item.createdAt))}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function refreshRegistration({ silent = false } = {}) {
+  try {
+    const resp = await apiFetch('/api/admin/registration');
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    renderRegistrationForm();
+    if (!silent) setStatus('注册设置已刷新', 'ok', 1400);
+  } catch (err) {
+    const host = $('registrationSummary');
+    if (host) host.innerHTML = `<span class="chip error">加载失败：${escapeHtml(err?.message || String(err))}</span>`;
+    setStatus(`加载注册设置失败：${err?.message || err}`, 'err', 2400);
+  }
+}
+
+function readPositiveInput(id, fallback = null) {
+  const raw = $(id)?.value.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) throw new Error('请输入大于 0 的整数');
+  return Math.floor(n);
+}
+
+function readRegistrationSettingsForm() {
+  return {
+    allowPublicRegistration: Boolean($('registrationAllowPublic')?.checked),
+    allowInviteRegistration: Boolean($('registrationAllowInvite')?.checked),
+    defaultInviteUses: readPositiveInput('registrationDefaultInviteUses', 1)
+  };
+}
+
+async function saveRegistrationSettings({ silent = false } = {}) {
+  let body;
+  try {
+    body = readRegistrationSettingsForm();
+  } catch (err) {
+    setStatus(err?.message || '注册设置不合法', 'err', 2200);
+    return false;
+  }
+  try {
+    const resp = await apiFetch('/api/admin/registration/settings', {
+      method: 'PUT',
+      body
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    renderRegistrationForm();
+    if (!silent) setStatus('注册设置已保存', 'ok', 1600);
+    return true;
+  } catch (err) {
+    setStatus(`保存注册设置失败：${err?.message || err}`, 'err', 2400);
+    return false;
+  }
+}
+
+async function generateRegistrationInvites() {
+  const saved = await saveRegistrationSettings({ silent: true });
+  if (!saved) return;
+  let body;
+  try {
+    body = {
+      count: readPositiveInput('registrationGenerateCount', 10),
+      maxUses: readPositiveInput('registrationGenerateUses', undefined)
+    };
+  } catch (err) {
+    setStatus(err?.message || '邀请码生成参数不合法', 'err', 2200);
+    return;
+  }
+  try {
+    const resp = await apiFetch('/api/admin/registration/invites', {
+      method: 'POST',
+      body
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    lastGeneratedRegistrationCodes = Array.isArray(data.generated)
+      ? data.generated.map((item) => item.code).filter(Boolean)
+      : [];
+    const out = $('registrationGeneratedCodes');
+    if (out) out.value = lastGeneratedRegistrationCodes.join('\n');
+    renderRegistrationForm();
+    if (out && lastGeneratedRegistrationCodes.length) out.value = lastGeneratedRegistrationCodes.join('\n');
+    setStatus(`已生成 ${lastGeneratedRegistrationCodes.length} 个邀请码`, 'ok', 1800);
+  } catch (err) {
+    setStatus(`生成邀请码失败：${err?.message || err}`, 'err', 2400);
+  }
+}
+
+async function resetRegistrationInvites() {
+  if (!confirm('确定要重置邀请码吗？这会删除所有现有邀请码，但不会影响已注册用户。')) return;
+  try {
+    const resp = await apiFetch('/api/admin/registration/invites/reset', { method: 'DELETE' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    registrationAdmin = data || {};
+    registrationLoaded = true;
+    lastGeneratedRegistrationCodes = [];
+    const out = $('registrationGeneratedCodes');
+    if (out) out.value = '';
+    renderRegistrationForm();
+    setStatus(`邀请码已重置，移除 ${Number(data.removed) || 0} 个`, 'ok', 1800);
+  } catch (err) {
+    setStatus(`重置邀请码失败：${err?.message || err}`, 'err', 2400);
+  }
+}
+
+function bindRegistrationPanel() {
+  $('registrationRefresh')?.addEventListener('click', () => refreshRegistration());
+  $('registrationSave')?.addEventListener('click', () => saveRegistrationSettings());
+  $('registrationGenerate')?.addEventListener('click', () => generateRegistrationInvites());
+  $('registrationResetInvites')?.addEventListener('click', () => resetRegistrationInvites());
 }
 
 function applyFilters(list) {
@@ -1828,7 +2035,10 @@ function switchManagementTab(tabId) {
     pane.hidden = !active;
   });
 
-  if (nextTab === 'quotaManagement') {
+  if (nextTab === 'registrationManagement') {
+    if (!registrationLoaded) refreshRegistration({ silent: true });
+    else renderRegistrationForm();
+  } else if (nextTab === 'quotaManagement') {
     if (!quotaLoaded) refreshQuota({ silent: true });
     else { renderDefaultsCard(); renderQuotaTable(); }
   } else if (nextTab === 'jobManagement') {
@@ -2281,6 +2491,7 @@ export function mountUsersPanel() {
   bindAdminJobsPanel();
   bindAdminClientLogsPanel();
   bindGlobalInterfacePanel();
+  bindRegistrationPanel();
   switchManagementTab('usersManagement');
   refresh();
 }
