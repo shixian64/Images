@@ -830,6 +830,7 @@ async function generate({ onSavedImages } = {}) {
 }
 
 function handleQueueJobSucceeded(job, { onSavedImages, force = false } = {}) {
+  if (job?.payload?.jobType) return;
   if (!job?.id || (renderedQueueJobIds.has(job.id) && !force)) return;
   const result = job.result || {};
   const items = Array.isArray(result.data) ? result.data : [];
@@ -845,6 +846,7 @@ function handleQueueJobSucceeded(job, { onSavedImages, force = false } = {}) {
 }
 
 function handleQueueJobFinished(job, { onSavedImages } = {}) {
+  if (job?.payload?.jobType) return;
   if (!job?.id || loggedQueueFinalJobIds.has(job.id)) return;
   loggedQueueFinalJobIds.add(job.id);
   if (job.status === 'succeeded') {

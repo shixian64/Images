@@ -20,6 +20,7 @@ import { handlePromptSquareRoute } from './routes/prompt-square.js';
 import { handleJobsRoute } from './routes/jobs.js';
 import { handleClientLogsRoute } from './routes/client-logs.js';
 import { handleComicProjectsRoute } from './routes/comic-projects.js';
+import { handleComicStoryboardsRoute } from './routes/comic-storyboards.js';
 import { handleRegistrationRoute } from './routes/registration.js';
 import { createStaticHandler } from './routes/static.js';
 
@@ -105,6 +106,9 @@ async function handleRequest(req, res) {
     }
     if (pathname.startsWith('/api/comic-projects')) {
       return handleComicProjectsRoute(req, res, pathname, url);
+    }
+    if (pathname.startsWith('/api/comic-storyboards')) {
+      return handleComicStoryboardsRoute(req, res, pathname, url);
     }
     if (req.method === 'GET' && pathname === '/api/generate/config') return handleGenerateConfig(req, res);
     if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);

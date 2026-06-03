@@ -13,6 +13,7 @@ let quota;
 let jobQueue;
 let interfaceDefaults;
 let referenceImages;
+let storyboardJobs;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
@@ -40,6 +41,7 @@ before(async () => {
   jobQueue = await import('../services/job-queue.js');
   interfaceDefaults = await import('../services/interface-defaults.js');
   referenceImages = await import('../services/reference-images.js');
+  storyboardJobs = await import('../services/comic-storyboard-jobs.js');
   db.migrate();
   interfaceDefaults.setGlobalInterfaceConfig({
     enabled: true,
@@ -291,6 +293,87 @@ test('expired reference cleanup preserves queued job files', async () => {
   assert.equal(existsSync(queuedDir), true);
   assert.equal(existsSync(orphanDir), false);
   jobQueue.cancelJob(job.id, u);
+});
+
+test('enqueue comic storyboard stores safe async job payload', async () => {
+  const u = user('storyboard_payload');
+  const job = await jobQueue.enqueueComicStoryboard({
+    useSystemDefault: false,
+    chatBaseUrl: 'http://127.0.0.1:8787',
+    chatApiKey: 'sk-storyboard-secret',
+    model: 'test-chat-model',
+    story: 'A fox finds a glowing key and opens a tiny moon gate.',
+    styleId: 'webtoon-color',
+    panelCount: 99,
+    imageModel: 'test-image-model',
+    size: '1024x1024',
+    quality: 'high',
+    outputFormat: 'png'
+  }, u);
+
+  const stored = db.generationJobs.findById(job.id).payload;
+  assert.equal(stored.jobType, 'comic_storyboard');
+  assert.equal(stored.story, 'A fox finds a glowing key and opens a tiny moon gate.');
+  assert.equal(stored.panelCount, 12);
+  assert.equal(stored.model, 'test-chat-model');
+  assert.equal(stored.chatApiKey, undefined);
+  assert.equal(stored.apiKey, undefined);
+  assert.equal(stored.chatBaseUrl, undefined);
+  assert.equal(stored.baseUrl, undefined);
+  assert.equal(job.n, 1);
+  jobQueue.cancelJob(job.id, u);
+});
+
+test('run comic storyboard job saves generated project', async () => {
+  const u = user('storyboard_runner');
+  const content = JSON.stringify({
+    title: 'Moon Gate',
+    style_id: 'webtoon-color',
+    page_count: 1,
+    panel_plan: [
+      {
+        index: 1,
+        beat: 'The fox unlocks the moon gate.',
+        image_prompt: 'A fox opening a glowing moon gate, clean webtoon style.',
+        page_storyboard: {
+          layout_type: 'single page',
+          panel_count: 1,
+          sub_panels: [
+            { id: 'A', role: 'main panel', content: 'The fox opens the gate under moonlight.' }
+          ]
+        }
+      }
+    ]
+  });
+
+  const result = await storyboardJobs.runComicStoryboardJob({
+    jobType: 'comic_storyboard',
+    useSystemDefault: true,
+    interfaceMode: 'system',
+    story: 'A fox finds a glowing key and opens a tiny moon gate.',
+    styleId: 'webtoon-color',
+    panelCount: 2,
+    model: 'test-chat-model',
+    imageModel: 'test-image-model',
+    size: 'auto',
+    quality: 'auto',
+    outputFormat: 'png',
+    useContext: true
+  }, u, {
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [{ message: { content } }]
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.project.title, 'Moon Gate');
+  assert.equal(result.body.project.status, 'storyboard');
+  assert.equal(result.body.storyboard.panels.length, 1);
+  assert.equal(db.comicProjects.findById(result.body.project.id).storyboard.panels.length, 1);
+  assert.equal(quota.usageSnapshot(u.id).today.calls, 1);
 });
 
 test('runnableReferenceImages only accepts staged job reference paths', () => {

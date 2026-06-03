@@ -12,20 +12,16 @@ import {
   COMIC_PAGE_PANEL_LIMITS,
   COMIC_PANEL_LIMITS,
   buildComicImagePrompt,
-  buildComicStoryboardMessages,
-  buildComicStoryboardRepairMessages,
   clampComicPagePanelCount,
   clampComicPanelCount,
   comicPageStoryboardToJson,
   comicReferenceSpecs,
   comicStyleOptions,
   getComicStyleTemplate,
-  normalizeComicPageStoryboard,
-  parseComicStoryboardResponse
+  normalizeComicPageStoryboard
 } from '../../shared/comic-workflow.js';
 
 const COMIC_STORY_DRAFT_KEY = 'image-key-manager.comicStoryDraft.v1';
-const STORYBOARD_TIMEOUT_MS = 180_000;
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
 const FINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 const ACTIVE_JOB_STATUSES = new Set(['queued', 'running']);
@@ -306,20 +302,6 @@ function setSelectValue(id, value) {
   const el = $(id);
   if (!el || value === undefined || value === null || value === '') return;
   el.value = String(value);
-}
-
-function extractChatText(data = {}) {
-  const message = data?.choices?.[0]?.message;
-  const content = message?.content ?? data?.choices?.[0]?.text ?? data?.output_text ?? data?.content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        return part?.text || part?.content || '';
-      })
-      .join('');
-  }
-  return String(content || '');
 }
 
 function abortError(message = '已停止漫画生成。') {
@@ -655,6 +637,7 @@ async function analyzeStoryboard() {
   showComicError('');
   const story = normalizeProjectStory($('comicStory')?.value || '');
   if (!story) return showComicError('请先输入一个小故事。');
+  detachProjectIfStoryChanged(story);
 
   let profileInfo;
   try {
@@ -670,9 +653,15 @@ async function analyzeStoryboard() {
     name: profileInfo.profile.name,
     useSystemDefault: profileInfo.systemMode,
     model,
-    messages: buildComicStoryboardMessages({ story, styleId, panelCount, includePageStoryboards: true }),
-    response_format: { type: 'json_object' },
-    max_completion_tokens: 5200
+    story,
+    styleId,
+    panelCount,
+    projectId: currentProjectId || undefined,
+    imageModel: $('comicImageModel')?.value.trim() || DEFAULT_IMAGE_MODEL,
+    size: $('comicSize')?.value || 'auto',
+    quality: $('comicQuality')?.value || 'auto',
+    outputFormat: $('comicOutputFormat')?.value || 'auto',
+    useContext: $('comicUseContext')?.checked !== false
   };
   if (!profileInfo.systemMode) {
     payload.chatBaseUrl = profileInfo.config.baseUrl;
@@ -681,73 +670,59 @@ async function analyzeStoryboard() {
 
   const started = Date.now();
   const controller = new AbortController();
-  activeStoryboardRequest = { controller, stopped: false };
-  const timeoutId = setTimeout(() => controller.abort(), STORYBOARD_TIMEOUT_MS);
+  activeStoryboardRequest = { controller, stopped: false, jobId: '' };
 
   setBusy(true);
-  setStatus('正在生成漫画分镜…', 'busy');
-  showComicProgress(`正在调用 ${model} 分析故事，并自动规划最多 ${panelCount} 页漫画分镜与每页格数…`, 'busy');
+  setStatus('正在提交漫画分镜任务…', 'busy');
+  showComicProgress(`正在把故事提交到后台队列，由 ${model} 生成最多 ${panelCount} 页漫画分镜…`, 'busy');
   try {
-    const resp = await apiFetch('/api/chat', {
+    const resp = await apiFetch('/api/comic-storyboards', {
       method: 'POST',
       body: payload,
       signal: controller.signal
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    const storyboardOptions = {
-      story,
-      styleId,
-      panelCount,
-      autoPageCount: true
-    };
-    const storyboardText = extractChatText(data);
-    try {
-      storyboard = parseComicStoryboardResponse(storyboardText, storyboardOptions);
-    } catch (parseErr) {
-      const parseMessage = parseErr.message || String(parseErr);
-      showComicProgress('分镜 JSON 格式不完整，正在自动修复一次…', 'busy');
-      addLog('warn', 'comic.storyboard.repairing', {
-        model,
-        profileName: profileInfo.profile.name,
-        durationMs: Date.now() - started,
-        error: parseMessage
-      });
+    const queuedJob = data.job || { id: data.jobId, status: data.status, position: data.position };
+    if (!queuedJob?.id) throw new Error('分镜任务提交成功但缺少任务 ID。');
+    activeStoryboardRequest.jobId = queuedJob.id;
 
-      const repairPayload = {
-        ...payload,
-        messages: buildComicStoryboardRepairMessages({
-          story,
-          styleId,
-          panelCount,
-          includePageStoryboards: true,
-          badResponse: storyboardText,
-          parseError: parseMessage
-        }),
-        temperature: 0
-      };
-      const repairResp = await apiFetch('/api/chat', {
-        method: 'POST',
-        body: repairPayload,
-        signal: controller.signal
-      });
-      const repairData = await repairResp.json().catch(() => ({}));
-      if (!repairResp.ok) throw new Error(repairData.error || `HTTP ${repairResp.status}`);
-      storyboard = parseComicStoryboardResponse(extractChatText(repairData), storyboardOptions);
-      addLog('info', 'comic.storyboard.repaired', {
-        model,
-        profileName: profileInfo.profile.name,
-        durationMs: Date.now() - started
-      });
+    const positionText = queuedJob.position ? `，当前第 ${queuedJob.position} 位` : '';
+    addLog('info', 'comic.storyboard.queued', {
+      jobId: queuedJob.id,
+      model,
+      profileName: profileInfo.profile.name,
+      interfaceMode: profileInfo.systemMode ? 'system' : 'custom',
+      panelCount,
+      styleId
+    });
+    setStatus(`漫画分镜已入队${positionText}`, 'ok', 1600);
+    showComicProgress(`分镜任务 ${queuedJob.id.slice(0, 8)} 已入队${positionText}，后台完成后会自动回填并保存漫画项目。`, 'busy');
+
+    const job = FINAL_STATUSES.has(queuedJob.status)
+      ? queuedJob
+      : await waitForJob(queuedJob.id, { signal: controller.signal });
+    if (job.status !== 'succeeded') {
+      throw new Error(job.error || job.progress?.message || `分镜任务失败：${job.status}`);
     }
+
+    const result = job.result || {};
+    const project = result.project || {};
+    const nextStoryboard = result.storyboard || project.storyboard;
+    if (!nextStoryboard?.panels?.length) throw new Error('分镜任务完成但没有返回可用分镜。');
+
+    storyboard = nextStoryboard;
     storyboard.pageStoryboardEnabled = true;
     ensureStoryboardPageStoryboards(storyboard);
     generatedPanels = [];
-    detachProjectIfStoryChanged(story);
-    await saveComicProject('storyboard');
+    currentProjectId = project.id || currentProjectId;
+    currentProjectStory = normalizeProjectStory(project.story ?? story);
     renderStoryboard();
     renderComicResults();
     $('comicGenerate').disabled = false;
+    if (project.id) {
+      window.dispatchEvent(new CustomEvent('comic-project-saved', { detail: { project } }));
+    }
     addPromptHistory(story, {
       source: 'comic',
       title: storyboard.title || story.slice(0, 28),
@@ -755,33 +730,37 @@ async function analyzeStoryboard() {
       model
     });
     addLog('info', 'comic.storyboard.generated', {
-      model,
+      jobId: job.id,
+      model: result.model || model,
       profileName: profileInfo.profile.name,
       interfaceMode: profileInfo.systemMode ? 'system' : 'custom',
       durationMs: Date.now() - started,
+      jobDurationMs: job.startedAt && job.finishedAt ? job.finishedAt - job.startedAt : undefined,
       panelCount: storyboard.panels?.length || panelCount,
       styleId,
-      includePageStoryboards: true
+      includePageStoryboards: true,
+      repaired: Boolean(result.repaired),
+      projectId: project.id || currentProjectId
     });
     setStatus('漫画分镜已生成', 'ok', 1800);
-    showComicProgress('页数、每页格数和每页分镜内容已自动生成，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。', 'ok');
+    showComicProgress('页数、每页格数和每页分镜内容已在后台生成，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。', 'ok');
   } catch (err) {
     const aborted = err.name === 'AbortError';
     const stopped = aborted && activeStoryboardRequest?.stopped;
     const message = aborted
-      ? (stopped ? '分镜生成已停止。' : '分镜生成超时，请缩短故事或稍后重试。')
+      ? (stopped ? '分镜生成已停止。' : '分镜生成等待超时，请稍后在队列或图库中查看。')
       : (err.message || String(err));
     showComicError(stopped ? '' : message);
     addLog(stopped ? 'info' : 'error', stopped ? 'comic.storyboard.stopped' : 'comic.storyboard.failed', {
+      jobId: activeStoryboardRequest?.jobId || undefined,
       model,
       profileName: profileInfo.profile.name,
       durationMs: Date.now() - started,
       error: message
     });
     setStatus(stopped ? '漫画分镜已停止' : '漫画分镜失败', stopped ? 'ok' : 'err', 2200);
-    showComicProgress(stopped ? '已停止分镜生成。' : '', stopped ? 'muted' : 'busy');
+    showComicProgress(stopped ? '已停止分镜生成。' : message, stopped ? 'muted' : 'err');
   } finally {
-    clearTimeout(timeoutId);
     if (activeStoryboardRequest?.controller === controller) activeStoryboardRequest = null;
     setBusy(false);
   }
@@ -821,7 +800,7 @@ function waitForJob(jobId, { signal } = {}) {
       if (job?.id === jobId) finish(job);
     };
     const onAbort = () => fail(abortError());
-    const timeoutId = setTimeout(() => fail(new Error('等待生图任务完成超时。')), JOB_WAIT_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => fail(new Error('等待任务完成超时。')), JOB_WAIT_TIMEOUT_MS);
     const pollId = setInterval(async () => {
       if (polling || done) return;
       polling = true;
@@ -843,6 +822,12 @@ function waitForJob(jobId, { signal } = {}) {
 
 async function cancelCurrentJob() {
   const jobId = activeRun?.currentJobId;
+  if (!jobId) return;
+  await cancelJobById(jobId);
+}
+
+async function cancelCurrentStoryboardJob() {
+  const jobId = activeStoryboardRequest?.jobId;
   if (!jobId) return;
   await cancelJobById(jobId);
 }
@@ -1064,6 +1049,7 @@ function stopComicRun() {
   if (activeStoryboardRequest) {
     activeStoryboardRequest.stopped = true;
     activeStoryboardRequest.controller.abort();
+    cancelCurrentStoryboardJob();
     return;
   }
   if (!activeRun) return;

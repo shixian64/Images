@@ -19,6 +19,12 @@ import {
   publicReferencePayload,
   stageReferenceImages
 } from './reference-images.js';
+import {
+  getComicStoryboardTimeoutMs,
+  isComicStoryboardPayload,
+  prepareComicStoryboardJob,
+  runComicStoryboardJob
+} from './comic-storyboard-jobs.js';
 import { logger } from '../utils/logger.js';
 
 const SETTINGS_KEY = 'queue.settings';
@@ -260,6 +266,17 @@ function rememberTransientSecret(jobId, secret) {
   transientJobSecrets.set(jobId, { ...secret });
 }
 
+function timeoutMsForJob(job, settings = getQueueSettings()) {
+  if (settings.execution_timeout_ms) return settings.execution_timeout_ms;
+  return isComicStoryboardPayload(job?.payload)
+    ? getComicStoryboardTimeoutMs()
+    : getImageGenerationTimeoutMs();
+}
+
+function compactJobResult(job, body = {}) {
+  return isComicStoryboardPayload(job?.payload) ? (body || {}) : compactGenerationResult(body);
+}
+
 function runtimeBodyForJob(job) {
   const payload = { ...(job.payload || {}) };
   if (payload.useSystemDefault === true || payload.interfaceMode === 'system') {
@@ -363,6 +380,65 @@ export async function enqueueImageGeneration(body, userInfo) {
   return publicJob(job);
 }
 
+export async function enqueueComicStoryboard(body, userInfo) {
+  if (!userInfo?.id) throw httpError(401, 'unauthorized');
+  const freshUser = users.findById(userInfo.id) || userInfo;
+  const settings = getQueueSettings();
+  if (settings.maintenance_mode) {
+    throw httpError(503, '生成队列维护中，请稍后再试。', 'queue_maintenance');
+  }
+
+  const id = randomUUID();
+  const prepared = await prepareComicStoryboardJob(body || {}, { jobId: id, userInfo: freshUser });
+  checkQueueCapacity(freshUser, settings);
+
+  if (freshUser.role !== 'admin' && prepared.usingSystemDefault) {
+    const check = assertCanGenerate(freshUser.id, {
+      n: prepared.requestedCalls,
+      includeQueued: true,
+      checkCallLimits: true,
+      checkStorage: false
+    });
+    if (!check.ok) {
+      logger.warn('comic.storyboard.quota_exceeded', {
+        userId: freshUser.id,
+        code: check.code,
+        model: prepared.model
+      });
+      throw httpError(429, check.message, check.code);
+    }
+  }
+
+  let job;
+  try {
+    job = generationJobs.create({
+      id,
+      userId: freshUser.id,
+      status: 'queued',
+      priority: priorityForUser(freshUser, settings),
+      payload: prepared.payload,
+      promptPreview: prepared.promptPreview,
+      profileName: prepared.profileName,
+      model: prepared.model,
+      n: prepared.requestedCalls
+    });
+    rememberTransientSecret(id, prepared.transientSecret);
+  } catch (err) {
+    throw err;
+  }
+
+  logger.info('comic.storyboard.enqueued', {
+    jobId: job.id,
+    userId: freshUser.id,
+    model: prepared.model,
+    usingSystemDefault: prepared.usingSystemDefault,
+    priority: job.priority
+  });
+  emitJob(job, 'job');
+  kickScheduler();
+  return publicJob(job);
+}
+
 function acquireSlotsForJob(job, userInfo) {
   const globalSlot = tryAcquireGlobalGenerationSlot();
   if (!globalSlot.ok) return { ok: false, reason: 'global', detail: globalSlot };
@@ -418,7 +494,7 @@ async function executeJob(job, slot, userInfo) {
   let wallTimedOut = false;
   let requeued = false;
   const controller = new AbortController();
-  const timeoutMs = settings.execution_timeout_ms || getImageGenerationTimeoutMs();
+  const timeoutMs = timeoutMsForJob(job, settings);
   const timeoutId = timeoutMs ? setTimeout(() => {
     wallTimedOut = true;
     controller.abort();
@@ -438,15 +514,22 @@ async function executeJob(job, slot, userInfo) {
   emitJobStatus(running, 'job');
 
   try {
-    const body = runtimeBodyForJob(running);
-    const result = await runImageGeneration(body, userInfo, {
-      signal: controller.signal,
-      timeoutMs,
-      onProgress: (progress) => {
-        const latest = generationJobs.updateProgress(job.id, progress);
-        emitJob(latest, 'job');
-      }
-    });
+    const onProgress = (progress) => {
+      const latest = generationJobs.updateProgress(job.id, progress);
+      emitJob(latest, 'job');
+    };
+    const result = isComicStoryboardPayload(running.payload)
+      ? await runComicStoryboardJob(running.payload, userInfo, {
+        transientSecret: transientJobSecrets.get(running.id),
+        signal: controller.signal,
+        timeoutMs,
+        onProgress
+      })
+      : await runImageGeneration(runtimeBodyForJob(running), userInfo, {
+        signal: controller.signal,
+        timeoutMs,
+        onProgress
+      });
 
     const latest = generationJobs.findById(job.id);
     if (latest?.cancel_requested) {
@@ -478,7 +561,7 @@ async function executeJob(job, slot, userInfo) {
       const succeeded = generationJobs.updateStatus(job.id, 'succeeded', {
         finishedAt: Date.now(),
         attempts,
-        result: compactGenerationResult(result.body),
+        result: compactJobResult(running, result.body),
         errorMessage: null,
         progress: { stage: 'succeeded', message: '生成完成' }
       });
@@ -783,11 +866,18 @@ export async function retryJob(jobId, userInfo) {
   }
   const freshUser = users.findById(userInfo.id) || userInfo;
   if (freshUser.role !== 'admin') {
-    const check = assertCanGenerate(freshUser.id, { n: Number(job.n) || 1, includeQueued: true });
+    const check = isComicStoryboardPayload(job.payload)
+      ? assertCanGenerate(freshUser.id, {
+        n: Number(job.n) || 1,
+        includeQueued: true,
+        checkCallLimits: true,
+        checkStorage: false
+      })
+      : assertCanGenerate(freshUser.id, { n: Number(job.n) || 1, includeQueued: true });
     if (!check.ok) throw httpError(429, check.message, check.code);
   }
   checkQueueCapacity(freshUser, getQueueSettings());
-  await restageRetryReferences(job, freshUser);
+  if (!isComicStoryboardPayload(job.payload)) await restageRetryReferences(job, freshUser);
   const updated = generationJobs.resetForRetry(job.id, { priority: priorityForUser(freshUser) });
   logger.info('job.retry_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
   emitJobStatus(updated, 'job');

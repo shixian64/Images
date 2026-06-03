@@ -67,6 +67,11 @@ function firstThumb(job) {
   return imageSrcFromItem(items[0] || {});
 }
 
+function isImageGenerationJob(job = {}) {
+  const type = job.payload?.jobType || '';
+  return !type || type === 'image_generation';
+}
+
 function sortJobs(list) {
   return [...list].sort((a, b) => {
     const rank = { running: 0, queued: 1, succeeded: 2, failed: 2, timeout: 2, cancelled: 3 };
@@ -121,7 +126,7 @@ function notifyFinalJob(job) {
   if (!job?.id || !FINAL.has(job.status) || notifiedFinal.has(job.id)) return;
   notifiedFinal.add(job.id);
   window.dispatchEvent(new CustomEvent('generation-job-finished', { detail: { job } }));
-  if (job.status === 'succeeded') {
+  if (job.status === 'succeeded' && isImageGenerationJob(job)) {
     window.dispatchEvent(new CustomEvent('generation-job-succeeded', { detail: { job } }));
   }
 }
@@ -199,6 +204,11 @@ function updateQueueVisibility() {
 
 function jobMeta(job) {
   const payload = job.payload || {};
+  if (payload.jobType === 'comic_storyboard') {
+    return ['漫画分镜', job.model || payload.model, payload.panelCount ? `最多 ${payload.panelCount} 页` : '']
+      .filter(Boolean)
+      .join(' · ');
+  }
   return [job.model || payload.model, payload.size, payload.quality, `n=${job.n || payload.n || 1}`]
     .filter(Boolean)
     .join(' · ');
@@ -330,7 +340,7 @@ async function retryJob(jobId) {
 function openResultPreview(jobId) {
   const job = jobs.find((item) => item.id === jobId);
   if (!job) return;
-  if (job.status === 'succeeded') {
+  if (job.status === 'succeeded' && isImageGenerationJob(job)) {
     window.dispatchEvent(new CustomEvent('generation-job-succeeded', { detail: { job, force: true } }));
     setStatus('结果已回填到生成页', 'ok', 1200);
   }
