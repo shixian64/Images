@@ -272,7 +272,7 @@ function collectComicProjectPayload(status = 'storyboard') {
     story,
     styleId,
     styleLabel: storyboard?.styleLabel || style.label,
-    panelCount: storyboard?.panels?.length || clampComicPanelCount($('comicPanelCount')?.value),
+    panelCount: storyboard?.panels?.length || syncComicPanelCountInput(),
     chatModel: $('comicChatModel')?.value.trim() || DEFAULT_CHAT_MODEL,
     imageModel: $('comicImageModel')?.value.trim() || DEFAULT_IMAGE_MODEL,
     size: $('comicSize')?.value || 'auto',
@@ -364,7 +364,15 @@ function populateOptions() {
     count.min = String(COMIC_PANEL_LIMITS.min);
     count.max = String(COMIC_PANEL_LIMITS.max);
     count.value = String(COMIC_PANEL_LIMITS.default);
+    count.title = `支持 ${COMIC_PANEL_LIMITS.min}-${COMIC_PANEL_LIMITS.max} 页；超出时会自动调整到支持范围内。`;
   }
+}
+
+function syncComicPanelCountInput(value = undefined) {
+  const input = $('comicPanelCount');
+  const count = clampComicPanelCount(value ?? input?.value);
+  if (input && input.value !== String(count)) input.value = String(count);
+  return count;
 }
 
 function updateProfileDefaults() {
@@ -656,7 +664,7 @@ async function analyzeStoryboard() {
   }
 
   const styleId = $('comicStyle')?.value;
-  const panelCount = clampComicPanelCount($('comicPanelCount')?.value);
+  const panelCount = syncComicPanelCountInput();
   const model = $('comicChatModel')?.value.trim() || profileInfo.config.defaultModel || DEFAULT_CHAT_MODEL;
   const payload = {
     name: profileInfo.profile.name,
@@ -1077,7 +1085,7 @@ function loadComicProject(detail = {}) {
     writeStringScoped(COMIC_STORY_DRAFT_KEY, story.value);
   }
   setSelectValue('comicStyle', project.styleId || storyboard?.styleId);
-  setSelectValue('comicPanelCount', project.panelCount || storyboard?.panels?.length);
+  syncComicPanelCountInput(project.panelCount || storyboard?.panels?.length);
   setSelectValue('comicSize', project.size);
   setSelectValue('comicQuality', project.quality);
   setSelectValue('comicOutputFormat', project.outputFormat);
@@ -1140,6 +1148,8 @@ function bindEvents({ onSavedImages } = {}) {
   $('comicStory')?.addEventListener('input', () => {
     writeStringScoped(COMIC_STORY_DRAFT_KEY, $('comicStory').value);
   });
+  $('comicPanelCount')?.addEventListener('change', () => syncComicPanelCountInput());
+  $('comicPanelCount')?.addEventListener('blur', () => syncComicPanelCountInput());
   $('comicChatModel')?.addEventListener('input', () => { $('comicChatModel').dataset.userEdited = '1'; });
   $('comicImageModel')?.addEventListener('input', () => { $('comicImageModel').dataset.userEdited = '1'; });
   window.addEventListener('comic-project-import', (ev) => loadComicProject(ev.detail || {}));
