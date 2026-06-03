@@ -38,6 +38,7 @@ const PERSISTED_IMAGE_FIELDS = [
   'moderation',
   'input_fidelity',
   'comicProjectId',
+  'comicPageIndex',
   'comicPanelIndex'
 ];
 
@@ -96,6 +97,14 @@ function comicProjectIdForUser(projectId, userId) {
   const project = comicProjects.findById(id);
   if (!project || project.user_id !== userId) throw new Error('comic project not found');
   return id;
+}
+
+function comicPageIndexFromBody(...sources) {
+  for (const source of sources) {
+    const n = Number(source?.comicPageIndex ?? source?.comicPanelIndex);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return undefined;
 }
 
 export function resolveImageRequest(body = {}) {
@@ -355,6 +364,7 @@ export async function prepareImageGenerationJob(body = {}, { jobId = '', userInf
     bodyForPayload.comicProjectId || body.comicProjectId,
     userInfo?.id
   );
+  const comicPageIndex = comicPageIndexFromBody(bodyForPayload, body);
   const payload = buildImagePayload(bodyForPayload);
   const requestedImages = validateRequestedImages(payload.n);
   const referenceImages = await stageReferenceImages({ body, jobId, userInfo });
@@ -365,7 +375,8 @@ export async function prepareImageGenerationJob(body = {}, { jobId = '', userInf
   const sanitizedPayload = sanitizeGenerationPayload({
     ...body,
     comicProjectId,
-    comicPanelIndex: bodyForPayload.comicPanelIndex ?? body.comicPanelIndex,
+    comicPageIndex,
+    comicPanelIndex: comicPageIndex,
     model: payload.model,
     prompt: payload.prompt,
     n: requestedImages,
@@ -400,6 +411,7 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     bodyForPayload.comicProjectId || body.comicProjectId,
     userInfo?.id
   );
+  const comicPageIndex = comicPageIndexFromBody(bodyForPayload, body);
   const referenceImages = Array.isArray(bodyForPayload.referenceImages) ? bodyForPayload.referenceImages : [];
   const mode = referenceImages.length ? 'edit' : 'generate';
   const targetUrl = imageTargetUrl(requestConfig.baseUrl, mode);
@@ -503,7 +515,8 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
         outputFormat: bodyForPayload.output_format || body.output_format || '',
         profileName: requestConfig.profileName || body.name || '',
         comicProjectId,
-        comicPanelIndex: Number(bodyForPayload.comicPanelIndex ?? body.comicPanelIndex),
+        comicPageIndex,
+        comicPanelIndex: comicPageIndex,
         comicProjectStatus: 'generating',
         generationMode: mode,
         referenceImageIds: publicReferencePayload(referenceImages)

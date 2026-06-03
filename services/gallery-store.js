@@ -305,6 +305,7 @@ function buildFileName(createdAt, index, ext) {
 
 // 把 db 行（snake_case）映射成前端沿用的 camelCase 结构。
 function rowToItem(row) {
+  const comicPageIndex = Number.isFinite(row.comic_panel_index) ? row.comic_panel_index : null;
   return {
     id: row.id,
     userId: row.user_id,
@@ -326,7 +327,9 @@ function rowToItem(row) {
     sourceType: row.source_type || '',
     index: Number.isFinite(row.image_index) ? row.image_index : null,
     comicProjectId: row.comic_project_id || '',
-    comicPanelIndex: Number.isFinite(row.comic_panel_index) ? row.comic_panel_index : null
+    comicPageIndex,
+    // Backward-compatible alias for older clients and the current DB column name.
+    comicPanelIndex: comicPageIndex
   };
 }
 
@@ -338,12 +341,18 @@ function comicProjectIdForUser(projectId, userId) {
   return id;
 }
 
+function comicPageIndexFromContext(context = {}) {
+  const n = Number(context.comicPageIndex ?? context.comicPanelIndex);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 // 保存上游返回的图片到当前用户目录，并写入 SQLite。
 export async function saveGeneratedImages(items, context = {}, options = {}) {
   const userId = options?.userId;
   if (!userId) throw new Error('saveGeneratedImages requires userId');
   if (!Array.isArray(items) || !items.length) return { items: [], saved: [] };
   const comicProjectId = comicProjectIdForUser(context.comicProjectId, userId);
+  const comicPageIndex = comicPageIndexFromContext(context);
 
   // 确保用户图片目录存在。
   const userDir = userImageDir(userId);
@@ -405,7 +414,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         sourceType: asset.sourceType,
         index: imageIndex + 1,
         comicProjectId,
-        comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
+        comicPageIndex,
+        comicPanelIndex: comicPageIndex
       });
 
       if (comicProjectId) {
@@ -436,7 +446,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         sourceType: asset.sourceType,
         index: imageIndex + 1,
         comicProjectId,
-        comicPanelIndex: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : null
+        comicPageIndex,
+        comicPanelIndex: comicPageIndex
       };
 
       saved.push(meta);
@@ -446,7 +457,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         localUrl: publicUrl,
         gallery_id: id,
         comic_project_id: comicProjectId || undefined,
-        comic_panel_index: Number.isFinite(context.comicPanelIndex) ? context.comicPanelIndex : undefined,
+        comic_page_index: comicPageIndex || undefined,
+        comic_panel_index: comicPageIndex || undefined,
         file_name: fileName,
         mime_type: asset.mimeType,
         bytes: asset.buffer.length

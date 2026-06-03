@@ -233,6 +233,40 @@ function projectStatusLabel(status) {
   }[status] || status || '项目';
 }
 
+function projectProgress(project = {}, images = []) {
+  const progress = project.progress || {};
+  const total = Number(progress.total ?? project.pageCount ?? project.panelCount) || 0;
+  const completed = Number(progress.completed ?? project.imageCount ?? images.length) || 0;
+  return {
+    total,
+    completed: total ? Math.min(total, completed) : completed,
+    active: Number(progress.active) || 0,
+    running: Number(progress.running) || 0,
+    queued: Number(progress.queued) || 0,
+    failed: Number(progress.failed) || 0,
+    computedStatus: progress.computedStatus || project.status || 'draft'
+  };
+}
+
+function projectProgressText(project = {}, images = []) {
+  const progress = projectProgress(project, images);
+  const parts = [`${progress.completed}/${progress.total || '-'} 张`];
+  if (progress.running) parts.push(`${progress.running} 个运行中`);
+  if (progress.queued) parts.push(`${progress.queued} 个排队中`);
+  if (!progress.active && progress.failed) parts.push(`${progress.failed} 个失败`);
+  return parts.join(' · ');
+}
+
+function comicProjectDetailFromResponse(data = {}) {
+  const progress = data.progress || data.project?.progress || null;
+  return {
+    project: data.project ? { ...data.project, progress } : data.project,
+    images: Array.isArray(data.images) ? data.images : [],
+    jobs: Array.isArray(data.jobs) ? data.jobs : [],
+    progress
+  };
+}
+
 function renderComicProjects() {
   const list = $('savedGallery');
   activeComicProject = null;
@@ -253,6 +287,7 @@ function renderComicProjects() {
       project.size,
       project.quality
     ].filter(Boolean).join(' · ');
+    const progress = projectProgress(project);
     return `<article class="image-card gallery-card comic-project-card" data-comic-project-id="${escapeHtml(project.id)}" data-comic-project-index="${index}">
       <div class="gallery-image-wrap">
         <button class="image-preview-trigger comic-project-open" type="button" data-comic-project-open aria-label="打开漫画项目 ${escapeHtml(project.title)}">
@@ -269,7 +304,7 @@ function renderComicProjects() {
         <span>${escapeHtml(formatTime(project.updatedAt || project.createdAt))}</span>
       </div>
       <div class="image-meta compact-meta">
-        <span>${escapeHtml(projectStatusLabel(project.status))} · ${Number(project.imageCount || 0)}/${Number(project.panelCount || 0) || '-' } 张</span>
+        <span>${escapeHtml(projectStatusLabel(progress.computedStatus))} · ${escapeHtml(projectProgressText(project))}</span>
         <span>${escapeHtml(meta || '漫画项目')}</span>
       </div>
       <p class="prompt-preview" title="${escapeHtml(project.story || project.title)}">${escapeHtml(project.title || '未命名漫画')}</p>
@@ -291,12 +326,13 @@ function renderComicProjectDetail() {
     project.quality,
     project.outputFormat
   ].filter(Boolean).join(' · ');
+  const progress = projectProgress(project, images);
   list.innerHTML = `
     <section class="comic-project-detail span-all">
       <div>
         <button class="ghost small" type="button" data-comic-project-back>← 返回漫画项目</button>
         <h3>${escapeHtml(project.title || '未命名漫画')}</h3>
-        <p class="hint">${escapeHtml(meta || '漫画项目')} · ${Number(images.length || 0)}/${Number(project.panelCount || 0) || '-'} 张 · ${escapeHtml(projectStatusLabel(project.status))}</p>
+        <p class="hint">${escapeHtml(meta || '漫画项目')} · ${escapeHtml(projectProgressText(project, images))} · ${escapeHtml(projectStatusLabel(progress.computedStatus))}</p>
         <p class="prompt-preview">${escapeHtml(project.story || '暂无小故事')}</p>
       </div>
       <div class="comic-project-detail-actions">
@@ -505,10 +541,7 @@ async function openComicProject(projectId, { silent = false } = {}) {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-    activeComicProject = {
-      project: data.project,
-      images: Array.isArray(data.images) ? data.images : []
-    };
+    activeComicProject = comicProjectDetailFromResponse(data);
     renderGallery();
     if (!silent) setStatus('漫画项目已打开', 'ok', 1200);
   } catch (err) {
@@ -523,10 +556,7 @@ async function loadComicProjectForImport(projectId) {
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-  return {
-    project: data.project,
-    images: Array.isArray(data.images) ? data.images : []
-  };
+  return comicProjectDetailFromResponse(data);
 }
 
 async function importComicProject(projectId) {

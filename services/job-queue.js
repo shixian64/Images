@@ -230,6 +230,27 @@ function emitJob(job, event = 'job') {
   }
 }
 
+function syncComicProjectStatusForJob(job) {
+  const projectId = job?.payload?.comicProjectId;
+  if (!projectId || !job?.user_id) return;
+  import('./comic-projects.js')
+    .then(({ syncComicProjectStatus }) => syncComicProjectStatus(projectId, { userId: job.user_id }))
+    .catch((err) => {
+      if (err?.message === 'comic project not found') return;
+      logger.warn('job.comic_project_status_sync_failed', {
+        jobId: job.id,
+        projectId,
+        userId: job.user_id,
+        error: err?.message || String(err)
+      });
+    });
+}
+
+function emitJobStatus(job, event = 'job') {
+  emitJob(job, event);
+  syncComicProjectStatusForJob(job);
+}
+
 function rememberTransientSecret(jobId, secret) {
   if (!secret?.apiKey) return;
   transientJobSecrets.set(jobId, { ...secret });
@@ -333,6 +354,7 @@ export async function enqueueImageGeneration(body, userInfo) {
     priority: job.priority
   });
   emitJob(job, 'job');
+  syncComicProjectStatusForJob(job);
   kickScheduler();
   return publicJob(job);
 }
@@ -371,7 +393,7 @@ function requeueOrFail(job, attempts, errorMessage, settings) {
       cancelRequested: false
     });
     logger.warn('job.retry_queued', { jobId: job.id, attempts, maxRetries, error: errorMessage });
-    emitJob(updated, 'job');
+    emitJobStatus(updated, 'job');
     return updated;
   }
   const updated = generationJobs.updateStatus(job.id, 'failed', {
@@ -381,7 +403,7 @@ function requeueOrFail(job, attempts, errorMessage, settings) {
     progress: { stage: 'failed', message: errorMessage }
   });
   logger.warn('job.failed', { jobId: job.id, attempts, error: errorMessage });
-  emitJob(updated, 'job');
+  emitJobStatus(updated, 'job');
   return updated;
 }
 
@@ -409,7 +431,7 @@ async function executeJob(job, slot, userInfo) {
   });
   activeJobs.set(job.id, { controller, startedAt, release: slot.release, userId: job.user_id });
   logger.info('job.started', { jobId: job.id, userId: job.user_id, attempts, model: job.model });
-  emitJob(running, 'job');
+  emitJobStatus(running, 'job');
 
   try {
     const body = runtimeBodyForJob(running);
@@ -432,7 +454,7 @@ async function executeJob(job, slot, userInfo) {
         cancelRequested: true
       });
       logger.info('job.cancelled', { jobId: job.id, userId: job.user_id, running: true });
-      emitJob(cancelled, 'job');
+      emitJobStatus(cancelled, 'job');
       return cancelled;
     }
 
@@ -444,7 +466,7 @@ async function executeJob(job, slot, userInfo) {
         progress: { stage: 'timeout', message: '任务执行超时' }
       });
       logger.warn('job.timeout', { jobId: job.id, userId: job.user_id, timeoutMs });
-      emitJob(timedOut, 'job');
+      emitJobStatus(timedOut, 'job');
       return timedOut;
     }
 
@@ -457,7 +479,7 @@ async function executeJob(job, slot, userInfo) {
         progress: { stage: 'succeeded', message: '生成完成' }
       });
       logger.info('job.succeeded', { jobId: job.id, userId: job.user_id, attempts, model: job.model });
-      emitJob(succeeded, 'job');
+      emitJobStatus(succeeded, 'job');
       return succeeded;
     }
 
@@ -470,7 +492,7 @@ async function executeJob(job, slot, userInfo) {
         progress: { stage: 'timeout', message: errorMessage }
       });
       logger.warn('job.timeout', { jobId: job.id, userId: job.user_id, error: errorMessage });
-      emitJob(timedOut, 'job');
+      emitJobStatus(timedOut, 'job');
       return timedOut;
     }
 
@@ -490,7 +512,7 @@ async function executeJob(job, slot, userInfo) {
         cancelRequested: latest?.cancel_requested || false
       });
       logger.warn(`job.${status}`, { jobId: job.id, userId: job.user_id, error: err.message || String(err) });
-      emitJob(updated, 'job');
+      emitJobStatus(updated, 'job');
       return updated;
     }
     const message = err?.message || String(err);
@@ -530,7 +552,7 @@ function queuedWaitCleanup(settings = getQueueSettings()) {
       logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
     });
     changed += 1;
-    emitJob(cancelled, 'job');
+    emitJobStatus(cancelled, 'job');
   }
 
   if (changed) {
@@ -568,7 +590,7 @@ async function schedulerLoop() {
             progress: { stage: 'failed', message: userInfo ? '用户已停用' : '用户不存在' }
           });
           logger.warn('job.failed_user_unavailable', { jobId: job.id, userId: job.user_id });
-          emitJob(failed, 'job');
+          emitJobStatus(failed, 'job');
           continue;
         }
 
@@ -603,7 +625,13 @@ export function startJobQueue() {
   if (started) return;
   started = true;
   stopped = false;
+  const recoveringComicJobs = generationJobs
+    .listAll({ limit: 10000, status: 'running' })
+    .filter((job) => job?.payload?.comicProjectId);
   const recovered = generationJobs.recoverRunningAsFailed('server_restart');
+  for (const job of recoveringComicJobs) {
+    syncComicProjectStatusForJob({ ...job, status: 'failed' });
+  }
   if (recovered) logger.warn('job.recovered_running_as_failed', { recovered });
   cleanupExpiredReferenceJobFiles(recovered ? { ttlMs: 0 } : undefined).then((removed) => {
     if (removed) logger.info('job.reference_cleanup_expired', { removed });
@@ -683,7 +711,7 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
       logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
     });
     logger.info('job.cancelled', { jobId: job.id, userId: job.user_id, running: false, by: userInfo?.id });
-    emitJob(cancelled, 'job');
+    emitJobStatus(cancelled, 'job');
     kickScheduler();
     return publicJob(cancelled, { includeUser: admin });
   }
@@ -702,11 +730,11 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
       cleanupReferenceJobFiles(job.id).catch((err) => {
         logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
       });
-      emitJob(cancelled, 'job');
+      emitJobStatus(cancelled, 'job');
       return publicJob(cancelled, { includeUser: admin });
     }
     logger.info('job.cancel_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
-    emitJob(requested, 'job');
+    emitJobStatus(requested, 'job');
     return publicJob(requested, { includeUser: admin });
   }
 
@@ -758,7 +786,7 @@ export async function retryJob(jobId, userInfo) {
   await restageRetryReferences(job, freshUser);
   const updated = generationJobs.resetForRetry(job.id, { priority: priorityForUser(freshUser) });
   logger.info('job.retry_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
-  emitJob(updated, 'job');
+  emitJobStatus(updated, 'job');
   kickScheduler();
   return publicJob(updated);
 }

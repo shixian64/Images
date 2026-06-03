@@ -25,10 +25,10 @@ import {
 } from '../../shared/comic-workflow.js';
 
 const COMIC_STORY_DRAFT_KEY = 'image-key-manager.comicStoryDraft.v1';
-const COMIC_PAGE_STORYBOARD_KEY = 'image-key-manager.comicUsePageStoryboard.v1';
 const STORYBOARD_TIMEOUT_MS = 180_000;
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
 const FINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
+const ACTIVE_JOB_STATUSES = new Set(['queued', 'running']);
 
 let mounted = false;
 let storyboard = null;
@@ -65,17 +65,43 @@ function imageIdFromItem(item = {}) {
 }
 
 function itemPanelIndex(item = {}) {
-  const value = item.comicPanelIndex ?? item.comic_panel_index ?? item.panelIndex;
+  const value = item.comicPageIndex ?? item.comic_page_index ?? item.comicPanelIndex ?? item.comic_panel_index ?? item.pageIndex ?? item.panelIndex;
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function hasPageStoryboard(panel = {}) {
-  return Boolean(comicPageStoryboardToJson(panel.pageStoryboard ?? panel.page_storyboard));
+function jobPageIndex(job = {}) {
+  const payload = job.payload || {};
+  const value = payload.comicPageIndex ?? payload.comic_page_index ?? payload.comicPanelIndex ?? payload.comic_panel_index ?? job.comicPageIndex ?? job.comicPanelIndex;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function storyboardHasPageStoryboards(value = storyboard) {
-  return Array.isArray(value?.panels) && value.panels.some(hasPageStoryboard);
+function latestJobForPage(jobs = [], pageIndex = 1) {
+  const matches = (Array.isArray(jobs) ? jobs : [])
+    .filter((job) => jobPageIndex(job) === pageIndex)
+    .sort((a, b) => {
+      const ar = ACTIVE_JOB_STATUSES.has(a.status) ? 0 : 1;
+      const br = ACTIVE_JOB_STATUSES.has(b.status) ? 0 : 1;
+      if (ar !== br) return ar - br;
+      return Number(b.updatedAt || b.finishedAt || b.createdAt || 0) - Number(a.updatedAt || a.finishedAt || a.createdAt || 0);
+    });
+  return matches[0] || null;
+}
+
+function generatedEntryFromJob(job = {}) {
+  if (!job?.id) return null;
+  const item = firstResultItem(job);
+  if (job.status === 'succeeded' && item) {
+    return { status: 'succeeded', jobId: job.id, item, prompt: job.payload?.prompt || job.promptPreview || '' };
+  }
+  const status = job.status === 'timeout' ? 'failed' : (job.status || 'pending');
+  return {
+    status,
+    jobId: job.id,
+    prompt: job.payload?.prompt || job.promptPreview || '',
+    error: job.error || job.progress?.message || ''
+  };
 }
 
 function pageStoryboardEditorValue(value) {
@@ -125,11 +151,15 @@ function pageStoryboardPanelCountEditorValue(value, fallback = COMIC_PAGE_PANEL_
 function parsePageStoryboardEditorValue(raw = '', index = 0) {
   const value = String(raw || '').trim();
   if (!value) return null;
+  let parsed;
   try {
-    return normalizeComicPageStoryboard(JSON.parse(value), index) || value;
-  } catch {
-    return value;
+    parsed = JSON.parse(value);
+  } catch (err) {
+    throw new Error(`第 ${index + 1} 页高级 JSON 不是合法 JSON：${err?.message || err}`);
   }
+  const normalized = normalizeComicPageStoryboard(parsed, index);
+  if (!normalized) throw new Error(`第 ${index + 1} 页高级 JSON 必须是页面分镜对象。`);
+  return normalized;
 }
 
 function splitPageContentLines(content = '') {
@@ -208,8 +238,7 @@ function ensureStoryboardPageStoryboards(value = storyboard) {
 }
 
 function pageStoryboardEditorEnabled(value = storyboard) {
-  if (value?.pageStoryboardEnabled === false) return false;
-  return value?.pageStoryboardEnabled === true || storyboardHasPageStoryboards(value);
+  return Array.isArray(value?.panels) && value.panels.length > 0;
 }
 
 function totalPagePanelCount(value = storyboard) {
@@ -234,9 +263,8 @@ function collectComicProjectPayload(status = 'storyboard') {
   const story = normalizeProjectStory($('comicStory')?.value || '');
   const styleId = storyboard?.styleId || $('comicStyle')?.value || '';
   const style = getComicStyleTemplate(styleId);
-  const usePageStoryboard = $('comicUsePageStoryboard')?.checked === true;
   const storyboardPayload = storyboard
-    ? { ...storyboard, pageStoryboardEnabled: usePageStoryboard }
+    ? { ...storyboard, pageStoryboardEnabled: true }
     : {};
   return {
     id: currentProjectId || undefined,
@@ -484,7 +512,7 @@ function renderComicResults() {
     list.dataset.empty = 'true';
     list.innerHTML = `<div class="empty-state">
       <div class="empty-icon" aria-hidden="true">□</div>
-      <p>分镜确认后点击“逐格生成图片”。生成时会把首格/上一格作为上下文参考，尽量锁定角色和画风。</p>
+      <p>分镜确认后点击“逐页/逐格生成图片”。生成时会把首张/上一张作为上下文参考，尽量锁定角色和画风。</p>
     </div>`;
     return;
   }
@@ -502,7 +530,8 @@ function renderComicResults() {
       running: '生成中',
       succeeded: '完成',
       failed: '失败',
-      cancelled: '已停止'
+      cancelled: '已停止',
+      timeout: '超时'
     }[status] || status;
     const image = src
       ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(title.slice(0, 80))}" loading="lazy" />`
@@ -592,10 +621,7 @@ function syncStoryboardFromEditors() {
   });
 
   storyboard.pageCount = storyboard.panels.length;
-  const usePageStoryboard = $('comicUsePageStoryboard');
-  storyboard.pageStoryboardEnabled = usePageStoryboard
-    ? usePageStoryboard.checked === true
-    : storyboardHasPageStoryboards(storyboard);
+  storyboard.pageStoryboardEnabled = true;
 }
 
 function resolveProfileConfig(kind) {
@@ -632,14 +658,13 @@ async function analyzeStoryboard() {
   const styleId = $('comicStyle')?.value;
   const panelCount = clampComicPanelCount($('comicPanelCount')?.value);
   const model = $('comicChatModel')?.value.trim() || profileInfo.config.defaultModel || DEFAULT_CHAT_MODEL;
-  const includePageStoryboards = $('comicUsePageStoryboard')?.checked === true;
   const payload = {
     name: profileInfo.profile.name,
     useSystemDefault: profileInfo.systemMode,
     model,
-    messages: buildComicStoryboardMessages({ story, styleId, panelCount, includePageStoryboards }),
+    messages: buildComicStoryboardMessages({ story, styleId, panelCount, includePageStoryboards: true }),
     response_format: { type: 'json_object' },
-    max_completion_tokens: includePageStoryboards ? 5200 : 2200
+    max_completion_tokens: 5200
   };
   if (!profileInfo.systemMode) {
     payload.chatBaseUrl = profileInfo.config.baseUrl;
@@ -653,7 +678,7 @@ async function analyzeStoryboard() {
 
   setBusy(true);
   setStatus('正在生成漫画分镜…', 'busy');
-  showComicProgress(`正在调用 ${model} 分析故事并${includePageStoryboards ? `自动规划最多 ${panelCount} 页漫画分镜与每页格数` : `生成 ${panelCount} 格分镜`}…`, 'busy');
+  showComicProgress(`正在调用 ${model} 分析故事，并自动规划最多 ${panelCount} 页漫画分镜与每页格数…`, 'busy');
   try {
     const resp = await apiFetch('/api/chat', {
       method: 'POST',
@@ -666,7 +691,7 @@ async function analyzeStoryboard() {
       story,
       styleId,
       panelCount,
-      autoPageCount: includePageStoryboards
+      autoPageCount: true
     };
     const storyboardText = extractChatText(data);
     try {
@@ -687,7 +712,7 @@ async function analyzeStoryboard() {
           story,
           styleId,
           panelCount,
-          includePageStoryboards,
+          includePageStoryboards: true,
           badResponse: storyboardText,
           parseError: parseMessage
         }),
@@ -707,8 +732,8 @@ async function analyzeStoryboard() {
         durationMs: Date.now() - started
       });
     }
-    storyboard.pageStoryboardEnabled = includePageStoryboards || storyboardHasPageStoryboards(storyboard);
-    if (storyboard.pageStoryboardEnabled) ensureStoryboardPageStoryboards(storyboard);
+    storyboard.pageStoryboardEnabled = true;
+    ensureStoryboardPageStoryboards(storyboard);
     generatedPanels = [];
     detachProjectIfStoryChanged(story);
     await saveComicProject('storyboard');
@@ -728,12 +753,10 @@ async function analyzeStoryboard() {
       durationMs: Date.now() - started,
       panelCount: storyboard.panels?.length || panelCount,
       styleId,
-      includePageStoryboards
+      includePageStoryboards: true
     });
     setStatus('漫画分镜已生成', 'ok', 1800);
-    showComicProgress(includePageStoryboards
-      ? '页数、每页格数和每页分镜内容已自动生成，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。'
-      : '分镜已生成，并已保存为“图库 → 漫画项目”。可微调每格提示词后逐格生成图片。', 'ok');
+    showComicProgress('页数、每页格数和每页分镜内容已自动生成，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。', 'ok');
   } catch (err) {
     const aborted = err.name === 'AbortError';
     const stopped = aborted && activeStoryboardRequest?.stopped;
@@ -849,6 +872,8 @@ function panelPayload({ panel, index, imageInfo, references }) {
     output_format: $('comicOutputFormat')?.value || 'auto',
     n: 1,
     comicProjectId: currentProjectId || undefined,
+    comicPageIndex: index + 1,
+    // Backward-compatible alias until the persisted DB column is renamed.
     comicPanelIndex: index + 1
   };
   if (references.length) payload.references = references;
@@ -862,7 +887,14 @@ function panelPayload({ panel, index, imageInfo, references }) {
 async function generateComic({ onSavedImages } = {}) {
   showComicError('');
   if (!storyboard?.panels?.length) return showComicError('请先生成分镜。');
-  syncStoryboardFromEditors();
+  try {
+    syncStoryboardFromEditors();
+  } catch (err) {
+    const message = err?.message || String(err);
+    showComicError(message);
+    setStatus('页面分镜 JSON 无效', 'err', 2200);
+    return;
+  }
   detachProjectIfStoryChanged($('comicStory')?.value || '');
 
   let imageInfo;
@@ -882,9 +914,11 @@ async function generateComic({ onSavedImages } = {}) {
   const previousPanels = Array.isArray(generatedPanels) ? generatedPanels : [];
   generatedPanels = storyboard.panels.map((_, index) => {
     const existing = previousPanels[index];
-    return existing?.status === 'succeeded' && imageIdFromItem(existing.item)
-      ? existing
-      : { ...(existing || {}), status: 'pending', error: '' };
+    if (existing?.status === 'succeeded' && imageIdFromItem(existing.item)) return existing;
+    if (ACTIVE_JOB_STATUSES.has(existing?.status) && existing?.jobId) {
+      return { ...existing, error: '' };
+    }
+    return { ...(existing || {}), status: 'pending', error: '' };
   });
   renderComicResults();
   setBusy(true);
@@ -903,6 +937,32 @@ async function generateComic({ onSavedImages } = {}) {
         continue;
       }
       if (activeRun.controller.signal.aborted) throw abortError();
+      if (ACTIVE_JOB_STATUSES.has(generatedPanels[i]?.status) && generatedPanels[i]?.jobId) {
+        const jobId = generatedPanels[i].jobId;
+        activeRun.currentJobId = jobId;
+        renderComicResults();
+        showComicProgress(`第 ${i + 1}/${storyboard.panels.length} ${unitLabel}已有任务 ${jobId.slice(0, 8)}，正在等待完成…`, 'busy');
+        const job = await waitForJob(jobId, { signal: activeRun.controller.signal });
+        if (job.status !== 'succeeded') {
+          throw new Error(job.error || job.progress?.message || `第 ${i + 1} ${unitLabel}生成失败：${job.status}`);
+        }
+        const item = firstResultItem(job);
+        if (!item) throw new Error(`第 ${i + 1} ${unitLabel}没有返回可用图片。`);
+        const imageId = imageIdFromItem(item);
+        if (imageId) {
+          if (!anchorId) anchorId = imageId;
+          previousId = imageId;
+        }
+        generatedPanels[i] = {
+          status: 'succeeded',
+          jobId,
+          item,
+          prompt: generatedPanels[i]?.prompt || job.payload?.prompt || job.promptPreview || ''
+        };
+        renderComicResults();
+        onSavedImages?.([item]);
+        continue;
+      }
       const panel = storyboard.panels[i];
       const references = comicReferenceSpecs({ anchorId, previousId, enabled: useContext });
       const payload = panelPayload({ panel, index: i, imageInfo, references });
@@ -959,7 +1019,7 @@ async function generateComic({ onSavedImages } = {}) {
       addLog('error', 'comic.project.save_failed', { error: saveErr.message || String(saveErr) });
     }
     setStatus('漫画生成完成', 'ok', 2200);
-    showComicProgress('漫画已逐格生成完成，可在“图库 → 漫画项目”查看与管理。', 'ok');
+    showComicProgress(`漫画已逐${unitLabel}生成完成，可在“图库 → 漫画项目”查看与管理。`, 'ok');
   } catch (err) {
     const stopped = err.name === 'AbortError';
     const message = stopped ? '漫画生成已停止。' : (err.message || String(err));
@@ -984,7 +1044,7 @@ async function generateComic({ onSavedImages } = {}) {
       addLog('error', 'comic.project.save_failed', { error: saveErr.message || String(saveErr) });
     }
     setStatus(stopped ? '漫画生成已停止' : '漫画生成失败', stopped ? 'ok' : 'err', 2200);
-    showComicProgress(stopped ? '已停止；再次点击“逐格生成图片”会从未完成分镜继续。' : message, stopped ? 'muted' : 'err');
+    showComicProgress(stopped ? `已停止；再次点击“逐${unitLabel}生成图片”会从未完成分镜继续。` : message, stopped ? 'muted' : 'err');
   } finally {
     activeRun = null;
     setBusy(false);
@@ -1033,17 +1093,14 @@ function loadComicProject(detail = {}) {
   }
   const useContext = $('comicUseContext');
   if (useContext) useContext.checked = project.useContext !== false;
-  const usePageStoryboard = $('comicUsePageStoryboard');
-  if (usePageStoryboard) {
-    usePageStoryboard.checked = pageStoryboardEditorEnabled(storyboard);
-    writeStringScoped(COMIC_PAGE_STORYBOARD_KEY, usePageStoryboard.checked ? '1' : '0');
-  }
 
   const images = Array.isArray(detail.images) ? detail.images : [];
+  const jobs = Array.isArray(detail.jobs) ? detail.jobs : [];
   generatedPanels = storyboard?.panels?.length
     ? storyboard.panels.map((_, index) => {
       const image = images.find((item) => itemPanelIndex(item) === index + 1) || images[index];
-      return image ? { status: 'succeeded', item: image, prompt: image.prompt || '' } : { status: 'pending' };
+      if (image) return { status: 'succeeded', item: image, prompt: image.prompt || '' };
+      return generatedEntryFromJob(latestJobForPage(jobs, index + 1)) || { status: 'pending' };
     })
     : images.map((item) => ({ status: 'succeeded', item, prompt: item.prompt || '' }));
 
@@ -1052,7 +1109,13 @@ function loadComicProject(detail = {}) {
   renderComicResults();
   $('comicGenerate').disabled = !storyboard;
   showComicError('');
-  showComicProgress('已导入漫画项目，可继续微调分镜或逐格生成图片。', 'ok');
+  const activeJobs = generatedPanels.filter((item) => ACTIVE_JOB_STATUSES.has(item.status) && item.jobId).length;
+  showComicProgress(
+    activeJobs
+      ? `已导入漫画项目，并恢复 ${activeJobs} 个进行中的生图任务；再次点击生成会等待这些任务，避免重复提交。`
+      : '已导入漫画项目，可继续微调分镜或逐页/逐格生成图片。',
+    'ok'
+  );
 }
 
 function bindEvents({ onSavedImages } = {}) {
@@ -1062,7 +1125,13 @@ function bindEvents({ onSavedImages } = {}) {
   $('comicStyle')?.addEventListener('change', () => {
     renderStyleGuide();
     if (storyboard) {
-      syncStoryboardFromEditors();
+      try {
+        syncStoryboardFromEditors();
+      } catch (err) {
+        showComicError(err?.message || String(err));
+        setStatus('页面分镜 JSON 无效', 'err', 2200);
+        return;
+      }
       storyboard.styleId = $('comicStyle').value;
       storyboard.styleLabel = getComicStyleTemplate(storyboard.styleId).label;
       renderStoryboard();
@@ -1073,16 +1142,6 @@ function bindEvents({ onSavedImages } = {}) {
   });
   $('comicChatModel')?.addEventListener('input', () => { $('comicChatModel').dataset.userEdited = '1'; });
   $('comicImageModel')?.addEventListener('input', () => { $('comicImageModel').dataset.userEdited = '1'; });
-  $('comicUsePageStoryboard')?.addEventListener('change', () => {
-    const checked = $('comicUsePageStoryboard').checked;
-    writeStringScoped(COMIC_PAGE_STORYBOARD_KEY, checked ? '1' : '0');
-    if (storyboard) {
-      syncStoryboardFromEditors();
-      storyboard.pageStoryboardEnabled = checked;
-      if (checked) ensureStoryboardPageStoryboards(storyboard);
-      renderStoryboard();
-    }
-  });
   window.addEventListener('comic-project-import', (ev) => loadComicProject(ev.detail || {}));
 }
 
@@ -1091,10 +1150,6 @@ export function mountComicPanel({ onSavedImages } = {}) {
   mounted = true;
   populateOptions();
   updateProfileDefaults();
-  const usePageStoryboard = $('comicUsePageStoryboard');
-  if (usePageStoryboard) {
-    usePageStoryboard.checked = readStringScoped(COMIC_PAGE_STORYBOARD_KEY, '1') !== '0';
-  }
   renderStyleGuide();
   renderStoryboard();
   renderComicResults();

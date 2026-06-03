@@ -272,10 +272,14 @@ export function buildComicStoryboardMessages({
       content: compactLines([
         '你是资深漫画分镜导演、角色设定师和 AI 生图提示词设计师。',
         taskLine,
-        '设计原则：每格只表达一个清晰节拍；在远景/中景/近景/特写之间变化；用构图、景别、动作和表情推进叙事。',
-        '一致性原则：先提炼角色设定表和 style_bible，再让每格 image_prompt 复用这些设定，避免角色服装、发型、色彩和画风漂移。',
+        includePageStoryboards
+          ? '设计原则：每页只推进一个清晰叙事段落；页内 sub_panels 再拆分节拍，并在远景/中景/近景/特写之间变化。'
+          : '设计原则：每格只表达一个清晰节拍；在远景/中景/近景/特写之间变化；用构图、景别、动作和表情推进叙事。',
+        includePageStoryboards
+          ? '一致性原则：先提炼角色设定表和 style_bible，再让每页 image_prompt 与 page_storyboard 复用这些设定，避免角色服装、发型、色彩和画风漂移。'
+          : '一致性原则：先提炼角色设定表和 style_bible，再让每格 image_prompt 复用这些设定，避免角色服装、发型、色彩和画风漂移。',
         '文字原则：所有 image_prompt 都必须要求画面保持纯视觉叙事，不生成任何画面文字、Logo、水印、签名或悬浮图形容器；不要创建文字排版留空，剧情信息只用动作、表情、构图和场景表达。',
-        includePageStoryboards ? `页面分镜开关已开启：先自动决定 page_count（1-${count} 页），panel_plan 的项目数必须等于 page_count；panel_plan 的每一项都代表一页漫画，不是单个小格；必须为每一页补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心、叙事功能和本页内容。` : '',
+        includePageStoryboards ? `页面分镜模式：先自动决定 page_count（1-${count} 页），panel_plan 的项目数必须等于 page_count；panel_plan 的每一项都代表一页漫画，不是单个小格；必须为每一页补充 page_storyboard JSON，用来描述“当前页”的格子结构、阅读节奏、视觉重心、叙事功能和本页内容。` : '',
         includePageStoryboards ? `漫画页分镜分类参考：\n${pageStoryboardGuideText()}` : '',
         includePageStoryboards ? `page_storyboard 要简洁但可执行：优先从规整网格型、横向条带型、竖向条带型、大格主视觉型、单页大图型、破格分镜、斜切分镜、碎片化分镜、留白型分镜、电影镜头型、表情反应型、动作连续型、蒙太奇型、非规则自由型中选择；自动决定每页 panel_count（${COMIC_PAGE_PANEL_LIMITS.min}-${COMIC_PAGE_PANEL_LIMITS.max} 格），让 sub_panels 数量与 panel_count 一致，并让 sub_panels 描述页面内部小格位置、画面内容和阅读衔接。` : '',
         `风格模板：${style.label}`,
@@ -592,7 +596,7 @@ function normalizePageSubPanel(item = {}, index = 0) {
   };
 }
 
-export function normalizeComicPageStoryboard(value = {}, index = 0) {
+export function normalizeComicPageStoryboard(value, index = 0) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const rawSubPanels = Array.isArray(value.sub_panels)
     ? value.sub_panels
@@ -679,6 +683,11 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
       ? source.pageStoryboards
       : [];
   const declaredPageCount = Number(source.page_count ?? source.pageCount);
+  const hasPageStoryboardInput = rawPageStoryboards.length > 0 || rawPanels.some((item) => (
+    item && typeof item === 'object' && (
+      item.page_storyboard || item.pageStoryboard || item.page_layout || item.pageLayout
+    )
+  ));
   const upperPageCount = clampComicPanelCount(panelCount, COMIC_PANEL_LIMITS.max);
   const selectedPageCount = Number.isFinite(declaredPageCount) && declaredPageCount > 0
     ? declaredPageCount
@@ -691,7 +700,7 @@ export function normalizeComicStoryboard(data = {}, { story = '', styleId = DEFA
   while (panels.length < count) {
     panels.push(normalizePanel({
       beat: `根据故事继续推进第 ${panels.length + 1} 个节拍`,
-      image_prompt: `根据故事“${text(story).slice(0, 160)}”生成第 ${panels.length + 1} 格漫画分镜`
+      image_prompt: `根据故事“${text(story).slice(0, 160)}”生成第 ${panels.length + 1} ${autoPageCount || hasPageStoryboardInput ? '页' : '格'}漫画分镜`
     }, panels.length));
   }
 
@@ -740,18 +749,23 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
   const index = Number(panelIndex ?? panel.index) || 1;
   const total = Number(totalPanels) || (Array.isArray(storyboard.panels) ? storyboard.panels.length : index);
   const pageStoryboardJson = comicPageStoryboardToJson(panel.pageStoryboard ?? panel.page_storyboard);
+  const isPagePrompt = Boolean(pageStoryboardJson);
+  const detailHeading = isPagePrompt ? '本页分镜：' : '本格分镜：';
+  const referenceRule = isPagePrompt
+    ? '如果请求携带参考图：参考图只用于锁定角色、服装、色彩、线条和世界观；本页必须按照上面的新页分镜重新构图，不要复制上一页画面。'
+    : '如果请求携带参考图：参考图只用于锁定角色、服装、色彩、线条和世界观；本格必须按照上面的新分镜重新构图，不要复制上一格画面。';
   const textRule = '画面保持纯视觉叙事：不要生成任何文字、Logo、水印、签名或悬浮图形容器；不要预留文字排版空间。';
 
   return compactLines([
     `漫画项目：${nonEmpty(storyboard.title, '未命名漫画')}`,
-    pageStoryboardJson
+    isPagePrompt
       ? `生成第 ${index}/${total} 页：包含完整单页分镜排版的漫画页图。`
       : `生成第 ${index}/${total} 格：单张完整漫画分镜图。`,
     `统一风格：${style.stylePrompt}`,
     `风格圣经：${nonEmpty(storyboard.styleBible, style.summary)}`,
     `角色设定表：\n${characterBible(storyboard)}`,
     storyboard.storyWorld ? `故事世界：${storyboard.storyWorld}` : '',
-    '本格分镜：',
+    detailHeading,
     `- 剧情节拍：${nonEmpty(panel.beat, panel.imagePrompt)}`,
     panel.setting ? `- 场景：${panel.setting}` : '',
     panel.action ? `- 动作：${panel.action}` : '',
@@ -760,7 +774,7 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
     panel.camera ? `- 镜头：${panel.camera}` : '',
     panel.composition ? `- 构图：${panel.composition}` : '',
     panel.continuityNotes ? `- 连续性：${panel.continuityNotes}` : '',
-    pageStoryboardJson ? compactLines([
+    isPagePrompt ? compactLines([
       panel.pageStoryboard?.content ? `本页分镜内容：${panel.pageStoryboard.content}` : '',
       '当前页漫画页分镜 JSON（用于决定页面格子结构、阅读顺序、视觉层级和叙事节奏）：',
       pageStoryboardJson,
@@ -768,7 +782,7 @@ export function buildComicImagePrompt({ storyboard = {}, panel = {}, styleId = D
     ]) : '',
     `生图重点：${nonEmpty(panel.imagePrompt, panel.beat)}`,
     `一致性锁定：${style.consistencyPrompt}`,
-    '如果请求携带参考图：参考图只用于锁定角色、服装、色彩、线条和世界观；本格必须按照上面的新分镜重新构图，不要复制上一格画面。',
+    referenceRule,
     textRule,
     `负面约束：${style.negativePrompt}`
   ]);

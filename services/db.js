@@ -793,7 +793,9 @@ export const images = {
       meta.sourceType || null,
       Number.isFinite(meta.index) ? meta.index : null,
       meta.comicProjectId || null,
-      Number.isFinite(meta.comicPanelIndex) ? meta.comicPanelIndex : null
+      Number.isFinite(meta.comicPageIndex)
+        ? meta.comicPageIndex
+        : (Number.isFinite(meta.comicPanelIndex) ? meta.comicPanelIndex : null)
     );
     return this.findById(meta.id);
   },
@@ -1533,6 +1535,21 @@ export const generationJobs = {
       LIMIT ?
     `).all(userId, Math.max(1, Math.floor(recentLimit)));
     return [...active, ...recent].map(parseJob);
+  },
+  listByComicProject(userId, projectId, { limit = 1000, scanLimit = 5000 } = {}) {
+    const rows = open().prepare(`
+      SELECT * FROM generation_jobs
+      WHERE user_id = ?
+      ORDER BY
+        CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+        CASE WHEN status IN ('queued', 'running') THEN priority ELSE 0 END DESC,
+        CASE WHEN status IN ('queued', 'running') THEN created_at ELSE -COALESCE(finished_at, updated_at, created_at) END ASC
+      LIMIT ?
+    `).all(userId, Math.max(1, Math.floor(Number(scanLimit) || 5000))).map(parseJob);
+    const id = String(projectId || '');
+    return rows
+      .filter((job) => String(job?.payload?.comicProjectId || '') === id)
+      .slice(0, Math.max(1, Math.floor(Number(limit) || 1000)));
   },
   listAll({ limit = 200, status = '', userId = '' } = {}) {
     const db = open();

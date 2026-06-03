@@ -60,6 +60,7 @@ test('storyboard prompt can request per-page storyboard JSON', () => {
   assert.match(messages[0].content, /先自动决定 page_count/);
   assert.match(messages[0].content, /panel_plan 的每一项都代表一页漫画/);
   assert.match(messages[0].content, /自动决定每页 panel_count/);
+  assert.match(messages[0].content, /整页漫画页生图/);
   assert.match(messages[0].content, /大格主视觉型/);
   assert.match(messages[0].content, /斜切分镜/);
   assert.match(messages[1].content, /页数上限：2/);
@@ -135,7 +136,7 @@ test('storyboard parser normalizes fenced JSON and panels', () => {
   assert.equal(result.panels[0].pageStoryboard.layoutType, '横向条带型');
   assert.equal(result.panels[0].pageStoryboard.content, '雨夜街角，女孩在旧楼入口遇见发光猫。');
   assert.equal(result.panels[0].pageStoryboard.subPanels[0].area, '顶部通栏');
-  assert.match(result.panels[1].imagePrompt, /第 2 格/);
+  assert.match(result.panels[1].imagePrompt, /第 2 页/);
 });
 
 test('storyboard parser repairs common malformed JSON from chat models', () => {
@@ -271,6 +272,8 @@ test('comic image prompt includes page storyboard JSON when available', () => {
   const prompt = buildComicImagePrompt({ storyboard, panel: storyboard.panels[0], panelIndex: 1, totalPanels: 1 });
 
   assert.match(prompt, /生成第 1\/1 页/);
+  assert.match(prompt, /本页分镜/);
+  assert.doesNotMatch(prompt, /本格必须/);
   assert.match(prompt, /本页分镜内容：少年抬头发现巨龙压向城市/);
   assert.match(prompt, /当前页漫画页分镜 JSON/);
   assert.match(prompt, /大格主视觉型/);

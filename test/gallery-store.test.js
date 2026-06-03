@@ -86,13 +86,16 @@ test('comic project images are saved under projects and hidden from my gallery',
 
   const result = await gallery.saveGeneratedImages(
     [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
-    { prompt: 'comic panel', outputFormat: 'png', comicProjectId: projectId, comicPanelIndex: 2 },
+    { prompt: 'comic panel', outputFormat: 'png', comicProjectId: projectId, comicPageIndex: 2 },
     { userId: user.id }
   );
 
   assert.equal(result.saved.length, 1);
   assert.equal(result.saved[0].comicProjectId, projectId);
+  assert.equal(result.saved[0].comicPageIndex, 2);
   assert.equal(result.saved[0].comicPanelIndex, 2);
+  assert.equal(result.items[0].comic_page_index, 2);
+  assert.equal(result.items[0].comic_panel_index, 2);
 
   const mine = await gallery.listGallery({ userId: user.id, scope: 'mine', limit: 1000 });
   assert.equal(mine.items.some((item) => item.id === result.saved[0].id), false);
@@ -101,6 +104,8 @@ test('comic project images are saved under projects and hidden from my gallery',
   const projectImages = await gallery.listComicProjectImages({ projectId, userId: user.id });
   assert.equal(projectImages.length, 1);
   assert.equal(projectImages[0].id, result.saved[0].id);
+  assert.equal(projectImages[0].comicPageIndex, 2);
+  assert.equal(projectImages[0].comicPanelIndex, 2);
 });
 
 test('saveGeneratedImages rejects comic projects owned by another user', async () => {
