@@ -251,7 +251,7 @@
           <div>
             <p class="eyebrow">Comic Workflow</p>
             <h2 id="comicHeading">漫画工作流</h2>
-            <p class="hint">输入小故事，先生成结构化分镜，再逐页/逐格生图；首张与上一张会作为参考图上下文来锁定人物和画风。</p>
+            <p class="hint">输入小故事，先规划整部漫画页数，再为每页生成单页画格数，最后逐页生图；首张与上一页会作为参考图上下文来锁定人物和画风。</p>
           </div>
           <div class="active-profile-chip">
             <span class="dot" data-status="unknown"></span>
@@ -266,7 +266,7 @@
               <span>1</span>
               <div>
                 <h3>故事与风格</h3>
-                <p>选择漫画模板；点击生成后会在上限内自动规划页数与每页格数。</p>
+                <p>选择漫画模板；模型会自动决定实际页数和每页画格数，下面的数字只作为安全上限。</p>
               </div>
             </div>
             <label class="field">
@@ -277,7 +277,7 @@
               <label class="field"><span>漫画风格</span>
                 <select id="comicStyle"></select>
               </label>
-              <label class="field"><span>页数上限（1-12）</span>
+              <label class="field"><span>模型自动页数（最多 1-12）</span>
                 <input id="comicPanelCount" type="number" min="1" max="12" value="6" />
               </label>
               <label class="field"><span>分镜模型</span>
@@ -293,8 +293,8 @@
                 <p class="hint">内置彩色条漫、韩漫、黑白日漫、水墨国风、美漫动作、绘本漫画等模板。</p>
                 <div id="comicStyleGuide" class="comic-style-grid"></div>
                 <ul class="comic-design-tips">
-                  <li>每格只讲一个节拍，避免同一格塞入太多动作。</li>
-                  <li>先锁定角色设定表，再让每格复用脸型、发型、服装和主色。</li>
+                  <li>每个页内画格只讲一个节拍，避免同一画格塞入太多动作。</li>
+                  <li>先锁定角色设定表，再让每页/每个画格复用脸型、发型、服装和主色。</li>
                   <li>远景交代环境，中景推进动作，近景/特写强调情绪。</li>
                   <li>不让模型生成任何画面文字或悬浮图形容器；如需文字请后期排版。</li>
                 </ul>
@@ -316,14 +316,14 @@
                   <span>上下文参考</span>
                   <label class="inline-check">
                     <input id="comicUseContext" type="checkbox" checked />
-                    <span>逐页/逐格使用首张 + 上一张作为参考图</span>
+                    <span>逐页使用首张 + 上一页作为参考图</span>
                   </label>
                 </label>
               </div>
             </details>
             <div class="action-row">
-              <button id="comicAnalyze" class="primary" type="button">生成分镜</button>
-              <button id="comicGenerate" class="ghost" type="button" disabled>逐页/逐格生成图片</button>
+              <button id="comicAnalyze" class="primary" type="button">生成页分镜</button>
+              <button id="comicGenerate" class="ghost" type="button" disabled>逐页生成图片</button>
               <button id="comicStop" class="ghost danger" type="button" disabled>停止</button>
             </div>
             <div id="comicError" class="error" hidden role="alert"></div>
@@ -336,8 +336,8 @@
 
         <section class="comic-section" aria-labelledby="comicStoryboardHeading">
           <div class="section-title-row">
-            <h3 id="comicStoryboardHeading" class="section-title">分镜设计</h3>
-            <p class="hint">生成后会自动给出实际漫画页数和每页分镜格数；每页内容、格数和生图提示词都可手动修改。</p>
+            <h3 id="comicStoryboardHeading" class="section-title">页分镜设计</h3>
+            <p class="hint">实际页数和每页画格数都由模型生成；生成后你仍可手动微调单页内容、画格数和生图提示词。</p>
           </div>
           <div id="comicStoryboard" class="comic-storyboard" data-empty="true"></div>
         </section>
@@ -345,7 +345,7 @@
         <section class="comic-section" aria-labelledby="comicResultsHeading">
           <div class="section-title-row">
             <h3 id="comicResultsHeading" class="section-title">漫画结果</h3>
-            <p class="hint">完成的图片会自动保存到图库；后续格会尽量引用首格和上一格保持一致性。</p>
+            <p class="hint">完成的图片会自动保存到图库；后续页会尽量引用首页和上一页保持一致性。</p>
           </div>
           <div id="comicResults" class="gallery comic-results" data-empty="true"></div>
         </section>

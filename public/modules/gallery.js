@@ -225,7 +225,7 @@ function renderImageCards(items = galleryItems) {
 function projectStatusLabel(status) {
   return {
     draft: '草稿',
-    storyboard: '已生成分镜',
+    storyboard: '已生成页分镜',
     generating: '生成中',
     completed: '已完成',
     stopped: '已停止',
@@ -273,7 +273,7 @@ function renderComicProjects() {
   galleryItems = [];
   if (!comicProjects.length) {
     list.dataset.empty = 'true';
-    list.innerHTML = emptyHtml('还没有漫画项目。请到“漫画”页输入小故事并点击“生成分镜”。');
+    list.innerHTML = emptyHtml('还没有漫画项目。请到“漫画”页输入小故事并点击“生成页分镜”。');
     return;
   }
   list.dataset.empty = 'false';

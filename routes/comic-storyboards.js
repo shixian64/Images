@@ -1,4 +1,4 @@
-// /api/comic-storyboards —— 异步生成漫画分镜并在服务端保存项目。
+// /api/comic-storyboards —— 异步生成漫画页分镜并在服务端保存项目。
 
 import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';

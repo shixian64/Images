@@ -205,7 +205,8 @@ function updateQueueVisibility() {
 function jobMeta(job) {
   const payload = job.payload || {};
   if (payload.jobType === 'comic_storyboard') {
-    return ['漫画分镜', job.model || payload.model, payload.panelCount ? `最多 ${payload.panelCount} 页` : '']
+    const pageLimit = payload.pageLimit ?? payload.pageCount ?? payload.panelCount;
+    return ['漫画页分镜', job.model || payload.model, pageLimit ? `模型自动页数 · 最多 ${pageLimit} 页` : '']
       .filter(Boolean)
       .join(' · ');
   }

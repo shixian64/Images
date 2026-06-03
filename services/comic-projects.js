@@ -4,7 +4,7 @@ import { comicProjects, generationJobs, images as imagesTable } from './db.js';
 import { galleryFileUrl, listComicProjectImages, removeImage } from './gallery-store.js';
 import { cancelJob } from './job-queue.js';
 import {
-  COMIC_PANEL_LIMITS,
+  COMIC_PAGE_COUNT_LIMITS,
   normalizeComicPageStoryboard,
   normalizeComicStoryboard
 } from '../shared/comic-workflow.js';
@@ -92,7 +92,7 @@ function fallbackPageStoryboardFromPanel(panel = {}, index = 0) {
         transition: ''
       }
     ],
-    designNotes: '服务端兜底生成，可在页面分镜编辑区继续细化。',
+    designNotes: '服务端兜底生成，可在单页分镜编辑区继续细化。',
     aiPromptAddon: 'single page comic layout, clear readable panels'
   }, index);
 }
@@ -109,18 +109,19 @@ function ensurePageStoryboards(storyboard = {}) {
   return storyboard;
 }
 
-function cleanStoryboard(value, { story = '', styleId = '', panelCount = 0 } = {}) {
+function cleanStoryboard(value, { story = '', styleId = '', pageCount = 0, panelCount = 0 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const rawPanels = rawStoryboardPanels(value);
   if (!rawPanels.length) return {};
   const requestedCount = Math.min(
-    COMIC_PANEL_LIMITS.max,
-    Math.max(1, Math.floor(Number(panelCount || rawPanels.length) || rawPanels.length || 1))
+    COMIC_PAGE_COUNT_LIMITS.max,
+    Math.max(1, Math.floor(Number(pageCount || panelCount || rawPanels.length) || rawPanels.length || 1))
   );
   const pageMode = storyboardHasPageStoryboards(value);
   const storyboard = normalizeComicStoryboard(value, {
     story,
     styleId,
+    pageCount: requestedCount,
     panelCount: requestedCount,
     autoPageCount: pageMode || Number(value.page_count ?? value.pageCount) > 0
   });
@@ -140,16 +141,17 @@ function normalizeProjectInput(body = {}, { userId, id = '' } = {}) {
   const story = cleanString(body.story, 20000);
   const rawPanels = rawStoryboardPanels(body.storyboard);
   const rawPanelCount = rawPanels.length;
-  const requestedPanelCount = Math.floor(Number(body.panelCount ?? rawPanelCount) || rawPanelCount || 0);
+  const requestedPageCount = Math.floor(Number(body.pageCount ?? body.pageLimit ?? body.panelCount ?? rawPanelCount) || rawPanelCount || 0);
   const initialStyleId = cleanString(body.styleId ?? body.storyboard?.styleId ?? body.storyboard?.style_id, 80);
   const storyboard = cleanStoryboard(body.storyboard, {
     story,
     styleId: initialStyleId,
-    panelCount: requestedPanelCount || rawPanelCount
+    pageCount: requestedPageCount || rawPanelCount,
+    panelCount: requestedPageCount || rawPanelCount
   });
-  const panelCount = Array.isArray(storyboard.panels)
+  const pageCount = Array.isArray(storyboard.panels)
     ? storyboard.panels.length
-    : Math.max(0, requestedPanelCount);
+    : Math.max(0, requestedPageCount);
   return {
     id: cleanString(id || body.id, 80) || undefined,
     userId,
@@ -157,7 +159,9 @@ function normalizeProjectInput(body = {}, { userId, id = '' } = {}) {
     story,
     styleId: cleanString(body.styleId ?? storyboard.styleId, 80),
     styleLabel: cleanString(body.styleLabel ?? storyboard.styleLabel, 80),
-    panelCount,
+    // Persisted column/API compatibility: panelCount stores top-level page count
+    // for page-storyboard projects.
+    panelCount: pageCount,
     chatModel: cleanModel(body.chatModel),
     imageModel: cleanModel(body.imageModel),
     size: cleanString(body.size, 80),

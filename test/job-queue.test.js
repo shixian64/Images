@@ -314,6 +314,7 @@ test('enqueue comic storyboard stores safe async job payload', async () => {
   const stored = db.generationJobs.findById(job.id).payload;
   assert.equal(stored.jobType, 'comic_storyboard');
   assert.equal(stored.story, 'A fox finds a glowing key and opens a tiny moon gate.');
+  assert.equal(stored.pageLimit, 12);
   assert.equal(stored.panelCount, 12);
   assert.equal(stored.model, 'test-chat-model');
   assert.equal(stored.chatApiKey, undefined);

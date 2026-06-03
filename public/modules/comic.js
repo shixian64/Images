@@ -1,4 +1,4 @@
-// 漫画工作流面板：故事 → 分镜 → 逐格生图。
+// 漫画工作流面板：故事 → 页分镜 → 逐页生图。
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES } from '../../shared/constants.js';
@@ -10,10 +10,10 @@ import { addPromptHistory } from './prompts.js';
 import { readStringScoped, writeStringScoped } from './state.js';
 import {
   COMIC_PAGE_PANEL_LIMITS,
-  COMIC_PANEL_LIMITS,
+  COMIC_PAGE_COUNT_LIMITS,
   buildComicImagePrompt,
+  clampComicPageCount,
   clampComicPagePanelCount,
-  clampComicPanelCount,
   comicPageStoryboardToJson,
   comicReferenceSpecs,
   comicStyleOptions,
@@ -154,7 +154,7 @@ function parsePageStoryboardEditorValue(raw = '', index = 0) {
     throw new Error(`第 ${index + 1} 页高级 JSON 不是合法 JSON：${err?.message || err}`);
   }
   const normalized = normalizeComicPageStoryboard(parsed, index);
-  if (!normalized) throw new Error(`第 ${index + 1} 页高级 JSON 必须是页面分镜对象。`);
+  if (!normalized) throw new Error(`第 ${index + 1} 页高级 JSON 必须是单页分镜对象。`);
   return normalized;
 }
 
@@ -212,7 +212,7 @@ function fallbackPageStoryboardFromPanel(panel = {}, index = 0) {
         transition: ''
       }
     ],
-    designNotes: '自动兜底生成，可在页面分镜编辑区继续细化。',
+    designNotes: '自动兜底生成，可在单页分镜编辑区继续细化。',
     aiPromptAddon: 'single page comic layout, clear readable panels'
   }, index);
 }
@@ -262,13 +262,16 @@ function collectComicProjectPayload(status = 'storyboard') {
   const storyboardPayload = storyboard
     ? { ...storyboard, pageStoryboardEnabled: true }
     : {};
+  const pageCount = storyboard?.panels?.length || syncComicPageLimitInput();
   return {
     id: currentProjectId || undefined,
     title: storyboard?.title || story.slice(0, 40) || '未命名漫画',
     story,
     styleId,
     styleLabel: storyboard?.styleLabel || style.label,
-    panelCount: storyboard?.panels?.length || syncComicPanelCountInput(),
+    pageCount,
+    // Backward-compatible API/DB field; in page-storyboard mode this is page count.
+    panelCount: pageCount,
     chatModel: $('comicChatModel')?.value.trim() || DEFAULT_CHAT_MODEL,
     imageModel: $('comicImageModel')?.value.trim() || DEFAULT_IMAGE_MODEL,
     size: $('comicSize')?.value || 'auto',
@@ -343,16 +346,16 @@ function populateOptions() {
 
   const count = $('comicPanelCount');
   if (count) {
-    count.min = String(COMIC_PANEL_LIMITS.min);
-    count.max = String(COMIC_PANEL_LIMITS.max);
-    count.value = String(COMIC_PANEL_LIMITS.default);
-    count.title = `支持 ${COMIC_PANEL_LIMITS.min}-${COMIC_PANEL_LIMITS.max} 页；超出时会自动调整到支持范围内。`;
+    count.min = String(COMIC_PAGE_COUNT_LIMITS.min);
+    count.max = String(COMIC_PAGE_COUNT_LIMITS.max);
+    count.value = String(COMIC_PAGE_COUNT_LIMITS.default);
+    count.title = `模型会自动决定实际页数；这里仅作为安全上限（${COMIC_PAGE_COUNT_LIMITS.min}-${COMIC_PAGE_COUNT_LIMITS.max} 页）。每页内部画格数也由模型自动生成，生成后可微调。`;
   }
 }
 
-function syncComicPanelCountInput(value = undefined) {
+function syncComicPageLimitInput(value = undefined) {
   const input = $('comicPanelCount');
-  const count = clampComicPanelCount(value ?? input?.value);
+  const count = clampComicPageCount(value ?? input?.value);
   if (input && input.value !== String(count)) input.value = String(count);
   return count;
 }
@@ -399,7 +402,7 @@ function renderStoryboard() {
     box.dataset.empty = 'true';
     box.innerHTML = `<div class="empty-state">
       <div class="empty-icon" aria-hidden="true">▦</div>
-      <p>先输入小故事并点击“生成分镜”。这里会出现角色设定、风格圣经和逐格画面提示词。</p>
+      <p>先输入小故事并点击“生成页分镜”。模型会自动给出角色设定、风格圣经、实际页数和每页画格规划。</p>
     </div>`;
     return;
   }
@@ -425,23 +428,23 @@ function renderStoryboard() {
     const pageContent = showPageStoryboards ? pageStoryboardContentEditorValue({ ...panel, pageStoryboard }, index) : '';
     const pageStoryboardField = showPageStoryboards ? `<div class="comic-page-editor">
       <div class="comic-page-editor-head">
-        <strong>第 ${index + 1} 页分镜</strong>
-        <span>${pagePanelCount} 格 · 可手动调整</span>
+        <strong>第 ${index + 1} 页（单页分镜）</strong>
+        <span>${pagePanelCount} 个页内画格 · 模型生成，可微调</span>
       </div>
       <div class="comic-page-editor-grid">
         <label class="field">
-          <span>本页分镜格数（可改）</span>
+          <span>本页画格数（模型生成，可改）</span>
           <input type="number" min="${COMIC_PAGE_PANEL_LIMITS.min}" max="${COMIC_PAGE_PANEL_LIMITS.max}" value="${pagePanelCount}" data-comic-page-panel-count="${index}" data-comic-page-panel-count-original="${pagePanelCount}" />
         </label>
         <label class="field comic-page-content-field">
-          <span>本页分镜内容（可改）</span>
+          <span>本页画格内容（单页分镜，可改）</span>
           <textarea rows="5" data-comic-page-content="${index}" data-comic-page-content-original="${escapeHtml(encodeEditorOriginalValue(pageContent))}">${escapeHtml(pageContent)}</textarea>
         </label>
       </div>
       <details class="comic-page-json-details">
-        <summary>高级：查看/编辑页面分镜 JSON</summary>
+        <summary>高级：查看/编辑单页分镜 JSON</summary>
         <label class="field comic-page-storyboard-field">
-          <span>漫画页分镜 JSON（可改）</span>
+          <span>单页分镜布局 JSON（可改）</span>
           <textarea rows="8" data-comic-page-storyboard="${index}" spellcheck="false">${escapeHtml(pageStoryboardJson)}</textarea>
         </label>
       </details>
@@ -462,7 +465,7 @@ function renderStoryboard() {
       <div><dt>连续性</dt><dd>${escapeHtml(panel.continuityNotes || '-')}</dd></div>
     </dl>
     <label class="field">
-      <span>${showPageStoryboards ? '本页生图提示词（可改）' : '本格生图提示词（可改）'}</span>
+      <span>${showPageStoryboards ? '本页整图提示词（可改）' : '本格生图提示词（可改）'}</span>
       <textarea rows="5" data-comic-panel-prompt="${index}">${escapeHtml(panel.imagePrompt || '')}</textarea>
     </label>
     ${pageStoryboardField}
@@ -474,10 +477,10 @@ function renderStoryboard() {
       <div>
         <p class="eyebrow">Storyboard</p>
         <h3>${escapeHtml(storyboard.title)}</h3>
-        <p>${escapeHtml(storyboard.logline || '已生成分镜设计。')}</p>
+        <p>${escapeHtml(storyboard.logline || '已生成页分镜设计。')}</p>
         <div class="comic-page-summary">
           ${showPageStoryboards
-            ? `已自动生成 ${pageCount} 页漫画分镜 · 共 ${innerPanelCount} 个页内分镜格；每页格数和内容均可在下方编辑。`
+            ? `模型已自动决定 ${pageCount} 页漫画 · 共 ${innerPanelCount} 个页内画格；实际页数和每页画格数都可在生成后微调。`
             : `已生成 ${pageCount} 格分镜；每格提示词可在下方编辑。`}
         </div>
       </div>
@@ -502,7 +505,7 @@ function renderComicResults() {
     list.dataset.empty = 'true';
     list.innerHTML = `<div class="empty-state">
       <div class="empty-icon" aria-hidden="true">□</div>
-      <p>分镜确认后点击“逐页/逐格生成图片”。生成时会把首张/上一张作为上下文参考，尽量锁定角色和画风。</p>
+      <p>页分镜确认后点击“逐页生成图片”。生成时会把首页/上一页作为上下文参考，尽量锁定角色和画风。</p>
     </div>`;
     return;
   }
@@ -647,7 +650,7 @@ async function analyzeStoryboard() {
   }
 
   const styleId = $('comicStyle')?.value;
-  const panelCount = syncComicPanelCountInput();
+  const pageLimit = syncComicPageLimitInput();
   const model = $('comicChatModel')?.value.trim() || profileInfo.config.defaultModel || DEFAULT_CHAT_MODEL;
   const payload = {
     name: profileInfo.profile.name,
@@ -655,7 +658,10 @@ async function analyzeStoryboard() {
     model,
     story,
     styleId,
-    panelCount,
+    pageLimit,
+    pageCount: pageLimit,
+    // Backward-compatible request field for older server versions.
+    panelCount: pageLimit,
     projectId: currentProjectId || undefined,
     imageModel: $('comicImageModel')?.value.trim() || DEFAULT_IMAGE_MODEL,
     size: $('comicSize')?.value || 'auto',
@@ -673,8 +679,8 @@ async function analyzeStoryboard() {
   activeStoryboardRequest = { controller, stopped: false, jobId: '' };
 
   setBusy(true);
-  setStatus('正在提交漫画分镜任务…', 'busy');
-  showComicProgress(`正在把故事提交到后台队列，由 ${model} 生成最多 ${panelCount} 页漫画分镜…`, 'busy');
+  setStatus('正在提交漫画页分镜任务…', 'busy');
+  showComicProgress(`正在把故事提交到后台队列，由 ${model} 在最多 ${pageLimit} 页内自动决定实际页数，并为每页自动决定画格数…`, 'busy');
   try {
     const resp = await apiFetch('/api/comic-storyboards', {
       method: 'POST',
@@ -684,7 +690,7 @@ async function analyzeStoryboard() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     const queuedJob = data.job || { id: data.jobId, status: data.status, position: data.position };
-    if (!queuedJob?.id) throw new Error('分镜任务提交成功但缺少任务 ID。');
+    if (!queuedJob?.id) throw new Error('页分镜任务提交成功但缺少任务 ID。');
     activeStoryboardRequest.jobId = queuedJob.id;
 
     const positionText = queuedJob.position ? `，当前第 ${queuedJob.position} 位` : '';
@@ -693,23 +699,24 @@ async function analyzeStoryboard() {
       model,
       profileName: profileInfo.profile.name,
       interfaceMode: profileInfo.systemMode ? 'system' : 'custom',
-      panelCount,
+      pageLimit,
+      panelCount: pageLimit,
       styleId
     });
-    setStatus(`漫画分镜已入队${positionText}`, 'ok', 1600);
-    showComicProgress(`分镜任务 ${queuedJob.id.slice(0, 8)} 已入队${positionText}，后台完成后会自动回填并保存漫画项目。`, 'busy');
+    setStatus(`漫画页分镜已入队${positionText}`, 'ok', 1600);
+    showComicProgress(`页分镜任务 ${queuedJob.id.slice(0, 8)} 已入队${positionText}，后台完成后会自动回填并保存漫画项目。`, 'busy');
 
     const job = FINAL_STATUSES.has(queuedJob.status)
       ? queuedJob
       : await waitForJob(queuedJob.id, { signal: controller.signal });
     if (job.status !== 'succeeded') {
-      throw new Error(job.error || job.progress?.message || `分镜任务失败：${job.status}`);
+      throw new Error(job.error || job.progress?.message || `页分镜任务失败：${job.status}`);
     }
 
     const result = job.result || {};
     const project = result.project || {};
     const nextStoryboard = result.storyboard || project.storyboard;
-    if (!nextStoryboard?.panels?.length) throw new Error('分镜任务完成但没有返回可用分镜。');
+    if (!nextStoryboard?.panels?.length) throw new Error('页分镜任务完成但没有返回可用页分镜。');
 
     storyboard = nextStoryboard;
     storyboard.pageStoryboardEnabled = true;
@@ -736,19 +743,20 @@ async function analyzeStoryboard() {
       interfaceMode: profileInfo.systemMode ? 'system' : 'custom',
       durationMs: Date.now() - started,
       jobDurationMs: job.startedAt && job.finishedAt ? job.finishedAt - job.startedAt : undefined,
-      panelCount: storyboard.panels?.length || panelCount,
+      pageCount: storyboard.panels?.length || pageLimit,
+      pageLimit,
       styleId,
       includePageStoryboards: true,
       repaired: Boolean(result.repaired),
       projectId: project.id || currentProjectId
     });
-    setStatus('漫画分镜已生成', 'ok', 1800);
-    showComicProgress('页数、每页格数和每页分镜内容已在后台生成，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。', 'ok');
+    setStatus('漫画页分镜已生成', 'ok', 1800);
+    showComicProgress('模型已决定实际页数、每页画格数和单页分镜内容，并已保存为“图库 → 漫画项目”。可微调后逐页生成图片。', 'ok');
   } catch (err) {
     const aborted = err.name === 'AbortError';
     const stopped = aborted && activeStoryboardRequest?.stopped;
     const message = aborted
-      ? (stopped ? '分镜生成已停止。' : '分镜生成等待超时，请稍后在队列或图库中查看。')
+      ? (stopped ? '页分镜生成已停止。' : '页分镜生成等待超时，请稍后在队列或图库中查看。')
       : (err.message || String(err));
     showComicError(stopped ? '' : message);
     addLog(stopped ? 'info' : 'error', stopped ? 'comic.storyboard.stopped' : 'comic.storyboard.failed', {
@@ -758,8 +766,8 @@ async function analyzeStoryboard() {
       durationMs: Date.now() - started,
       error: message
     });
-    setStatus(stopped ? '漫画分镜已停止' : '漫画分镜失败', stopped ? 'ok' : 'err', 2200);
-    showComicProgress(stopped ? '已停止分镜生成。' : message, stopped ? 'muted' : 'err');
+    setStatus(stopped ? '漫画页分镜已停止' : '漫画页分镜失败', stopped ? 'ok' : 'err', 2200);
+    showComicProgress(stopped ? '已停止页分镜生成。' : message, stopped ? 'muted' : 'err');
   } finally {
     if (activeStoryboardRequest?.controller === controller) activeStoryboardRequest = null;
     setBusy(false);
@@ -879,13 +887,13 @@ function panelPayload({ panel, index, imageInfo, references }) {
 
 async function generateComic({ onSavedImages } = {}) {
   showComicError('');
-  if (!storyboard?.panels?.length) return showComicError('请先生成分镜。');
+  if (!storyboard?.panels?.length) return showComicError('请先生成页分镜。');
   try {
     syncStoryboardFromEditors();
   } catch (err) {
     const message = err?.message || String(err);
     showComicError(message);
-    setStatus('页面分镜 JSON 无效', 'err', 2200);
+    setStatus('单页分镜 JSON 无效', 'err', 2200);
     return;
   }
   detachProjectIfStoryChanged($('comicStory')?.value || '');
@@ -1002,6 +1010,7 @@ async function generateComic({ onSavedImages } = {}) {
       profileName: imageInfo.profile.name,
       interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
       durationMs: Date.now() - started,
+      pageCount: storyboard.panels.length,
       panelCount: storyboard.panels.length,
       styleId: storyboard.styleId,
       useContext
@@ -1071,7 +1080,7 @@ function loadComicProject(detail = {}) {
     writeStringScoped(COMIC_STORY_DRAFT_KEY, story.value);
   }
   setSelectValue('comicStyle', project.styleId || storyboard?.styleId);
-  syncComicPanelCountInput(project.panelCount || storyboard?.panels?.length);
+  syncComicPageLimitInput(project.pageCount || project.panelCount || storyboard?.panels?.length);
   setSelectValue('comicSize', project.size);
   setSelectValue('comicQuality', project.quality);
   setSelectValue('comicOutputFormat', project.outputFormat);
@@ -1107,7 +1116,7 @@ function loadComicProject(detail = {}) {
   showComicProgress(
     activeJobs
       ? `已导入漫画项目，并恢复 ${activeJobs} 个进行中的生图任务；再次点击生成会等待这些任务，避免重复提交。`
-      : '已导入漫画项目，可继续微调分镜或逐页/逐格生成图片。',
+      : '已导入漫画项目，可继续微调页分镜或逐页生成图片。',
     'ok'
   );
 }
@@ -1123,7 +1132,7 @@ function bindEvents({ onSavedImages } = {}) {
         syncStoryboardFromEditors();
       } catch (err) {
         showComicError(err?.message || String(err));
-        setStatus('页面分镜 JSON 无效', 'err', 2200);
+        setStatus('单页分镜 JSON 无效', 'err', 2200);
         return;
       }
       storyboard.styleId = $('comicStyle').value;
@@ -1134,8 +1143,8 @@ function bindEvents({ onSavedImages } = {}) {
   $('comicStory')?.addEventListener('input', () => {
     writeStringScoped(COMIC_STORY_DRAFT_KEY, $('comicStory').value);
   });
-  $('comicPanelCount')?.addEventListener('change', () => syncComicPanelCountInput());
-  $('comicPanelCount')?.addEventListener('blur', () => syncComicPanelCountInput());
+  $('comicPanelCount')?.addEventListener('change', () => syncComicPageLimitInput());
+  $('comicPanelCount')?.addEventListener('blur', () => syncComicPageLimitInput());
   $('comicChatModel')?.addEventListener('input', () => { $('comicChatModel').dataset.userEdited = '1'; });
   $('comicImageModel')?.addEventListener('input', () => { $('comicImageModel').dataset.userEdited = '1'; });
   window.addEventListener('comic-project-import', (ev) => loadComicProject(ev.detail || {}));

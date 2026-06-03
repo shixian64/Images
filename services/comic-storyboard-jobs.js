@@ -11,7 +11,7 @@ import { DEFAULT_CHAT_MODEL } from '../shared/constants.js';
 import {
   buildComicStoryboardMessages,
   buildComicStoryboardRepairMessages,
-  clampComicPanelCount,
+  clampComicPageCount,
   getComicStyleTemplate,
   parseComicStoryboardResponse
 } from '../shared/comic-workflow.js';
@@ -100,7 +100,7 @@ function resolveStoryboardChatRequest(body = {}, transientSecret = null) {
   if (!apiKey) {
     throw httpError(
       400,
-      '个人对话接口密钥只保存在当前进程内存中；服务重启或任务完成后该任务无法继续，请重新提交分镜生成。',
+      '个人对话接口密钥只保存在当前进程内存中；服务重启或任务完成后该任务无法继续，请重新提交页分镜生成。',
       'transient_secret_missing'
     );
   }
@@ -169,17 +169,17 @@ function prepareStoryboardChatBody(body = {}) {
   return next;
 }
 
-function buildStoryboardChatPayload({ story, styleId, panelCount, model, repair = null }) {
+function buildStoryboardChatPayload({ story, styleId, pageLimit, model, repair = null }) {
   const messages = repair
     ? buildComicStoryboardRepairMessages({
       story,
       styleId,
-      panelCount,
+      pageLimit,
       includePageStoryboards: true,
       badResponse: repair.badResponse,
       parseError: repair.parseError
     })
-    : buildComicStoryboardMessages({ story, styleId, panelCount, includePageStoryboards: true });
+    : buildComicStoryboardMessages({ story, styleId, pageLimit, includePageStoryboards: true });
   return buildChatPayload(prepareStoryboardChatBody({
     model,
     messages,
@@ -213,13 +213,18 @@ function assertProjectForUser(projectId, userId) {
 
 function projectPayloadFromStoryboard(payload = {}, storyboard = {}) {
   const style = getComicStyleTemplate(storyboard.styleId || payload.styleId);
+  const pageCount = Array.isArray(storyboard.panels)
+    ? storyboard.panels.length
+    : (payload.pageLimit ?? payload.pageCount ?? payload.panelCount);
   return {
     id: payload.projectId || undefined,
     title: storyboard.title || cleanString(payload.story, 40) || '未命名漫画',
     story: payload.story,
     styleId: storyboard.styleId || payload.styleId,
     styleLabel: storyboard.styleLabel || style.label,
-    panelCount: Array.isArray(storyboard.panels) ? storyboard.panels.length : payload.panelCount,
+    pageCount,
+    // Backward-compatible API/DB field; page-storyboard projects store page count here.
+    panelCount: pageCount,
     chatModel: payload.model || DEFAULT_CHAT_MODEL,
     imageModel: payload.imageModel || '',
     size: payload.size || 'auto',
@@ -264,18 +269,20 @@ export async function prepareComicStoryboardJob(body = {}, { userInfo = null } =
 
   const projectId = assertProjectForUser(body.projectId || body.comicProjectId || '', userInfo.id);
   const styleId = cleanString(body.styleId, 80) || getComicStyleTemplate().id;
-  const panelCount = clampComicPanelCount(body.panelCount ?? body.pageCount);
-  const requestConfig = resolveStoryboardChatRequest({ ...body, story, styleId, panelCount });
+  const pageLimit = clampComicPageCount(body.pageLimit ?? body.pageCount ?? body.panelCount);
+  const requestConfig = resolveStoryboardChatRequest({ ...body, story, styleId, pageLimit, panelCount: pageLimit });
   const model = cleanModel(body.model || body.chatModel || requestConfig.bodyForPayload.model || DEFAULT_CHAT_MODEL);
 
-  const chatPayload = buildStoryboardChatPayload({ story, styleId, panelCount, model });
+  const chatPayload = buildStoryboardChatPayload({ story, styleId, pageLimit, model });
   await assertAllowedUpstreamUrl(requestConfig.targetUrl);
 
   const payload = {
     jobType: COMIC_STORYBOARD_JOB_TYPE,
     story,
     styleId,
-    panelCount,
+    pageLimit,
+    // Backward-compatible name for older queue UI/API consumers.
+    panelCount: pageLimit,
     model: chatPayload.model,
     projectId: projectId || undefined,
     comicProjectId: projectId || undefined,
@@ -322,7 +329,7 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
     if (!story) throw httpError(400, 'Story is required.', 'story_required');
     if (payload.projectId) assertProjectForUser(payload.projectId, userInfo?.id);
 
-    const panelCount = clampComicPanelCount(payload.panelCount);
+    const pageLimit = clampComicPageCount(payload.pageLimit ?? payload.pageCount ?? payload.panelCount);
     const styleId = cleanString(payload.styleId, 80) || getComicStyleTemplate().id;
     const requestConfig = resolveStoryboardChatRequest(payload, transientSecret);
     usingSystemDefault = requestConfig.usingSystemDefault;
@@ -330,7 +337,7 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
     const targetUrl = requestConfig.targetUrl;
     await assertAllowedUpstreamUrl(targetUrl);
 
-    const chatPayload = buildStoryboardChatPayload({ story, styleId, panelCount, model });
+    const chatPayload = buildStoryboardChatPayload({ story, styleId, pageLimit, model });
     const upstreamTimeoutMs = timeoutMs || getComicStoryboardTimeoutMs();
     logger.info('comic.storyboard.request', {
       userId: userInfo?.id,
@@ -342,7 +349,7 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
     });
     onProgress?.({
       stage: 'upstream',
-      message: `正在调用 ${chatPayload.model} 生成漫画分镜，任务会在后台继续运行…`,
+      message: `正在调用 ${chatPayload.model} 生成漫画页分镜，任务会在后台继续运行…`,
       elapsedMs: Date.now() - started
     });
 
@@ -370,7 +377,7 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
       return { status: first.status, body: { error: errMsg } };
     }
 
-    const storyboardOptions = { story, styleId, panelCount, autoPageCount: true };
+    const storyboardOptions = { story, styleId, pageLimit, panelCount: pageLimit, autoPageCount: true };
     const storyboardText = extractChatText(first.data);
     let storyboard;
     let repaired = false;
@@ -387,14 +394,14 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
       });
       onProgress?.({
         stage: 'repairing',
-        message: '分镜 JSON 不完整，正在后台自动修复一次…',
+        message: '页分镜 JSON 不完整，正在后台自动修复一次…',
         elapsedMs: Date.now() - started
       });
 
       const repairPayload = buildStoryboardChatPayload({
         story,
         styleId,
-        panelCount,
+        pageLimit,
         model,
         repair: { badResponse: storyboardText, parseError: parseMessage }
       });
@@ -425,10 +432,10 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
 
     onProgress?.({
       stage: 'saving',
-      message: '分镜已生成，正在保存漫画项目…',
+      message: '页分镜已生成，正在保存漫画项目…',
       elapsedMs: Date.now() - started
     });
-    const project = await saveStoryboardProject({ ...payload, story, styleId, panelCount, model }, storyboard, userInfo);
+    const project = await saveStoryboardProject({ ...payload, story, styleId, pageLimit, panelCount: pageLimit, model }, storyboard, userInfo);
     recordStoryboardSuccess(userInfo, usingSystemDefault);
     quotaRecorded = true;
     logger.info('comic.storyboard.succeeded', {
@@ -436,7 +443,8 @@ export async function runComicStoryboardJob(payload = {}, userInfo = {}, {
       model: chatPayload.model,
       projectId: project.id,
       durationMs: Date.now() - started,
-      panelCount: project.storyboard?.panels?.length || panelCount,
+      pageCount: project.storyboard?.panels?.length || pageLimit,
+      pageLimit,
       repaired
     });
     return {

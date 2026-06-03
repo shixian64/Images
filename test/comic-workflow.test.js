@@ -2,11 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COMIC_PAGE_COUNT_LIMITS,
   COMIC_PAGE_PANEL_LIMITS,
   COMIC_PANEL_LIMITS,
   buildComicImagePrompt,
   buildComicStoryboardRepairMessages,
   buildComicStoryboardMessages,
+  clampComicPageCount,
   clampComicPagePanelCount,
   clampComicPanelCount,
   comicPageStoryboardToJson,
@@ -26,9 +28,10 @@ test('comic style templates expose selectable built-in styles', () => {
   assert.equal(getComicStyleTemplate('missing').id, 'webtoon-color');
 });
 
-test('comic panel count is clamped to supported limits', () => {
-  assert.equal(clampComicPanelCount(-1), COMIC_PANEL_LIMITS.default);
-  assert.equal(clampComicPanelCount(99), COMIC_PANEL_LIMITS.max);
+test('comic page count and per-page panel count are clamped separately', () => {
+  assert.equal(COMIC_PANEL_LIMITS, COMIC_PAGE_COUNT_LIMITS);
+  assert.equal(clampComicPageCount(-1), COMIC_PAGE_COUNT_LIMITS.default);
+  assert.equal(clampComicPageCount(99), COMIC_PAGE_COUNT_LIMITS.max);
   assert.equal(clampComicPanelCount(3.8), 3);
   assert.equal(clampComicPagePanelCount(99), COMIC_PAGE_PANEL_LIMITS.max);
   assert.equal(clampComicPagePanelCount(2.9), 2);
@@ -51,27 +54,27 @@ test('storyboard prompt can request per-page storyboard JSON', () => {
   const messages = buildComicStoryboardMessages({
     story: '少年在天台和巨龙对峙，下一秒城市灯光全部熄灭。',
     styleId: 'american-comic',
-    panelCount: 2,
+    pageLimit: 2,
     includePageStoryboards: true
   });
 
   assert.match(messages[0].content, /page_storyboard/);
   assert.match(messages[0].content, /页数由你自动决定/);
-  assert.match(messages[0].content, /先自动决定 page_count/);
-  assert.match(messages[0].content, /panel_plan 的每一项都代表一页漫画/);
-  assert.match(messages[0].content, /自动决定每页 panel_count/);
+  assert.match(messages[0].content, /先自动决定整部漫画 page_count/);
+  assert.match(messages[0].content, /panel_plan 的每一项都代表一整页漫画/);
+  assert.match(messages[0].content, /panel_count 只表示单页内画格数/);
   assert.match(messages[0].content, /整页漫画页生图/);
   assert.match(messages[0].content, /大格主视觉型/);
   assert.match(messages[0].content, /斜切分镜/);
-  assert.match(messages[1].content, /页数上限：2/);
-  assert.match(messages[1].content, /每一页额外生成 page_storyboard JSON/);
+  assert.match(messages[1].content, /最多页数（安全上限）：2/);
+  assert.match(messages[1].content, /page_count 是你决定的整部漫画实际页数/);
 });
 
 test('storyboard repair prompt asks for parseable JSON fallback', () => {
   const messages = buildComicStoryboardRepairMessages({
     story: '少年在天台遇见一只会发光的白鸽。',
     styleId: 'american-comic',
-    panelCount: 2,
+    pageLimit: 2,
     includePageStoryboards: true,
     badResponse: '这里没有 JSON，只有解释。',
     parseError: 'Storyboard response does not contain a JSON object.'
