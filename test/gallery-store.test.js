@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,6 +15,17 @@ const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
 function response(bytes, { status = 200, headers = {} } = {}) {
   return new Response(bytes, { status, headers });
+}
+
+function listFilesRecursive(dir) {
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const abs = join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...listFilesRecursive(abs));
+    else out.push(abs);
+  }
+  return out;
 }
 
 async function withEnv(patch, fn) {
@@ -216,6 +227,35 @@ test('saveGeneratedImages rejects explicit non-image content-type', async () => 
   assert.match(result.items[0].save_error, /content-type is not allowed/);
 });
 
+test('saveGeneratedImages removes written file if database insert fails', async () => {
+  const cleanupUser = auth.register({
+    username: 'cleanup_owner',
+    email: 'cleanup-owner@example.com',
+    password: 'longenough1'
+  });
+  const originalInsert = db.images.insert;
+  db.images.insert = () => {
+    throw new Error('simulated insert failure');
+  };
+
+  try {
+    const result = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'cleanup on insert failure', outputFormat: 'png' },
+      { userId: cleanupUser.id }
+    );
+
+    assert.equal(result.saved.length, 0);
+    assert.match(result.items[0].save_error, /simulated insert failure/);
+    assert.deepEqual(
+      listFilesRecursive(join(workDir, 'generated', 'users', cleanupUser.id, 'images')),
+      []
+    );
+  } finally {
+    db.images.insert = originalInsert;
+  }
+});
+
 test('users can publish an own image and see like counts in public gallery', async () => {
   const result = await gallery.saveGeneratedImages(
     [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
@@ -294,6 +334,38 @@ test('removeDanglingFile only deletes files under a user images directory', asyn
   const removed = await gallery.removeDanglingFile(`users/${user.id}/images/dangling/orphan.png`);
   assert.equal(removed.path, `users/${user.id}/images/dangling/orphan.png`);
   assert.equal(existsSync(orphanPath), false);
+});
+
+test('gallery listing ignores db paths outside trusted image roots', async () => {
+  const unsafeId = 'unsafe-path-row';
+  const outsidePath = join(workDir, 'server.js');
+  writeFileSync(outsidePath, Buffer.from(PNG_BYTES));
+  db.images.insert({
+    id: unsafeId,
+    userId: user.id,
+    createdAt: new Date().toISOString(),
+    filename: 'server.js',
+    path: '../server.js',
+    mimeType: 'image/png',
+    bytes: PNG_BYTES.length,
+    isPublic: false,
+    prompt: 'unsafe path',
+    sourceType: 'legacy'
+  });
+
+  const mine = await gallery.listGallery({ userId: user.id, limit: 1000 });
+  assert.equal(mine.items.some((item) => item.id === unsafeId), false);
+
+  const orphans = await gallery.scanOrphans();
+  assert.equal(
+    orphans.missingFiles.some((item) => item.id === unsafeId && item.reason === 'invalid_path'),
+    true
+  );
+});
+
+test('galleryFileUrl refuses dot-segment stored paths', () => {
+  assert.equal(gallery.galleryFileUrl('../server.js'), '');
+  assert.equal(gallery.galleryFileUrl(`users/${user.id}/images/2026-04-25/a.png`).startsWith('/gallery-files/'), true);
 });
 
 test('scanOrphans reads image rows in bounded maintenance pages', async () => {

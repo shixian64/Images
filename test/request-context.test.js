@@ -58,3 +58,44 @@ test('logger includes async request trace id and serializes Error objects', () =
   assert.equal(lines[0].err.stack.includes('sk-logger-secret-123456'), false);
   assert.match(lines[0].err.stack, /Bearer sk-l\*\*\*\*3456/);
 });
+
+test('logger redacts sensitive ordinary metadata recursively', () => {
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (line) => lines.push(JSON.parse(line));
+  try {
+    logger.info('test.meta', {
+      apiKey: 'sk-logger-meta-123456',
+      nested: {
+        authorization: 'Bearer custom-token-123456',
+        message: 'upstream echoed sk-logger-nested-123456'
+      }
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].apiKey, '[redacted]');
+  assert.equal(lines[0].nested.authorization, '[redacted]');
+  assert.equal(lines[0].nested.message.includes('sk-logger-nested-123456'), false);
+  assert.match(lines[0].nested.message, /sk-l\*\*\*\*3456/);
+});
+
+test('logger redacts sensitive keys before serializing object values', () => {
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (line) => lines.push(JSON.parse(line));
+  try {
+    logger.info('test.sensitive-error', {
+      apiKey: new Error('sk-sensitive-error-123456'),
+      safeError: new Error('Authorization: Bearer sk-safe-error-123456')
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].apiKey, '[redacted]');
+  assert.match(lines[0].safeError.message, /Bearer sk-s\*\*\*\*3456/);
+});

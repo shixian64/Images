@@ -136,3 +136,30 @@ test('client logs preserve request trace id in sanitized metadata', () => {
   assert.equal(row.meta.component, 'studio');
   assert.equal(row.meta.traceId, 'trace-client-123');
 });
+
+test('client logs treat prototype-looking metadata keys as data', () => {
+  const user = auth.register({
+    username: 'log_proto_user',
+    email: 'log_proto_user@example.com',
+    password: 'longenough1'
+  });
+
+  const meta = JSON.parse('{"__proto__":{"polluted":true},"constructor":"plain"}');
+  const result = clientLogService.recordClientLogs(reqFor(user), {
+    items: [
+      {
+        id: 'local-log-proto',
+        level: 'info',
+        message: 'prototype keys',
+        meta
+      }
+    ]
+  });
+  assert.equal(result.inserted, 1);
+
+  const [row] = clientLogService.listClientLogsForUser(user.id, { limit: 1 });
+  assert.equal(Object.hasOwn(row.meta, '__proto__'), true);
+  assert.deepEqual(row.meta.__proto__, { polluted: true });
+  assert.equal(row.meta.constructor, 'plain');
+  assert.equal({}.polluted, undefined);
+});

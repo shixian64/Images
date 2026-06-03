@@ -154,11 +154,13 @@ test('compactGenerationResult strips inline b64_json from failed save items', ()
     data: [
       {
         b64_json: 'a'.repeat(4096),
+        url: 'https://upstream.example/failed-save.png?token=secret',
         save_error: 'decoded image too large',
         revised_prompt: 'kept'
       },
       {
         b64_json: 'b'.repeat(4096),
+        url: 'https://upstream.example/signed-image.png?token=secret',
         local_url: '/gallery-files/users/u/images/x.png',
         gallery_id: 'img-1'
       }
@@ -168,10 +170,15 @@ test('compactGenerationResult strips inline b64_json from failed save items', ()
   const compacted = jobQueue.compactGenerationResult(input);
 
   assert.equal(Object.hasOwn(compacted.data[0], 'b64_json'), false);
+  assert.equal(Object.hasOwn(compacted.data[0], 'url'), false);
   assert.equal(compacted.data[0].save_error, 'decoded image too large');
   assert.equal(compacted.data[0].revised_prompt, 'kept');
   assert.equal(Object.hasOwn(compacted.data[1], 'b64_json'), false);
+  assert.equal(Object.hasOwn(compacted.data[1], 'url'), false);
+  assert.equal(compacted.data[1].local_url, '/gallery-files/users/u/images/x.png');
   assert.equal(input.data[0].b64_json.length, 4096, 'source object should not be mutated');
+  assert.equal(input.data[0].url, 'https://upstream.example/failed-save.png?token=secret', 'source object should not be mutated');
+  assert.equal(input.data[1].url, 'https://upstream.example/signed-image.png?token=secret', 'source object should not be mutated');
 });
 
 test('enqueue quota check counts already queued system-default calls', async () => {
@@ -284,6 +291,20 @@ test('expired reference cleanup preserves queued job files', async () => {
   assert.equal(existsSync(queuedDir), true);
   assert.equal(existsSync(orphanDir), false);
   jobQueue.cancelJob(job.id, u);
+});
+
+test('runnableReferenceImages only accepts staged job reference paths', () => {
+  assert.throws(
+    () => referenceImages.runnableReferenceImages([
+      { relPath: 'users/someone/images/2026-06-01/private.png' }
+    ]),
+    /invalid staged reference path/
+  );
+
+  const [item] = referenceImages.runnableReferenceImages([
+    { relPath: 'tmp/jobs/job-123/references/ref.png' }
+  ]);
+  assert.match(item.absPath, /tmp[\\/]+jobs[\\/]+job-123[\\/]+references[\\/]+ref\.png$/);
 });
 
 test('system jobs with gallery references can be retried after staged files were cleaned', async () => {

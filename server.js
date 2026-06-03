@@ -33,6 +33,7 @@ import { sendJson } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
 import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
+import { parseRequestUrl } from './utils/request-url.js';
 
 validateEnvConfig({ logger });
 
@@ -50,7 +51,10 @@ async function handleRequest(req, res) {
   // 任何请求都先尝试附会话；未登录场景下 req.session = null
   attachSession(req, res);
 
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const url = parseRequestUrl(req);
+  if (!url) {
+    return sendJson(res, 400, { error: 'bad request' });
+  }
   const pathname = url.pathname;
 
   if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/healthz') {

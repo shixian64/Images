@@ -114,6 +114,10 @@ export function compactGenerationResult(body = {}) {
       // still leave save_error next to the original b64_json item, and storing
       // that blob would inflate SQLite/SSE payloads dramatically.
       delete next.b64_json;
+      // Upstream URL outputs can be temporary/signed and can also bypass local
+      // storage/quota boundaries when mirroring failed. Keep only local_url /
+      // localUrl from the gallery mirror; failed saves retain save_error.
+      delete next.url;
       return next;
     });
   }

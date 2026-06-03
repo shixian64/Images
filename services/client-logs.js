@@ -44,7 +44,7 @@ function redactMeta(value, depth = 0) {
   if (Array.isArray(value)) return value.slice(0, 80).map((item) => redactMeta(item, depth + 1));
   if (typeof value !== 'object') return truncate(value);
 
-  const out = {};
+  const out = Object.create(null);
   for (const [key, item] of Object.entries(value)) {
     out[truncate(key, 120)] = isSensitiveKey(key) ? REDACTED : redactMeta(item, depth + 1);
   }

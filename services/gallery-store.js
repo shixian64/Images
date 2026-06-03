@@ -174,7 +174,9 @@ function parseBase64Image(raw, { maxBytes = maxImageDownloadBytes() } = {}) {
 // relPath 形如 users/<uid>/images/<date>/<file> 或旧路径 images/<date>/<file>。
 // 按 / 分段后对每段 encodeURIComponent，再用 / 拼接。
 function toPublicUrl(relPath) {
-  return `/gallery-files/${String(relPath).split(/[\\/]+/).filter(Boolean).map(encodeURIComponent).join('/')}`;
+  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
+  if (!segments.length || segments.some((part) => part === '.' || part === '..')) return '';
+  return `/gallery-files/${segments.map(encodeURIComponent).join('/')}`;
 }
 
 export function galleryFileUrl(relPath) {
@@ -346,6 +348,38 @@ function comicPageIndexFromContext(context = {}) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function storedPathSegments(relPath) {
+  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
+  if (!segments.length) return null;
+  if (segments.some((part) => part === '.' || part === '..')) return null;
+  return segments;
+}
+
+function isTrustedStoredImagePath(segments, userId) {
+  if (!Array.isArray(segments) || !segments.length) return false;
+  // Current format: generated/users/<uid>/images/...
+  if (segments[0] === 'users') {
+    return Boolean(userId) && segments[1] === userId && segments[2] === 'images' && segments.length >= 4;
+  }
+  // Legacy migration format: generated/images/<date>/<file>
+  if (segments[0] === 'images') {
+    return segments.length >= 3;
+  }
+  return false;
+}
+
+// Convert a DB images.path value to an absolute path only when it is one of the
+// gallery-owned layouts. Legacy gallery.json and SQLite runtime state are
+// treated as untrusted input, so callers must not blindly join arbitrary rows.
+function resolveStoredAbs(relPath, { userId = '' } = {}) {
+  const segments = storedPathSegments(relPath);
+  if (!isTrustedStoredImagePath(segments, userId)) return null;
+  const abs = resolve(GALLERY_ROOT, ...segments);
+  const root = resolve(GALLERY_ROOT) + sep;
+  if (abs !== resolve(GALLERY_ROOT) && !abs.startsWith(root)) return null;
+  return abs;
+}
+
 // 保存上游返回的图片到当前用户目录，并写入 SQLite。
 export async function saveGeneratedImages(items, context = {}, options = {}) {
   const userId = options?.userId;
@@ -363,6 +397,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
 
   for (const [imageIndex, item] of items.entries()) {
     let storageReservation = null;
+    let writtenFilePath = '';
+    let dbInserted = false;
     try {
       const asset = await assetFromItem(item, {
         fetchImpl: options.fetchImpl || fetch,
@@ -390,6 +426,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
 
       await mkdir(dirname(filePath), { recursive: true });
       await writeFile(filePath, asset.buffer);
+      writtenFilePath = filePath;
 
       // 相对路径（存库 & 给前端拼 URL）：users/<uid>/images/<date>/<file>
       const relPath = `${userImageRel(userId)}/${dateDir}/${fileName}`;
@@ -417,6 +454,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         comicPageIndex,
         comicPanelIndex: comicPageIndex
       });
+      dbInserted = true;
 
       if (comicProjectId) {
         comicProjects.touch(comicProjectId, { status: context.comicProjectStatus || null });
@@ -464,6 +502,9 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         bytes: asset.buffer.length
       });
     } catch (err) {
+      if (writtenFilePath && !dbInserted) {
+        try { await unlink(writtenFilePath); } catch { /* best-effort cleanup */ }
+      }
       nextItems.push({ ...item, save_error: err.message || String(err) });
     } finally {
       storageReservation?.release?.();
@@ -477,7 +518,8 @@ async function itemsFromRows(rows, { viewerId = null } = {}) {
   const mapped = await mapWithConcurrency(rows, galleryStatConcurrency(), async (row) => {
     const item = rowToItem(row);
     // path 可能是新格式 users/<uid>/images/... 或旧格式 images/...
-    const filePath = join(GALLERY_ROOT, ...item.path.split(/[\\/]+/).filter(Boolean));
+    const filePath = resolveStoredAbs(item.path, { userId: item.userId });
+    if (!filePath) return null;
     try {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return null;
@@ -669,16 +711,6 @@ export async function likePublicImage(id, { userId } = {}) {
   };
 }
 
-// 把 images.path 转成绝对路径，仅当落在受信目录下才返回。
-function resolveStoredAbs(relPath) {
-  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
-  if (!segments.length) return null;
-  const abs = resolve(GALLERY_ROOT, ...segments);
-  const root = resolve(GALLERY_ROOT) + sep;
-  if (abs !== resolve(GALLERY_ROOT) && !abs.startsWith(root)) return null;
-  return abs;
-}
-
 // 删除单张图片：DB + 物理文件。
 // 普通用户仅能删自己的；admin 可删任意。
 export async function removeImage(id, { userId, isAdmin = false } = {}) {
@@ -687,7 +719,7 @@ export async function removeImage(id, { userId, isAdmin = false } = {}) {
   if (!row) throw new Error('image not found');
   if (!isAdmin && row.user_id !== userId) throw new Error('forbidden');
 
-  const abs = resolveStoredAbs(row.path);
+  const abs = resolveStoredAbs(row.path, { userId: row.user_id });
   if (abs) {
     try {
       await unlink(abs);
@@ -731,19 +763,29 @@ export async function scanOrphans() {
     const rows = imagesTable.listAllForMaintenance({ limit: pageSize, offset });
     if (!rows.length) break;
 
-    const entries = rows
-      .map((row) => ({
-        row,
-        segs: String(row.path || '').split(/[\\/]+/).filter(Boolean)
-      }))
-      .filter((entry) => entry.segs.length);
+    const entries = [];
+    for (const row of rows) {
+      const segs = storedPathSegments(row.path);
+      const abs = resolveStoredAbs(row.path, { userId: row.user_id });
+      if (!segs || !abs) {
+        missingFiles.push({
+          id: row.id,
+          path: row.path,
+          userId: row.user_id,
+          createdAt: row.created_at,
+          bytes: Number(row.bytes) || 0,
+          reason: 'invalid_path'
+        });
+        continue;
+      }
+      entries.push({ row, segs, abs });
+    }
 
     for (const entry of entries) {
       dbKnownPaths.add(entry.segs.join('/'));
     }
 
-    const missingPage = await mapWithConcurrency(entries, galleryStatConcurrency(), async ({ row, segs }) => {
-      const abs = resolve(GALLERY_ROOT, ...segs);
+    const missingPage = await mapWithConcurrency(entries, galleryStatConcurrency(), async ({ row, abs }) => {
       try {
         const st = await stat(abs);
         if (st.isFile()) return null;

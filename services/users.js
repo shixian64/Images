@@ -13,6 +13,7 @@ const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_ROLES = new Set(['admin', 'user']);
 const VALID_STATUSES = new Set(['active', 'disabled']);
+const MAX_AVATAR_URL_LEN = 500;
 
 export function listUsers() {
   return users.list();
@@ -93,12 +94,34 @@ export function updateProfile(userId, { username, email, avatarUrl } = {}) {
     }
   }
 
+  const nextAvatarUrl = normalizeAvatarUrl(avatarUrl, cur.avatar_url);
+
   const updated = users.updateProfile(userId, {
     username: username ?? cur.username,
     email: email ?? cur.email,
-    avatarUrl: avatarUrl ?? cur.avatar_url
+    avatarUrl: nextAvatarUrl
   });
   return sanitizeUser(updated);
+}
+
+function normalizeAvatarUrl(value, current = '') {
+  if (value === undefined || value === null) return current;
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length > MAX_AVATAR_URL_LEN) throw new Error(`avatar URL too long (max ${MAX_AVATAR_URL_LEN} characters)`);
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    throw new Error('invalid avatar URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('invalid avatar URL');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('avatar URL must not include credentials');
+  }
+  return parsed.toString();
 }
 
 export function createUserByAdmin({ username, email, password, role = 'user' } = {}) {

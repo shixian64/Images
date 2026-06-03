@@ -42,9 +42,12 @@ export function isUnderUserImages(absPath) {
 export function userIdFromUserPath(relPath) {
   // relPath like "users/<uid>/images/..."
   const m = String(relPath || '').match(/^users\/([^/\\]+)\/images\//);
-  return m ? m[1] : null;
+  return m && isValidUserId(m[1]) ? m[1] : null;
 }
 
 function isValidUserId(id) {
-  return typeof id === 'string' && /^[a-zA-Z0-9._-]{1,128}$/.test(id);
+  return typeof id === 'string' &&
+    id !== '.' &&
+    id !== '..' &&
+    /^[a-zA-Z0-9._-]{1,128}$/.test(id);
 }

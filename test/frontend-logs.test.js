@@ -98,6 +98,19 @@ test('frontend log sync context redacts URL and user-agent secrets', async () =>
   assert.match(context.userAgent, /Bearer sk-a\*\*\*\*3456/);
 });
 
+test('frontend logs treat prototype-looking metadata keys as data', async () => {
+  const { sanitizeMeta } = await import(`../public/modules/logs.js?case=proto-${Date.now()}`);
+  const meta = JSON.parse('{"__proto__":{"polluted":true},"constructor":"plain"}');
+
+  const sanitized = sanitizeMeta(meta);
+
+  assert.equal(Object.getPrototypeOf(sanitized), null);
+  assert.equal(Object.hasOwn(sanitized, '__proto__'), true);
+  assert.equal(sanitized.__proto__.polluted, true);
+  assert.equal(sanitized.constructor, 'plain');
+  assert.equal({}.polluted, undefined);
+});
+
 test('frontend log sync includes the latest request trace id', async (t) => {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;

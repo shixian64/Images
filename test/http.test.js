@@ -108,3 +108,27 @@ test('readMultipartFormData accepts multiple file parts with the same field name
   assert.deepEqual(form.files.map((file) => file.filename), ['one.txt', 'two.txt']);
   assert.deepEqual(form.files.map((file) => file.buffer.toString('utf8')), ['one', 'two']);
 });
+
+test('readMultipartFormData treats prototype-looking field names as data', async () => {
+  const boundary = 'proto';
+  const body = [
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="__proto__"',
+    '',
+    'polluted',
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="constructor"',
+    '',
+    'plain',
+    `--${boundary}--`,
+    ''
+  ].join('\r\n');
+
+  const form = await readMultipartFormData(multipartReq(boundary, body));
+
+  assert.equal(Object.getPrototypeOf(form.fields), null);
+  assert.equal(Object.hasOwn(form.fields, '__proto__'), true);
+  assert.equal(form.fields.__proto__, 'polluted');
+  assert.equal(form.fields.constructor, 'plain');
+  assert.equal({}.polluted, undefined);
+});

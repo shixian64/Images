@@ -21,6 +21,7 @@ import {
 } from '../services/registration-guard.js';
 import { logger } from '../utils/logger.js';
 import { clientIp, userAgent } from '../utils/request.js';
+import { users as usersTable } from '../services/db.js';
 
 const LOGIN_RATE_WINDOW_MS = 60_000;
 const ADMIN_BOOTSTRAP_RATE_WINDOW_MS = 10 * 60_000;
@@ -44,6 +45,10 @@ function rateLimit(res, key, max, windowMs, { message = 'rate limited', code = n
 
 function normalizeLoginForRateLimit(login) {
   return String(login || '').trim().toLowerCase().slice(0, 160);
+}
+
+function suppliedRegistrationInviteCode(body = {}) {
+  return String(body?.registrationCode || body?.inviteCode || body?.invite_code || '').trim();
 }
 
 function checkLoginRateLimit(res, ip, login) {
@@ -82,6 +87,18 @@ function checkAdminBootstrapRateLimit(res, ip) {
   });
 }
 
+function cleanupInviteRegistrationUser(user) {
+  if (!user?.id) return;
+  try {
+    usersTable.delete(user.id);
+  } catch (err) {
+    logger.warn('auth.register.invite_cleanup_failed', {
+      userId: user.id,
+      error: err?.message || String(err)
+    });
+  }
+}
+
 async function handleRegister(req, res) {
   const ip = clientIp(req);
   let body;
@@ -101,8 +118,17 @@ async function handleRegister(req, res) {
       throw new Error('invalid admin bootstrap token');
     }
     const canInitializeAdmin = canInitializeAdminRegistration({ adminBootstrapToken });
+    const hasInviteAttempt = Boolean(suppliedRegistrationInviteCode(body));
+    if (!canInitializeAdmin && hasInviteAttempt) {
+      const limit = checkRegistrationRateLimit({ ip });
+      if (!limit.ok) {
+        res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
+        sendJson(res, 429, { error: limit.message, code: limit.code });
+        return;
+      }
+    }
     const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canInitializeAdmin });
-    if (!canInitializeAdmin) {
+    if (!canInitializeAdmin && !hasInviteAttempt) {
       const limit = checkRegistrationRateLimit({ ip });
       if (!limit.ok) {
         res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
@@ -119,8 +145,15 @@ async function handleRegister(req, res) {
       signupUserAgent: userAgent(req)
     });
     if (!canInitializeAdmin && registrationPolicy.inviteAccepted && registrationPolicy.inviteSource === 'db') {
-      const consumed = consumeRegistrationInviteCode(registrationPolicy.inviteCode, { userId: user.id });
+      let consumed = null;
+      try {
+        consumed = consumeRegistrationInviteCode(registrationPolicy.inviteCode, { userId: user.id });
+      } catch (err) {
+        cleanupInviteRegistrationUser(user);
+        throw err;
+      }
       if (!consumed) {
+        cleanupInviteRegistrationUser(user);
         throw new RegistrationRejectedError('invalid registration invite code', {
           status: 403,
           code: 'invalid_registration_invite_code'

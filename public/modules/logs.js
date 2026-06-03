@@ -78,7 +78,7 @@ function sanitizeMetaValue(value, depth = 0) {
   if (typeof value === 'string') return redactLogString(value);
   if (Array.isArray(value)) return value.slice(0, 80).map((item) => sanitizeMetaValue(item, depth + 1));
   if (typeof value !== 'object') return value;
-  const copy = {};
+  const copy = Object.create(null);
   for (const [key, item] of Object.entries(value)) {
     copy[key] = isSensitiveMetaKey(key)
       ? sanitizeSensitiveMetaValue(item)

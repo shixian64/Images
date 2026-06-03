@@ -163,12 +163,45 @@ function normalizeReferenceSpecs(body = {}, uploadFiles = []) {
 function generatedAbsFromRel(relPath) {
   const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
   if (!segments.length) throw new Error('invalid reference path');
+  if (segments.some((part) => part === '.' || part === '..')) {
+    throw new Error('invalid reference path');
+  }
   const abs = resolve(guardPaths.generatedRoot, ...segments);
   const root = resolve(guardPaths.generatedRoot) + sep;
   if (abs !== resolve(guardPaths.generatedRoot) && !abs.startsWith(root)) {
     throw new Error('reference path outside generated directory');
   }
   return abs;
+}
+
+function stagedReferenceAbsFromRel(relPath) {
+  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
+  const safeJobId = String(segments[2] || '').replace(/[^a-zA-Z0-9._-]/g, '');
+  const isStagedReference =
+    segments[0] === 'tmp' &&
+    segments[1] === 'jobs' &&
+    safeJobId &&
+    safeJobId === segments[2] &&
+    segments[3] === 'references' &&
+    segments.length >= 5;
+  if (!isStagedReference) {
+    throw new Error('invalid staged reference path');
+  }
+  return generatedAbsFromRel(segments.join('/'));
+}
+
+function galleryImageAbsFromRow(row = {}) {
+  const segments = String(row.path || '').split(/[\\/]+/).filter(Boolean);
+  const isCurrentUserImage =
+    segments[0] === 'users' &&
+    segments[1] === row.user_id &&
+    segments[2] === 'images' &&
+    segments.length >= 4;
+  const isLegacyImage = segments[0] === 'images' && segments.length >= 3;
+  if (segments.some((part) => part === '.' || part === '..') || (!isCurrentUserImage && !isLegacyImage)) {
+    throw new Error('invalid reference image path');
+  }
+  return generatedAbsFromRel(segments.join('/'));
 }
 
 function jobReferenceDir(jobId) {
@@ -225,7 +258,7 @@ async function stageGalleryReference({ jobId, userInfo, spec, index }) {
   const isAdmin = userInfo?.role === 'admin';
   if (!isAdmin && row.user_id !== userInfo?.id) throw new Error('forbidden reference image');
 
-  const sourceAbs = generatedAbsFromRel(row.path);
+  const sourceAbs = galleryImageAbsFromRow(row);
   const fileStat = await stat(sourceAbs);
   if (!fileStat.isFile()) throw new Error('reference image file not found');
   const maxBytes = getMaxReferenceImageBytes();
@@ -327,7 +360,7 @@ export function runnableReferenceImages(references = []) {
   return (Array.isArray(references) ? references : [])
     .map((item) => ({
       ...item,
-      absPath: generatedAbsFromRel(item.relPath)
+      absPath: stagedReferenceAbsFromRel(item.relPath)
     }));
 }
 

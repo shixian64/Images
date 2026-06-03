@@ -90,7 +90,7 @@ function multipartBoundary(contentType) {
 }
 
 function parseHeaderParams(value = '') {
-  const out = {};
+  const out = Object.create(null);
   const parts = String(value).split(';');
   out.type = String(parts.shift() || '').trim().toLowerCase();
   for (const part of parts) {
@@ -107,7 +107,7 @@ function parseHeaderParams(value = '') {
 }
 
 function parsePartHeaders(raw) {
-  const headers = {};
+  const headers = Object.create(null);
   for (const line of String(raw || '').split(/\r?\n/)) {
     const index = line.indexOf(':');
     if (index === -1) continue;
@@ -185,7 +185,7 @@ export async function readMultipartFormData(req, {
   const nextDelimiterMarker = Buffer.from(`\r\n--${boundary}`);
   const headerEndMarker = Buffer.from('\r\n\r\n');
 
-  const fields = {};
+  const fields = Object.create(null);
   const files = [];
   let current = findFirstDelimiter(buffer, delimiter);
   if (!current) throw createHttpError(400, 'invalid multipart body', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
