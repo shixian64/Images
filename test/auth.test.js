@@ -301,6 +301,53 @@ test('invalid invite code attempts are rate limited', async () => {
   }
 });
 
+test('missing required invite code attempts are rate limited', async () => {
+  rateLimit.clear();
+  const prev = {
+    REGISTRATION_MODE: process.env.REGISTRATION_MODE,
+    REGISTRATION_INVITE_CODE: process.env.REGISTRATION_INVITE_CODE,
+    REGISTRATION_INVITE_CODES: process.env.REGISTRATION_INVITE_CODES,
+    REGISTRATION_IP_MAX_PER_10MIN: process.env.REGISTRATION_IP_MAX_PER_10MIN,
+    REGISTRATION_IP_MAX_PER_DAY: process.env.REGISTRATION_IP_MAX_PER_DAY,
+    REGISTRATION_EMAIL_DOMAIN_ALLOWLIST: process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST,
+    REGISTRATION_EMAIL_DOMAIN_BLOCKLIST: process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST
+  };
+  const ip = '198.51.100.47';
+  try {
+    process.env.REGISTRATION_MODE = 'invite';
+    process.env.REGISTRATION_INVITE_CODE = 'correct-code';
+    process.env.REGISTRATION_INVITE_CODES = '';
+    process.env.REGISTRATION_IP_MAX_PER_10MIN = '2';
+    process.env.REGISTRATION_IP_MAX_PER_DAY = '100';
+    process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST = '';
+    process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST = '';
+
+    for (let i = 0; i < 2; i += 1) {
+      const missing = await postAuth('/api/auth/register', {
+        username: `missinginvite${i}`,
+        email: `missinginvite${i}@example.com`,
+        password: 'longenough1'
+      }, { ip });
+      assert.equal(missing.statusCode, 403);
+      assert.equal(JSON.parse(missing.body).code, 'invalid_registration_invite_code');
+    }
+
+    const blocked = await postAuth('/api/auth/register', {
+      username: 'missinginvite2',
+      email: 'missinginvite2@example.com',
+      password: 'longenough1'
+    }, { ip });
+    assert.equal(blocked.statusCode, 429);
+    assert.equal(JSON.parse(blocked.body).code, 'registration_rate_limited');
+  } finally {
+    rateLimit.clear();
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('db invite registration removes created user if final invite consume fails', async () => {
   registrationGuard.setRegistrationSettings({
     allowPublicRegistration: false,

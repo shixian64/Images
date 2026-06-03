@@ -87,6 +87,14 @@ function checkAdminBootstrapRateLimit(res, ip) {
   });
 }
 
+function checkRegisterRateLimitResponse(res, ip) {
+  const limit = checkRegistrationRateLimit({ ip });
+  if (limit.ok) return true;
+  res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
+  sendJson(res, 429, { error: limit.message, code: limit.code });
+  return false;
+}
+
 function cleanupInviteRegistrationUser(user) {
   if (!user?.id) return;
   try {
@@ -119,22 +127,15 @@ async function handleRegister(req, res) {
     }
     const canInitializeAdmin = canInitializeAdminRegistration({ adminBootstrapToken });
     const hasInviteAttempt = Boolean(suppliedRegistrationInviteCode(body));
-    if (!canInitializeAdmin && hasInviteAttempt) {
-      const limit = checkRegistrationRateLimit({ ip });
-      if (!limit.ok) {
-        res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
-        sendJson(res, 429, { error: limit.message, code: limit.code });
-        return;
-      }
+    const settings = canInitializeAdmin ? null : registrationSettingsSnapshot();
+    const missingRequiredInviteAttempt = Boolean(settings?.inviteRequired && !hasInviteAttempt);
+    const shouldPreLimitRegistration = !canInitializeAdmin && (hasInviteAttempt || missingRequiredInviteAttempt);
+    if (shouldPreLimitRegistration && !checkRegisterRateLimitResponse(res, ip)) {
+      return;
     }
     const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canInitializeAdmin });
-    if (!canInitializeAdmin && !hasInviteAttempt) {
-      const limit = checkRegistrationRateLimit({ ip });
-      if (!limit.ok) {
-        res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
-        sendJson(res, 429, { error: limit.message, code: limit.code });
-        return;
-      }
+    if (!canInitializeAdmin && !shouldPreLimitRegistration) {
+      if (!checkRegisterRateLimitResponse(res, ip)) return;
     }
     const user = authRegister({
       username,
