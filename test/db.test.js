@@ -42,6 +42,12 @@ test('migrate creates schema and is idempotent', () => {
   assert.equal(db.users.count(), 0);
   assert.equal(db.sessions.destroyExpired(), 0);
   assert.deepEqual(db.images.listAll(10), []);
+  const migrations = db.schemaMigrations.list();
+  assert.ok(migrations.length >= 6);
+  assert.deepEqual(
+    migrations.slice(0, 6).map((item) => item.version),
+    [1, 2, 3, 4, 5, 6]
+  );
 });
 
 test('migrate creates lifecycle and hot-query indexes idempotently', () => {

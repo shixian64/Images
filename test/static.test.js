@@ -166,6 +166,8 @@ test('public app assets keep no-cache headers', async () => {
   const res = await call('/', null);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['cache-control'], 'no-cache');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.match(res.headers['content-security-policy'], /default-src 'self'/);
   assert.equal(res.headers.etag, undefined);
 });
 

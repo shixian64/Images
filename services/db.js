@@ -284,6 +284,12 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_by TEXT
 );
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version    INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS prompt_square (
   id                TEXT PRIMARY KEY,
   user_id           TEXT REFERENCES users(id) ON DELETE CASCADE,
@@ -304,15 +310,36 @@ ${PROMPT_SQUARE_INDEXES}
 export function migrate() {
   const db = open();
   db.exec(SCHEMA);
-  migrateUserAbuseColumns(db);
-  migrateImagePublicColumns(db);
-  migrateUsageDailyColumns(db);
-  migrateComicProjectTables(db);
-  migrateRegistrationInviteTables(db);
+  runSchemaMigration(db, 1, 'user_abuse_columns', () => migrateUserAbuseColumns(db));
+  runSchemaMigration(db, 2, 'image_public_columns', () => migrateImagePublicColumns(db));
+  runSchemaMigration(db, 3, 'usage_daily_prompt_optimize_count', () => migrateUsageDailyColumns(db));
+  runSchemaMigration(db, 4, 'comic_project_tables', () => migrateComicProjectTables(db));
+  runSchemaMigration(db, 5, 'registration_invite_redemptions', () => migrateRegistrationInviteTables(db));
   db.exec(DATA_LIFECYCLE_INDEXES);
-  migratePromptSquareNullableOwner(db);
+  runSchemaMigration(db, 6, 'prompt_square_nullable_owner', () => migratePromptSquareNullableOwner(db), { transaction: false });
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
+}
+
+function runSchemaMigration(db, version, name, fn, { transaction = true } = {}) {
+  const current = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version);
+  if (current) return false;
+
+  if (transaction) db.exec('BEGIN');
+  try {
+    fn();
+    db.prepare(`
+      INSERT INTO schema_migrations (version, name, applied_at)
+      VALUES (?, ?, ?)
+    `).run(version, name, nowIso());
+    if (transaction) db.exec('COMMIT');
+    logger.info('migration.schema.applied', { version, name });
+    return true;
+  } catch (err) {
+    if (transaction) db.exec('ROLLBACK');
+    logger.error('migration.schema.failed', { version, name, error: err?.message || String(err) });
+    throw err;
+  }
 }
 
 function addColumnIfMissing(db, table, column, definition) {
@@ -1988,6 +2015,18 @@ export const systemSettings = {
   },
   delete(key) {
     return open().prepare('DELETE FROM system_settings WHERE key = ?').run(key).changes || 0;
+  }
+};
+
+// ---- schema_migrations ----
+
+export const schemaMigrations = {
+  list() {
+    return open().prepare(`
+      SELECT version, name, applied_at
+      FROM schema_migrations
+      ORDER BY version ASC
+    `).all();
   }
 };
 

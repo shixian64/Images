@@ -13,6 +13,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
 import { images as imagesTable } from '../services/db.js';
+import { withSecurityHeaders } from '../utils/http.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -31,17 +32,17 @@ const GALLERY_IMAGE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
 const DEFAULT_CACHE_CONTROL = 'no-cache';
 
 function send403(res) {
-  res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+  res.writeHead(403, withSecurityHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
   res.end('Forbidden');
 }
 
 function send404(res) {
-  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+  res.writeHead(404, withSecurityHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
   res.end('Not found');
 }
 
 function send400(res) {
-  res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+  res.writeHead(400, withSecurityHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
   res.end('Bad request');
 }
 
@@ -206,16 +207,16 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
         : { 'cache-control': DEFAULT_CACHE_CONTROL };
 
       if (isUserImageFile && requestMatchesEtag(req, cacheHeaders.etag)) {
-        res.writeHead(304, cacheHeaders);
+        res.writeHead(304, withSecurityHeaders(cacheHeaders));
         res.end();
         return;
       }
 
-      res.writeHead(200, {
+      res.writeHead(200, withSecurityHeaders({
         'content-type': MIME[extname(filePath)] || 'application/octet-stream',
         'content-length': fileStat.size,
         ...cacheHeaders
-      });
+      }));
       if (req.method === 'HEAD') {
         res.end();
         return;

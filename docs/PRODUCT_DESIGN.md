@@ -675,10 +675,10 @@ W13+    巡航：Enterprise 私有化、LoRA 对接、移动端原生
 
 ### 13.2 自托管稳定版优先级
 
-- [ ] 把当前 `/api/*` 路由整理成 `docs/API.md`，明确请求体、响应体、权限和错误码。
+- [x] 把当前 `/api/*` 路由整理成 `docs/API.md`，明确请求体、响应体、权限和错误码。
 - [ ] 把部署说明从 README 拆到 `docs/DEPLOYMENT.md`，覆盖反向代理、HTTPS、备份、恢复、升级和容量规划。
-- [ ] 为系统默认 API Key 引入 `services/secrets.js`，用 Node 内置 `crypto` 做 AES-256-GCM 加密存储。
-- [ ] 增加数据库迁移版本表，避免后续 schema 变更只依赖 ad-hoc `ALTER TABLE`。
+- [x] 为系统默认 API Key 引入 `services/secrets.js`，用 Node 内置 `crypto` 做 AES-256-GCM 加密存储。
+- [x] 增加数据库迁移版本表，避免后续 schema 变更只依赖 ad-hoc `ALTER TABLE`。
 - [ ] 增加图库缩略图 / 预览图生成管线，避免前端直接加载过大的原图。
 - [ ] 增加管理员导出：用户用量、任务、审计、图库存储统计。
 - [ ] 完善备份 / 恢复脚本，覆盖 SQLite、WAL、用户图片和示例图。

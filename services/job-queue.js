@@ -43,6 +43,18 @@ const DEFAULT_SETTINGS = Object.freeze({
   role_priorities: { admin: 100, user: 0 }
 });
 
+const RUNTIME_INFO = Object.freeze({
+  backend: 'sqlite-single-process',
+  distributed: false,
+  volatileSecrets: true,
+  restartPolicy: Object.freeze({
+    running: 'mark_failed',
+    systemQueued: 'resume_from_sqlite',
+    customQueued: 'requires_same_node_process_secret'
+  }),
+  scaleOutReady: false
+});
+
 let started = false;
 let schedulerTimer = null;
 let kicking = false;
@@ -775,8 +787,16 @@ export function queueStats() {
   return {
     byStatus,
     active: activeJobs.size,
+    runtime: queueRuntimeInfo(),
     successRate: terminal ? Math.round((succeeded / terminal) * 1000) / 10 : null,
     avgSuccessDurationMs: completedDurations ? Math.round(totalDurationMs / completedDurations) : null
+  };
+}
+
+export function queueRuntimeInfo() {
+  return {
+    ...RUNTIME_INFO,
+    restartPolicy: { ...RUNTIME_INFO.restartPolicy }
   };
 }
 

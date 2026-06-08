@@ -3,6 +3,7 @@
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../shared/constants.js';
 import { systemSettings } from './db.js';
 import { redactSecrets } from '../utils/mask.js';
+import { isProtectedSecret, protectSecret, unprotectSecret } from './secrets.js';
 
 const SETTINGS_KEY = 'interfaces.default';
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -60,6 +61,9 @@ function normalizeEndpoint(kind, value = {}, previous = null) {
   const apiKey = clearApiKey
     ? ''
     : (hasApiKeyPatch ? cleanString(value.apiKey, '') : cleanString(current.apiKey, ''));
+  const protectedApiKey = clearApiKey || apiKey
+    ? ''
+    : (value?.protectedApiKey || current.protectedApiKey || '');
   const testError = cleanString(value?.testError ?? current.testError, '');
 
   return defaultEndpoint(kind, {
@@ -69,7 +73,9 @@ function normalizeEndpoint(kind, value = {}, previous = null) {
     testStatus: cleanString(value?.testStatus ?? current.testStatus, 'unknown'),
     testLatencyMs: value?.testLatencyMs === undefined ? (current.testLatencyMs ?? null) : value.testLatencyMs,
     testedAt: value?.testedAt === undefined ? (current.testedAt ?? null) : value.testedAt,
-    testError: redactSecrets(testError, [apiKey, current.apiKey])
+    testError: redactSecrets(testError, [apiKey, current.apiKey]),
+    protectedApiKey,
+    secretError: value?.secretError || current.secretError || ''
   });
 }
 
@@ -93,8 +99,51 @@ function normalizeConfig(value = {}, previous = null) {
   };
 }
 
+function decodeStoredEndpoint(kind, endpoint = {}) {
+  const out = { ...(endpoint || {}) };
+  if (!isProtectedSecret(out.apiKey)) return out;
+  const protectedApiKey = out.apiKey;
+  try {
+    out.apiKey = unprotectSecret(protectedApiKey);
+  } catch (err) {
+    out.apiKey = '';
+    out.protectedApiKey = protectedApiKey;
+    out.testStatus = 'err';
+    out.testLatencyMs = null;
+    out.secretError = err?.message || String(err);
+    out.testError = out.secretError;
+  }
+  return defaultEndpoint(kind, out);
+}
+
+function decodeStoredConfig(value = {}) {
+  if (!value || typeof value !== 'object') return value;
+  return {
+    ...value,
+    image: decodeStoredEndpoint('image', value.image),
+    chat: decodeStoredEndpoint('chat', value.chat)
+  };
+}
+
+function encodeStoredEndpoint(endpoint = {}) {
+  return {
+    ...(endpoint || {}),
+    protectedApiKey: undefined,
+    secretError: undefined,
+    apiKey: endpoint?.apiKey ? protectSecret(endpoint.apiKey) : (endpoint?.protectedApiKey || '')
+  };
+}
+
+function encodeStoredConfig(value = {}) {
+  return {
+    ...(value || {}),
+    image: encodeStoredEndpoint(value.image),
+    chat: encodeStoredEndpoint(value.chat)
+  };
+}
+
 function publicEndpoint(endpoint, { includeTestDetails = false } = {}) {
-  const { apiKey, maskedApiKey, testError, testLatencyMs, testedAt, ...rest } = endpoint || {};
+  const { apiKey, maskedApiKey, testError, testLatencyMs, testedAt, secretError, protectedApiKey, ...rest } = endpoint || {};
   const out = {
     ...rest,
     apiKey: '',
@@ -104,6 +153,7 @@ function publicEndpoint(endpoint, { includeTestDetails = false } = {}) {
     out.testError = redactSecrets(testError || '', [apiKey]);
     out.testLatencyMs = testLatencyMs ?? null;
     out.testedAt = testedAt || null;
+    if (secretError) out.secretError = secretError;
   }
   return out;
 }
@@ -130,7 +180,7 @@ export function adminInterfaceConfig(config) {
 
 export function getGlobalInterfaceConfig({ publicView = false } = {}) {
   const stored = systemSettings.get(SETTINGS_KEY);
-  const normalized = normalizeConfig(stored || {});
+  const normalized = normalizeConfig(decodeStoredConfig(stored || {}));
   return publicView ? publicInterfaceConfig(normalized) : normalized;
 }
 
@@ -143,7 +193,7 @@ export function setGlobalInterfaceConfig(patch = {}, updatedBy = '') {
     updatedAt: nowIso(),
     updatedBy: updatedBy || current.updatedBy || null
   }, current);
-  systemSettings.set(SETTINGS_KEY, next, updatedBy || null);
+  systemSettings.set(SETTINGS_KEY, encodeStoredConfig(next), updatedBy || null);
   return next;
 }
 

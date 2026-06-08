@@ -13,6 +13,7 @@ services:
       # 基础服务参数
       PORT: "8787"
       ADMIN_BOOTSTRAP_TOKEN: "${ADMIN_BOOTSTRAP_TOKEN:-}"
+      IMAGE_STUDIO_SECRET_KEY: "${IMAGE_STUDIO_SECRET_KEY:-}"
 
       # Node/V8 heap 上限。注意 Buffer、SQLite、native 内存不受该值完全约束。
       NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=512}"

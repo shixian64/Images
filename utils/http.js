@@ -1,10 +1,32 @@
 import { positiveIntFromEnv } from './config.js';
 
+export const SECURITY_HEADERS = Object.freeze({
+  'content-security-policy': [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; '),
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'same-origin',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=()'
+});
+
+export function withSecurityHeaders(headers = {}) {
+  return { ...SECURITY_HEADERS, ...(headers || {}) };
+}
+
 export function sendJson(res, status, payload) {
-  res.writeHead(status, {
+  res.writeHead(status, withSecurityHeaders({
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store'
-  });
+  }));
   res.end(JSON.stringify(payload));
 }
 

@@ -456,6 +456,14 @@ test('startup recovery marks stale running jobs as failed', async () => {
   jobQueue.setQueueSettings({ maintenance_mode: false });
 });
 
+test('queue stats expose single-process runtime boundary', () => {
+  const stats = jobQueue.queueStats();
+  assert.equal(stats.runtime.backend, 'sqlite-single-process');
+  assert.equal(stats.runtime.distributed, false);
+  assert.equal(stats.runtime.volatileSecrets, true);
+  assert.equal(stats.runtime.restartPolicy.running, 'mark_failed');
+});
+
 test('queued batch can skip a saturated user and pick the next user', async () => {
   const a = user('fair_a');
   const b = user('fair_b');

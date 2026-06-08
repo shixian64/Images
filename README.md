@@ -230,6 +230,7 @@ GET /healthz
 | `PORT` | `8787` | Node 服务监听端口；Docker 内固定为 `8787`。 |
 | `HOST_PORT` | `8787` | Docker 宿主机暴露端口。 |
 | `NODE_ENV` | `development` | `production` 时 session cookie 会带 `Secure`。 |
+| `IMAGE_STUDIO_SECRET_KEY` | 空 | 系统默认接口 API Key 的本地加密主密钥；生产建议设置长随机值。 |
 | `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限。 |
 | `CONTAINER_MEMORY_LIMIT` | `768m` | Docker 容器内存上限。 |
 | `CONTAINER_CPUS` | `1.25` | Docker 容器 CPU 上限。 |

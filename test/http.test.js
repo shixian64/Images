@@ -33,6 +33,8 @@ test('sendJson marks JSON API responses as no-store', () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['cache-control'], 'no-store');
   assert.equal(res.headers['content-type'], 'application/json; charset=utf-8');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.deepEqual(JSON.parse(res.body), { ok: true });
 });
 

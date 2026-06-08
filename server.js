@@ -30,7 +30,7 @@ import { requireAuth, requireCsrf } from './middleware/guard.js';
 import { migrate } from './services/db.js';
 import { startJobQueue, stopJobQueue } from './services/job-queue.js';
 import { startDataMaintenance } from './services/maintenance.js';
-import { sendJson } from './utils/http.js';
+import { sendJson, withSecurityHeaders } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
 import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
@@ -42,6 +42,41 @@ const PORT = positiveIntFromEnv('PORT', 8787);
 const ROOT_DIR = process.cwd();
 const PUBLIC_DIR = join(ROOT_DIR, 'public');
 const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
+
+const API_ROUTES = [
+  { public: true, match: (pathname) => pathname.startsWith('/api/auth/'), handle: (req, res, pathname) => handleAuthRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/users'), handle: (req, res, pathname, url) => handleUsersRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/profile'), handle: (req, res, pathname) => handleProfileRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/admin/gallery'), handle: (req, res, pathname, url) => handleAdminGalleryRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/admin/registration'), handle: (req, res, pathname) => handleRegistrationRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me', handle: (req, res, pathname) => handleQuotaRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/interfaces') || pathname.startsWith('/api/admin/interfaces'), handle: (req, res, pathname) => handleInterfacesRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/prompt-examples'), handle: (req, res, pathname) => handlePromptExamplesRoute(req, res, pathname) },
+  { match: (pathname) => pathname.startsWith('/api/prompt-square'), handle: (req, res, pathname, url) => handlePromptSquareRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/jobs') || pathname.startsWith('/api/admin/jobs'), handle: (req, res, pathname, url) => handleJobsRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/client-logs') || pathname.startsWith('/api/admin/client-logs'), handle: (req, res, pathname, url) => handleClientLogsRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/comic-projects'), handle: (req, res, pathname, url) => handleComicProjectsRoute(req, res, pathname, url) },
+  { match: (pathname) => pathname.startsWith('/api/comic-storyboards'), handle: (req, res, pathname, url) => handleComicStoryboardsRoute(req, res, pathname, url) },
+  { match: (pathname, req) => req.method === 'GET' && pathname === '/api/generate/config', handle: (req, res) => handleGenerateConfig(req, res) },
+  { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate/stream', handle: (req, res) => handleGenerateStream(req, res) },
+  { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate', handle: (req, res) => handleGenerate(req, res) },
+  { match: (pathname, req) => req.method === 'POST' && pathname === '/api/chat', handle: (req, res) => handleChat(req, res) },
+  { match: (pathname, req) => req.method === 'POST' && pathname === '/api/test-profile', handle: (req, res) => handleTestProfile(req, res) },
+  { match: (pathname, req) => req.method === 'GET' && pathname === '/api/gallery', handle: (req, res) => handleGallery(req, res) },
+  { match: (pathname) => pathname.startsWith('/api/gallery/'), handle: (req, res, pathname) => handleGallery(req, res, pathname) }
+];
+
+function dispatchApiRoute(req, res, pathname, url) {
+  // 所有非 GET 请求统一走 CSRF（登录/注册即使未登录也要校验同源 + X-Requested-With）
+  if (!requireCsrf(req, res)) return;
+
+  const route = API_ROUTES.find((item) => item.match(pathname, req));
+  if (!route) return sendJson(res, 404, { error: 'not found' });
+
+  // 除 /api/auth/* 外，其他业务接口必须登录。
+  if (!route.public && !requireAuth(req, res)) return;
+  return route.handle(req, res, pathname, url);
+}
 
 // 启动前先建表 + 处理 legacy gallery.json 迁移
 migrate();
@@ -64,61 +99,7 @@ async function handleRequest(req, res) {
 
   // ---- /api/* 路由 ----
   if (pathname.startsWith('/api/')) {
-    // 所有非 GET 请求统一走 CSRF（登录/注册即使未登录也要校验同源 + X-Requested-With）
-    if (!requireCsrf(req, res)) return;
-
-    if (pathname.startsWith('/api/auth/')) {
-      return handleAuthRoute(req, res, pathname);
-    }
-
-    // 其他业务接口必须登录
-    if (!requireAuth(req, res)) return;
-
-    if (pathname.startsWith('/api/users')) {
-      return handleUsersRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/profile')) {
-      return handleProfileRoute(req, res, pathname);
-    }
-    if (pathname.startsWith('/api/admin/gallery')) {
-      return handleAdminGalleryRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/admin/registration')) {
-      return handleRegistrationRoute(req, res, pathname);
-    }
-    if (pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me') {
-      return handleQuotaRoute(req, res, pathname);
-    }
-    if (pathname.startsWith('/api/interfaces') || pathname.startsWith('/api/admin/interfaces')) {
-      return handleInterfacesRoute(req, res, pathname);
-    }
-    if (pathname.startsWith('/api/prompt-examples')) {
-      return handlePromptExamplesRoute(req, res, pathname);
-    }
-    if (pathname.startsWith('/api/prompt-square')) {
-      return handlePromptSquareRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/jobs') || pathname.startsWith('/api/admin/jobs')) {
-      return handleJobsRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/client-logs') || pathname.startsWith('/api/admin/client-logs')) {
-      return handleClientLogsRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/comic-projects')) {
-      return handleComicProjectsRoute(req, res, pathname, url);
-    }
-    if (pathname.startsWith('/api/comic-storyboards')) {
-      return handleComicStoryboardsRoute(req, res, pathname, url);
-    }
-    if (req.method === 'GET' && pathname === '/api/generate/config') return handleGenerateConfig(req, res);
-    if (req.method === 'POST' && pathname === '/api/generate/stream') return handleGenerateStream(req, res);
-    if (req.method === 'POST' && pathname === '/api/generate') return handleGenerate(req, res);
-    if (req.method === 'POST' && pathname === '/api/chat') return handleChat(req, res);
-    if (req.method === 'POST' && pathname === '/api/test-profile') return handleTestProfile(req, res);
-    if (req.method === 'GET' && pathname === '/api/gallery') return handleGallery(req, res);
-    if (pathname.startsWith('/api/gallery/')) return handleGallery(req, res, pathname);
-
-    return sendJson(res, 404, { error: 'not found' });
+    return dispatchApiRoute(req, res, pathname, url);
   }
 
   // ---- 静态文件 ----
@@ -127,7 +108,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' || req.method === 'HEAD') {
     return serveStatic(req, res);
   }
-  res.writeHead(405, { allow: 'GET, POST' });
+  res.writeHead(405, withSecurityHeaders({ allow: 'GET, POST' }));
   res.end('Method not allowed');
 }
 
