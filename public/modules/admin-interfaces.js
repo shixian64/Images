@@ -114,7 +114,10 @@ export async function refreshGlobalInterface({ silent = false } = {}) {
 }
 
 export function ensureGlobalInterfaceLoaded(options = {}) {
-  if (globalInterfaceLoaded) return Promise.resolve(globalInterface);
+  if (globalInterfaceLoaded) {
+    renderGlobalInterfaceForm();
+    return Promise.resolve(globalInterface);
+  }
   return refreshGlobalInterface(options);
 }
 

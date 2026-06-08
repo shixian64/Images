@@ -2022,7 +2022,6 @@ function switchManagementTab(tabId) {
     else renderAdminClientLogs();
   } else if (nextTab === 'interfaceManagement') {
     ensureGlobalInterfaceLoaded({ silent: true });
-    else renderGlobalInterfaceForm();
   } else if (nextTab === 'galleryManagement' && !galleryLoaded) {
     refreshAdminGallery({ silent: true });
   }
