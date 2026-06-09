@@ -378,6 +378,58 @@ test('db invite registration removes created user if final invite consume fails'
   }
 });
 
+test('registration route does not reveal whether username or email collided', async () => {
+  rateLimit.clear();
+  const prev = {
+    REGISTRATION_MODE: process.env.REGISTRATION_MODE,
+    REGISTRATION_INVITE_CODE: process.env.REGISTRATION_INVITE_CODE,
+    REGISTRATION_INVITE_CODES: process.env.REGISTRATION_INVITE_CODES,
+    REGISTRATION_IP_MAX_PER_10MIN: process.env.REGISTRATION_IP_MAX_PER_10MIN,
+    REGISTRATION_IP_MAX_PER_DAY: process.env.REGISTRATION_IP_MAX_PER_DAY,
+    REGISTRATION_EMAIL_DOMAIN_ALLOWLIST: process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST,
+    REGISTRATION_EMAIL_DOMAIN_BLOCKLIST: process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST
+  };
+  try {
+    process.env.REGISTRATION_MODE = 'open';
+    process.env.REGISTRATION_INVITE_CODE = '';
+    process.env.REGISTRATION_INVITE_CODES = '';
+    process.env.REGISTRATION_IP_MAX_PER_10MIN = '100';
+    process.env.REGISTRATION_IP_MAX_PER_DAY = '100';
+    process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST = '';
+    process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST = '';
+    const existing = auth.register({
+      username: 'routeconflict',
+      email: 'routeconflict@example.com',
+      password: 'longenough1'
+    });
+
+    const usernameConflict = await postAuth('/api/auth/register', {
+      username: existing.username,
+      email: 'routeconflict-new@example.com',
+      password: 'longenough1'
+    });
+    const emailConflict = await postAuth('/api/auth/register', {
+      username: 'routeconflictnew',
+      email: existing.email,
+      password: 'longenough1'
+    });
+
+    assert.equal(usernameConflict.statusCode, 400);
+    assert.equal(emailConflict.statusCode, 400);
+    assert.deepEqual(JSON.parse(usernameConflict.body), JSON.parse(emailConflict.body));
+    assert.deepEqual(JSON.parse(usernameConflict.body), {
+      error: 'username or email already in use',
+      code: 'registration_conflict'
+    });
+  } finally {
+    rateLimit.clear();
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('register validates username/email/password', () => {
   assert.throws(() => auth.register({ username: 'a', email: 'x@y.com', password: 'longenough1' }), /invalid username/);
   assert.throws(() => auth.register({ username: 'okok', email: 'no-at-sign', password: 'longenough1' }), /invalid email/);

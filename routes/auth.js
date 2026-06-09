@@ -107,6 +107,21 @@ function cleanupInviteRegistrationUser(user) {
   }
 }
 
+function registrationErrorResponse(err) {
+  if (err instanceof RegistrationRejectedError) {
+    return { status: err.status, payload: { error: err.message, ...(err.code ? { code: err.code } : {}) } };
+  }
+  if (err?.message === 'username already taken' || err?.message === 'email already taken') {
+    return {
+      status: 400,
+      payload: { error: 'username or email already in use', code: 'registration_conflict' }
+    };
+  }
+  const payload = { error: err?.message || String(err) };
+  if (err?.code) payload.code = err.code;
+  return { status: 400, payload };
+}
+
 async function handleRegister(req, res) {
   const ip = clientIp(req);
   let body;
@@ -172,9 +187,7 @@ async function handleRegister(req, res) {
     });
     sendJson(res, 200, { user });
   } catch (err) {
-    const status = err instanceof RegistrationRejectedError ? err.status : 400;
-    const payload = { error: err.message };
-    if (err.code) payload.code = err.code;
+    const { status, payload } = registrationErrorResponse(err);
     sendJson(res, status, payload);
   }
 }
