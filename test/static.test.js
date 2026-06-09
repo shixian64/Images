@@ -63,6 +63,7 @@ before(async () => {
   // 起码要有 public/、generated/users/<uid>/images/<date>/* 的目录结构
   mkdirSync(join(workDir, 'public'), { recursive: true });
   writeFileSync(join(workDir, 'public', 'index.html'), '<!doctype html>hi');
+  writeFileSync(join(workDir, 'public', 'styles.css'), 'body { color: black; }');
 
   db.migrate();
   userA = auth.register({ username: 'aaa', email: 'a@x.com', password: 'longenough1' });
@@ -168,6 +169,13 @@ test('public app assets keep no-cache headers', async () => {
   assert.equal(res.headers['x-content-type-options'], 'nosniff');
   assert.match(res.headers['content-security-policy'], /default-src 'self'/);
   assert.equal(res.headers.etag, undefined);
+});
+
+test('versioned public app assets can be cached immutably', async () => {
+  const res = await call('/styles.css?v=test-hash', null);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['cache-control'], 'public, max-age=31536000, immutable');
+  assert.equal(res.headers['content-type'], 'text/css; charset=utf-8');
 });
 
 test('other user gets 403 on cross-user image', async () => {

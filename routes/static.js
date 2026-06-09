@@ -30,6 +30,7 @@ const MIME = {
 
 const USER_IMAGE_CACHE_CONTROL = 'private, no-cache, max-age=0';
 const DEFAULT_CACHE_CONTROL = 'no-cache';
+const VERSIONED_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 function send403(res) {
   res.writeHead(403, withSecurityHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
@@ -56,6 +57,12 @@ function requestMatchesEtag(req, etag) {
   const header = req.headers?.['if-none-match'] || req.headers?.['If-None-Match'];
   if (!header) return false;
   return String(header).split(',').map((part) => part.trim()).some((part) => part === '*' || part === etag);
+}
+
+function publicAssetCacheControl(url, filePath) {
+  const ext = extname(filePath).toLowerCase();
+  if (ext !== '.html' && url.searchParams.has('v')) return VERSIONED_ASSET_CACHE_CONTROL;
+  return DEFAULT_CACHE_CONTROL;
 }
 
 // 判断 filePath 规范化后是否仍在 root 内（防穿越）。
@@ -204,7 +211,7 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
             'cache-control': USER_IMAGE_CACHE_CONTROL,
             'etag': etagForStat(fileStat)
           }
-        : { 'cache-control': DEFAULT_CACHE_CONTROL };
+        : { 'cache-control': publicAssetCacheControl(url, filePath) };
 
       if (isUserImageFile && requestMatchesEtag(req, cacheHeaders.etag)) {
         res.writeHead(304, withSecurityHeaders(cacheHeaders));
