@@ -124,6 +124,32 @@ function persistSyncQueue() {
   writeJsonScoped(KEYS.clientLogSyncQueue, syncQueue);
 }
 
+export function isClientLogSyncEnabled() {
+  return readStringScoped(KEYS.clientLogSyncEnabled, '1') !== '0';
+}
+
+function clearSyncTimer() {
+  if (!syncTimer) return;
+  clearTimeout(syncTimer);
+  syncTimer = null;
+}
+
+function clearSyncQueue() {
+  ensureSyncQueueLoaded();
+  if (!syncQueue.length) return;
+  syncQueue = [];
+  persistSyncQueue();
+}
+
+export function setClientLogSyncEnabled(enabled) {
+  const normalized = enabled ? '1' : '0';
+  writeStringScoped(KEYS.clientLogSyncEnabled, normalized);
+  if (!enabled) {
+    clearSyncTimer();
+    clearSyncQueue();
+  }
+}
+
 function clientContext(traceId = getLastRequestTraceId()) {
   return {
     pageUrl: redactLogString(location.href),
@@ -148,6 +174,7 @@ function entryForSync(entry) {
 }
 
 function scheduleSync(delay = 800) {
+  if (!isClientLogSyncEnabled()) return;
   ensureSyncQueueLoaded();
   if (!syncQueue.length || syncTimer) return;
   syncTimer = setTimeout(() => {
@@ -157,6 +184,7 @@ function scheduleSync(delay = 800) {
 }
 
 function enqueueSync(entry) {
+  if (!isClientLogSyncEnabled() || entry?.syncEligible === false) return;
   ensureSyncQueueLoaded();
   if (!entry?.id) return;
   if (!syncQueue.some((item) => item.id === entry.id)) {
@@ -167,12 +195,13 @@ function enqueueSync(entry) {
 }
 
 function enqueueExistingLogsForSync() {
+  if (!isClientLogSyncEnabled()) return;
   ensureLogsLoaded();
   ensureSyncQueueLoaded();
   const queued = new Set(syncQueue.map((item) => item.id));
   let changed = false;
   for (const entry of logs.slice(0, MAX_LOGS)) {
-    if (!entry?.id || queued.has(entry.id)) continue;
+    if (!entry?.id || entry.syncEligible === false || queued.has(entry.id)) continue;
     syncQueue.push(entry);
     queued.add(entry.id);
     changed = true;
@@ -182,6 +211,11 @@ function enqueueExistingLogsForSync() {
 
 export async function syncClientLogs() {
   ensureSyncQueueLoaded();
+  if (!isClientLogSyncEnabled()) {
+    clearSyncTimer();
+    clearSyncQueue();
+    return;
+  }
   if (syncInFlight || !syncQueue.length) return;
   syncInFlight = true;
   const batch = syncQueue.slice(0, SYNC_BATCH_SIZE);
@@ -212,7 +246,8 @@ export function addLog(level, message, meta = {}) {
     level,
     message: redactLogString(message || ''),
     meta: sanitizeMeta(meta),
-    traceId
+    traceId,
+    syncEligible: isClientLogSyncEnabled()
   };
   logs.unshift(entry);
   if (logs.length > MAX_LOGS) logs.length = MAX_LOGS;
@@ -302,8 +337,11 @@ function filterLogs(level, keyword) {
 }
 
 function renderSummary(filtered, activeLevel = 'all') {
+  ensureSyncQueueLoaded();
   const counts = { debug: 0, info: 0, warn: 0, error: 0 };
   for (const l of logs) counts[l.level] = (counts[l.level] || 0) + 1;
+  const syncEnabled = isClientLogSyncEnabled();
+  const syncQueueHint = syncEnabled && syncQueue.length ? ` · 待同步 ${syncQueue.length}` : '';
   const levelChip = (level, label) => `
     <button
       type="button"
@@ -318,6 +356,18 @@ function renderSummary(filtered, activeLevel = 'all') {
     ${levelChip('info', 'Info')}
     ${levelChip('warn', 'Warn')}
     ${levelChip('error', 'Error')}
+    <label
+      class="chip log-sync-toggle ${syncEnabled ? 'info' : 'warn'}"
+      title="关闭后新日志仅保留在此浏览器，不再上报页面 URL、User-Agent、窗口大小和错误上下文；待同步队列会清空。"
+    >
+      <input
+        id="clientLogSyncToggle"
+        type="checkbox"
+        aria-label="同步客户端日志到服务器"
+        ${syncEnabled ? 'checked' : ''}
+      />
+      <span>服务端同步：${syncEnabled ? '开' : '关'}${syncQueueHint}</span>
+    </label>
   `;
 
   const badge = $('logErrorBadge');
@@ -393,10 +443,17 @@ export function mountLogsPanel() {
   }
 
   searchEl.addEventListener('input', rerender);
-  $('logSummary').addEventListener('click', (ev) => {
+  const summaryEl = $('logSummary');
+  summaryEl.addEventListener('click', (ev) => {
     const chip = ev.target.closest('[data-level-filter]');
     if (!chip) return;
     activeLevel = activeLevel === chip.dataset.levelFilter ? 'all' : chip.dataset.levelFilter;
+    rerender();
+  });
+  summaryEl.addEventListener('change', (ev) => {
+    if (ev.target?.id !== 'clientLogSyncToggle') return;
+    setClientLogSyncEnabled(Boolean(ev.target.checked));
+    if (isClientLogSyncEnabled()) scheduleSync(300);
     rerender();
   });
   $('exportLogs').addEventListener('click', exportLogs);

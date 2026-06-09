@@ -177,3 +177,76 @@ test('frontend log sync preserves the trace id from log creation time', async (t
   assert.equal(capturedBody.items[0].traceId, 'trace-first');
   assert.equal(capturedBody.items[0].context.traceId, 'trace-first');
 });
+
+test('frontend log sync can be disabled while keeping local logs', async (t) => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = () => 1;
+  globalThis.clearTimeout = () => {};
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  const {
+    addLog,
+    isClientLogSyncEnabled,
+    setClientLogSyncEnabled,
+    syncClientLogs
+  } = await import(`../public/modules/logs.js?case=sync-disabled-${Date.now()}`);
+
+  setClientLogSyncEnabled(false);
+  assert.equal(isClientLogSyncEnabled(), false);
+  const entry = addLog('warn', 'local only diagnostic', { component: 'logs' });
+  await syncClientLogs();
+
+  const storedLogs = JSON.parse(localStorage.getItem(userKey(KEYS.logs)) || '[]');
+  const storedQueue = JSON.parse(localStorage.getItem(userKey(KEYS.clientLogSyncQueue)) || '[]');
+  assert.equal(fetchCount, 0);
+  assert.equal(storedLogs.length, 1);
+  assert.equal(storedLogs[0].id, entry.id);
+  assert.equal(storedLogs[0].syncEligible, false);
+  assert.deepEqual(storedQueue, []);
+});
+
+test('frontend log sync does not upload logs created while disabled after re-enable', async (t) => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = () => 1;
+  globalThis.clearTimeout = () => {};
+  globalThis.location = { href: 'http://localhost:8787/#logs' };
+  globalThis.navigator = { userAgent: 'node-test-agent', language: 'en-US' };
+  globalThis.window = { innerWidth: 1200, innerHeight: 800 };
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  let capturedBody = null;
+  globalThis.fetch = async (url, opts = {}) => {
+    capturedBody = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  const {
+    addLog,
+    setClientLogSyncEnabled,
+    syncClientLogs
+  } = await import(`../public/modules/logs.js?case=sync-reenabled-${Date.now()}`);
+
+  setClientLogSyncEnabled(false);
+  addLog('warn', 'disabled diagnostic');
+  setClientLogSyncEnabled(true);
+  const enabledEntry = addLog('error', 'enabled diagnostic');
+  await syncClientLogs();
+
+  assert.equal(capturedBody.items.length, 1);
+  assert.equal(capturedBody.items[0].id, enabledEntry.id);
+  assert.equal(capturedBody.items[0].message, 'enabled diagnostic');
+});

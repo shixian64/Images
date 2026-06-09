@@ -2180,6 +2180,15 @@ body.preview-open { overflow: hidden; }
   border-color: currentColor;
   box-shadow: none;
 }
+.log-summary .log-sync-toggle {
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.log-summary .log-sync-toggle input {
+  margin: 0;
+  accent-color: var(--brand);
+}
 
 .log-list {
   display: flex; flex-direction: column; gap: 6px;
