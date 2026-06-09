@@ -3,7 +3,7 @@
 //   /api/admin/interfaces/default           —— 管理员读取/保存全局默认接口
 //   /api/admin/interfaces/default/test      —— 管理员测试已保存的全局默认接口
 
-import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
+import { readJsonBody, sendJson, sendMethodNotAllowed, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
@@ -58,7 +58,7 @@ function adminPayload(config = getGlobalInterfaceConfig()) {
 
 async function handlePublicDefault(req, res) {
   if (req.method !== 'GET') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['GET']);
     return;
   }
   sendJson(res, 200, publicPayload());
@@ -97,13 +97,13 @@ async function handleAdminDefault(req, res) {
     return;
   }
 
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'PUT']);
 }
 
 async function handleAdminTest(req, res) {
   if (!requireAdmin(req, res)) return;
   if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST']);
     return;
   }
 

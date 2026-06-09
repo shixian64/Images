@@ -1,6 +1,6 @@
 // /api/jobs and /api/admin/jobs routes for the persistent generation queue.
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { createSseSession, openSse, writeSse } from '../utils/sse.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
@@ -35,12 +35,12 @@ async function handleUserJobs(req, res, pathname) {
   const user = req.session.user;
 
   if (pathname === '/api/jobs') {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     return sendJson(res, 200, { items: getUserJobs(user.id) });
   }
 
   if (pathname === '/api/jobs/stream') {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     openSse(res);
     writeSse(res, 'snapshot', { items: getUserJobs(user.id) });
     const cleanup = subscribeUserJobs(user.id, res);
@@ -50,7 +50,7 @@ async function handleUserJobs(req, res, pathname) {
 
   const streamMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/stream\/?$/);
   if (streamMatch) {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     const id = decodeURIComponent(streamMatch[1]);
     try {
       const job = getJobForUser(id, user);
@@ -66,7 +66,7 @@ async function handleUserJobs(req, res, pathname) {
 
   const cancelMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/cancel\/?$/);
   if (cancelMatch) {
-    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     try {
       const job = cancelJob(decodeURIComponent(cancelMatch[1]), user);
       return sendJson(res, 200, { job });
@@ -77,7 +77,7 @@ async function handleUserJobs(req, res, pathname) {
 
   const retryMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/retry\/?$/);
   if (retryMatch) {
-    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     try {
       const job = await retryJob(decodeURIComponent(retryMatch[1]), user);
       return sendJson(res, 200, { job });
@@ -88,7 +88,7 @@ async function handleUserJobs(req, res, pathname) {
 
   const detailMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/?$/);
   if (detailMatch) {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     try {
       const job = getJobForUser(decodeURIComponent(detailMatch[1]), user);
       return sendJson(res, 200, { job });
@@ -104,7 +104,7 @@ async function handleAdminJobs(req, res, pathname, url) {
   if (!requireAdmin(req, res)) return;
 
   if (pathname === '/api/admin/jobs') {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     const status = url?.searchParams?.get('status') || '';
     const userId = url?.searchParams?.get('userId') || '';
     const limit = Number(url?.searchParams?.get('limit') || 200) || 200;
@@ -116,7 +116,7 @@ async function handleAdminJobs(req, res, pathname, url) {
   }
 
   if (pathname === '/api/admin/jobs/stream') {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     openSse(res);
     writeSse(res, 'snapshot', {
       items: getAdminJobs({ limit: 200 }),
@@ -145,12 +145,12 @@ async function handleAdminJobs(req, res, pathname, url) {
         return sendJson(res, statusFromError(err), { error: err.message || String(err) });
       }
     }
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['GET', 'PUT']);
   }
 
   const cancelMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/cancel\/?$/);
   if (cancelMatch) {
-    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     try {
       const job = cancelJob(decodeURIComponent(cancelMatch[1]), req.session.user, { admin: true });
       return sendJson(res, 200, { job });
@@ -161,7 +161,7 @@ async function handleAdminJobs(req, res, pathname, url) {
 
   const priorityMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/priority\/?$/);
   if (priorityMatch) {
-    if (req.method !== 'PATCH' && req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'PATCH' && req.method !== 'POST') return sendMethodNotAllowed(res, ['PATCH', 'POST']);
     let body;
     try { body = await readJsonBody(req); }
     catch (err) { return sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' }); }
@@ -175,7 +175,7 @@ async function handleAdminJobs(req, res, pathname, url) {
 
   const detailMatch = pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/?$/);
   if (detailMatch) {
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     try {
       const job = getAdminJobs({ limit: 10000 }).find((item) => item.id === decodeURIComponent(detailMatch[1]));
       if (!job) return sendJson(res, 404, { error: 'job not found' });

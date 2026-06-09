@@ -1,6 +1,6 @@
 // /api/admin/registration* —— 管理员配置注册入口与邀请码。
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
@@ -101,12 +101,12 @@ async function handleSettings(req, res) {
     }
     return;
   }
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'PUT']);
 }
 
 async function handleGenerateInvites(req, res) {
   if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST']);
     return;
   }
   const body = await readBody(req, res);
@@ -129,7 +129,7 @@ async function handleGenerateInvites(req, res) {
 
 async function handleResetInvites(req, res) {
   if (req.method !== 'DELETE' && req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['DELETE', 'POST']);
     return;
   }
   const removed = resetRegistrationInviteCodes();
@@ -139,7 +139,7 @@ async function handleResetInvites(req, res) {
 
 async function handleDisableInvite(req, res, code) {
   if (req.method !== 'DELETE' && req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['DELETE', 'POST']);
     return;
   }
   const invite = disableRegistrationInviteCode(code, { disabledBy: req.session.user.id });
@@ -156,7 +156,7 @@ async function handleDisableInvite(req, res, code) {
 
 async function handleCleanupRedemptions(req, res) {
   if (req.method !== 'POST' && req.method !== 'DELETE') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST', 'DELETE']);
     return;
   }
   const body = await readBody(req, res);

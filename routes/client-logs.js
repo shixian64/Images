@@ -1,6 +1,6 @@
 // Browser/client log ingestion and admin querying.
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listClientLogsForAdmin,
@@ -13,7 +13,7 @@ function statusFromError(err) {
 
 export async function handleClientLogsRoute(req, res, pathname, urlObj) {
   if (pathname === '/api/client-logs' || pathname === '/api/client-logs/') {
-    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     let body;
     try { body = await readJsonBody(req); }
     catch (err) { return sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' }); }
@@ -27,7 +27,7 @@ export async function handleClientLogsRoute(req, res, pathname, urlObj) {
 
   if (pathname === '/api/admin/client-logs' || pathname === '/api/admin/client-logs/') {
     if (!requireAdmin(req, res)) return;
-    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     const params = urlObj?.searchParams;
     return sendJson(res, 200, {
       items: listClientLogsForAdmin({

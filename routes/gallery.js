@@ -6,7 +6,7 @@ import {
   setImagePublic,
   likePublicImage
 } from '../services/gallery-store.js';
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { record as auditRecord } from '../services/audit.js';
 
@@ -19,7 +19,8 @@ export async function handleGallery(req, res, pathname) {
 
   // POST /api/gallery/:id/visibility —— 用户公开/取消公开自己的图片（admin 可操作任意）。
   const visibility = pathname && pathname.match(/^\/api\/gallery\/([^/]+)\/visibility\/?$/);
-  if (visibility && req.method === 'POST') {
+  if (visibility) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     try {
       let body = {};
       try { body = await readJsonBody(req); } catch (err) {
@@ -44,7 +45,8 @@ export async function handleGallery(req, res, pathname) {
 
   // POST /api/gallery/:id/like —— 公开图库点赞；每用户每日限 10 次。
   const like = pathname && pathname.match(/^\/api\/gallery\/([^/]+)\/like\/?$/);
-  if (like && req.method === 'POST') {
+  if (like) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
     try {
       const id = decodeURIComponent(like[1]);
       const result = await likePublicImage(id, { userId: user.id });
@@ -66,7 +68,8 @@ export async function handleGallery(req, res, pathname) {
 
   // DELETE /api/gallery/:id
   const del = pathname && pathname.match(/^\/api\/gallery\/([^/]+)\/?$/);
-  if (del && req.method === 'DELETE') {
+  if (del) {
+    if (req.method !== 'DELETE') return sendMethodNotAllowed(res, ['DELETE']);
     const id = decodeURIComponent(del[1]);
     try {
       const removed = await removeImage(id, { userId: user.id, isAdmin });
@@ -83,7 +86,7 @@ export async function handleGallery(req, res, pathname) {
   }
 
   if (req.method !== 'GET') {
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['GET']);
   }
 
   try {

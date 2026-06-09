@@ -9,6 +9,7 @@ import {
   readJsonBody,
   readMultipartFormData,
   sendJson,
+  sendMethodNotAllowed,
   sendNoContent
 } from '../utils/http.js';
 
@@ -49,6 +50,17 @@ test('sendNoContent marks empty API responses as no-store with security headers'
   assert.equal(res.headers['x-content-type-options'], 'nosniff');
   assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.equal(res.body, '');
+});
+
+test('sendMethodNotAllowed emits Allow and security headers', () => {
+  const res = captureRes();
+  sendMethodNotAllowed(res, ['GET', 'POST']);
+
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.headers.allow, 'GET, POST');
+  assert.equal(res.headers['cache-control'], 'no-store');
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.deepEqual(JSON.parse(res.body), { error: 'method not allowed' });
 });
 
 test('createHttpError keeps status/statusCode/code compatibility', () => {

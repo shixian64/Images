@@ -1,6 +1,6 @@
 // /api/comic-projects —— 漫画项目的保存、列表、详情与删除。
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import {
   deleteComicProject,
   getComicProjectDetail,
@@ -53,7 +53,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
         return sendJson(res, statusForError(err), { error: err.message || String(err), code: err.code });
       }
     }
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['GET', 'POST']);
   }
 
   const detail = pathname.match(/^\/api\/comic-projects\/([^/]+)\/?$/);
@@ -95,7 +95,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
         });
       }
     }
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['GET', 'PUT', 'PATCH', 'DELETE']);
   }
 
   return sendJson(res, 404, { error: 'not found' });

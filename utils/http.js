@@ -30,6 +30,16 @@ export function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+export function sendMethodNotAllowed(res, allow, payload = { error: 'method not allowed' }) {
+  const allowValue = Array.isArray(allow) ? allow.join(', ') : String(allow || '');
+  res.writeHead(405, withSecurityHeaders({
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    allow: allowValue
+  }));
+  res.end(JSON.stringify(payload));
+}
+
 export function sendNoContent(res, status = 204) {
   res.writeHead(status, withSecurityHeaders({
     'cache-control': 'no-store'

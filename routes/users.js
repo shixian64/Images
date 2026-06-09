@@ -1,7 +1,7 @@
 // /api/users* 路由：仅 admin 可用。
 // TAG: hmt---
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listUsers,
@@ -71,7 +71,7 @@ async function handleCollection(req, res, urlObj) {
     }
     return;
   }
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'POST']);
 }
 
 async function handleDetail(req, res, id) {
@@ -123,12 +123,12 @@ async function handleDetail(req, res, id) {
     return;
   }
 
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'PATCH', 'DELETE']);
 }
 
 async function handleAction(req, res, id, action) {
   if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST']);
     return;
   }
 

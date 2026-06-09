@@ -2,7 +2,7 @@
 
 import { record as auditRecord } from '../services/audit.js';
 import { savePromptExampleImage } from '../services/prompt-example-images.js';
-import { bodyErrorStatus, readMultipartFormData, sendJson } from '../utils/http.js';
+import { bodyErrorStatus, readMultipartFormData, sendJson, sendMethodNotAllowed } from '../utils/http.js';
 
 function firstImageFile(files = []) {
   return files.find((file) => file.fieldName === 'image')
@@ -16,7 +16,7 @@ export async function handlePromptExamplesRoute(req, res, pathname) {
     return sendJson(res, 404, { error: 'not found' });
   }
   if (req.method !== 'POST') {
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['POST']);
   }
 
   let form;

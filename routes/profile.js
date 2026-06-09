@@ -1,7 +1,7 @@
 // /api/profile* 路由：当前用户的资料与密码维护。
 // TAG: hmt---
 
-import { sendJson, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAuth } from '../middleware/guard.js';
 import { users, sessions } from '../services/db.js';
 import { updateProfile, changePassword } from '../services/users.js';
@@ -73,12 +73,12 @@ export async function handleProfileRoute(req, res, pathname) {
   if (pathname === '/api/profile' || pathname === '/api/profile/') {
     if (method === 'GET') return handleGet(req, res);
     if (method === 'PATCH') return handlePatch(req, res);
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['GET', 'PATCH']);
     return;
   }
   if (pathname === '/api/profile/password') {
     if (method === 'POST') return handlePassword(req, res);
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST']);
     return;
   }
   sendJson(res, 404, { error: 'not found' });

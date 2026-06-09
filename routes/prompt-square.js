@@ -3,7 +3,7 @@
 
 import { promptSquare } from '../services/db.js';
 import { record as auditRecord } from '../services/audit.js';
-import { bodyErrorStatus, readJsonBody, sendJson } from '../utils/http.js';
+import { bodyErrorStatus, readJsonBody, sendJson, sendMethodNotAllowed } from '../utils/http.js';
 
 const VALID_SOURCES = new Set(['builder', 'studio', 'manual', 'square']);
 const MAX_TITLE_LEN = 120;
@@ -174,12 +174,12 @@ async function handleCollection(req, res, urlObj) {
     }
   }
 
-  return sendJson(res, 405, { error: 'method not allowed' });
+  return sendMethodNotAllowed(res, ['GET', 'POST']);
 }
 
 async function handleUse(req, res, id) {
   if (req.method !== 'POST') {
-    return sendJson(res, 405, { error: 'method not allowed' });
+    return sendMethodNotAllowed(res, ['POST']);
   }
   const row = promptSquare.findById(id);
   if (!row) return sendJson(res, 404, { error: 'prompt not found' });
@@ -209,7 +209,7 @@ async function handleDetail(req, res, id) {
     return sendJson(res, 200, { ok: true });
   }
 
-  return sendJson(res, 405, { error: 'method not allowed' });
+  return sendMethodNotAllowed(res, ['GET', 'DELETE']);
 }
 
 export async function handlePromptSquareRoute(req, res, pathname, urlObj) {

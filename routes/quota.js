@@ -6,7 +6,7 @@
 //   /api/admin/quota/users/:id/reset  —— POST { scope: today|month }
 // TAG: hmt---
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAuth, requireAdmin } from '../middleware/guard.js';
 import { users as usersTable } from '../services/db.js';
 import {
@@ -54,7 +54,7 @@ async function handleDefaults(req, res) {
     }
     return;
   }
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'PUT']);
 }
 
 function sanitizeQuotaPatch(body) {
@@ -132,12 +132,12 @@ async function handleUserDetail(req, res, id) {
     return;
   }
 
-  sendJson(res, 405, { error: 'method not allowed' });
+  sendMethodNotAllowed(res, ['GET', 'PUT', 'DELETE']);
 }
 
 async function handleUserReset(req, res, id) {
   if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['POST']);
     return;
   }
   const target = usersTable.findById(id);
@@ -169,7 +169,7 @@ export async function handleQuotaRoute(req, res, pathname) {
   }
   if (pathname === '/api/admin/quota/users') {
     if (req.method === 'GET') return handleListUsers(req, res);
-    sendJson(res, 405, { error: 'method not allowed' });
+    sendMethodNotAllowed(res, ['GET']);
     return;
   }
   const reset = pathname.match(/^\/api\/admin\/quota\/users\/([^/]+)\/reset\/?$/);

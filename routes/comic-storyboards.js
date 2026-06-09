@@ -1,6 +1,6 @@
 // /api/comic-storyboards —— 异步生成漫画页分镜并在服务端保存项目。
 
-import { readJsonBody, sendJson, bodyErrorStatus } from '../utils/http.js';
+import { readJsonBody, sendJson, sendMethodNotAllowed, bodyErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { enqueueComicStoryboard } from '../services/job-queue.js';
 
@@ -10,7 +10,7 @@ function statusFromError(error) {
 
 export async function handleComicStoryboardsRoute(req, res, pathname) {
   if (pathname !== '/api/comic-storyboards') return sendJson(res, 404, { error: 'not found' });
-  if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+  if (req.method !== 'POST') return sendMethodNotAllowed(res, ['POST']);
   if (!req.session?.user) return sendJson(res, 401, { error: 'unauthorized' });
 
   const started = Date.now();
