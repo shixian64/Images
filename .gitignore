@@ -10,6 +10,7 @@ yarn-error.log*
 .env.*
 !.env.example
 generated/
+backups/
 coverage/
 .nyc_output/
 dist/

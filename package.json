@@ -7,7 +7,9 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-sqlite server.js",
-    "test": "node --experimental-sqlite --test \"test/**/*.test.js\""
+    "test": "node --experimental-sqlite --test \"test/**/*.test.js\"",
+    "backup:generated": "node scripts/generated-backup.js backup",
+    "restore:generated": "node scripts/generated-backup.js restore"
   },
   "engines": {
     "node": ">=22.5.0"

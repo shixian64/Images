@@ -249,6 +249,23 @@ http://localhost:8787
 GET /healthz
 ```
 
+## 备份与恢复
+
+运行态数据集中在 `generated/`，包含 SQLite 数据库、WAL/SHM、用户图片、Prompt 示例图和临时参考图。备份/恢复前建议先停止应用，避免复制到写入中的 SQLite/WAL 状态。
+
+```bash
+# 备份 generated/ 到 backups/generated/image-studio-generated-<timestamp>/
+npm run backup:generated
+
+# 指定备份目录
+npm run backup:generated -- --output /path/to/backups
+
+# 恢复指定快照；恢复前会先为当前 generated/ 自动创建 pre-restore 备份
+npm run restore:generated -- /path/to/backups/image-studio-generated-2026-06-09T09-00-00-000Z --yes
+```
+
+恢复已加密的系统默认 API Key 时，必须同时恢复原来的 `IMAGE_STUDIO_SECRET_KEY`；备份目录也应按敏感数据保护，并保持在 Git 仓库外（默认 `backups/` 已被忽略）。
+
 ## 环境变量
 
 常用变量见 `.env.example`，下表按用途归类。留空或非法值通常会回退到代码默认值；部分限额变量支持 `0` / `disabled` 表示关闭。
