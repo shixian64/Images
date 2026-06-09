@@ -1,7 +1,7 @@
 const POSITIVE_INT_ENV_SPECS = new Map([
   ['MAX_JSON_BODY_BYTES', { fallback: 1024 * 1024 }],
   ['MAX_MULTIPART_BODY_BYTES', { fallback: 100 * 1024 * 1024 }],
-  ['MAX_UPSTREAM_RESPONSE_BYTES', { fallback: 64 * 1024 * 1024 }],
+  ['MAX_UPSTREAM_RESPONSE_BYTES', { fallback: 40 * 1024 * 1024 }],
   ['MAX_IMAGES_PER_REQUEST', { fallback: 1 }],
   ['IMAGE_GENERATION_BATCH_CONCURRENCY', { fallback: 2 }],
   ['GLOBAL_CONCURRENT_GENERATIONS', { fallback: 4 }],

@@ -6,6 +6,7 @@ import {
   buildImagePayload,
   buildMultipartBody,
   callUpstream,
+  readResponseTextLimited,
   resolveApiUrl,
   resolveChatCompletionsUrl,
   resolveImageEditsUrl,
@@ -169,6 +170,21 @@ test('callUpstream rejects upstream responses over byte limit', async () => {
       /Upstream response too large/
     );
   });
+});
+
+test('readResponseTextLimited decodes streamed utf8 without concatenating a response buffer', async () => {
+  const text = JSON.stringify({ message: '你好，stream 🌟' });
+  const bytes = new TextEncoder().encode(text);
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.length; offset += 3) {
+        controller.enqueue(bytes.subarray(offset, Math.min(bytes.length, offset + 3)));
+      }
+      controller.close();
+    }
+  }), { status: 200 });
+
+  assert.equal(await readResponseTextLimited(response, 1024), text);
 });
 
 test('callUpstream applies timeout while reading response body', async () => {

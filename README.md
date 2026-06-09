@@ -304,7 +304,7 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | --- | --- | --- |
 | `MAX_JSON_BODY_BYTES` | `1048576` | JSON body 最大字节数。 |
 | `MAX_MULTIPART_BODY_BYTES` | `104857600` | multipart body 最大字节数。 |
-| `MAX_UPSTREAM_RESPONSE_BYTES` | `67108864` | 单次上游响应读取上限。 |
+| `MAX_UPSTREAM_RESPONSE_BYTES` | `41943040` | 单次上游响应读取上限。 |
 | `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。 |
 | `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost / 私网 / metadata 等上游。 |
 | `TRUST_PROXY` | `0` | 是否信任转发头。仅在可信反代后启用。 |

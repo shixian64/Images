@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 
 import { positiveIntFromEnv } from '../utils/config.js';
 
-const DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_UPSTREAM_RESPONSE_BYTES = 40 * 1024 * 1024;
 
 const BLOCKED_IPV4_CIDRS = [
   ['0.0.0.0', 8],
@@ -479,6 +479,7 @@ export async function readResponseTextLimited(
   }
 
   const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf8');
   const chunks = [];
   let total = 0;
   const onAbort = () => {
@@ -500,13 +501,15 @@ export async function readResponseTextLimited(
         await reader.cancel?.();
         throw upstreamHttpError(502, `Upstream response too large (max ${limitBytes} bytes).`);
       }
-      chunks.push(chunk);
+      chunks.push(decoder.decode(chunk, { stream: true }));
     }
   } finally {
     signal?.removeEventListener?.('abort', onAbort);
     reader.releaseLock?.();
   }
-  return Buffer.concat(chunks, total).toString('utf8');
+  const tail = decoder.decode();
+  if (tail) chunks.push(tail);
+  return chunks.join('');
 }
 
 // 调用上游。把 fetch 结果统一成 { ok, status, data, durationMs }。
