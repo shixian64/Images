@@ -24,8 +24,14 @@ export function parseCookies(req) {
   return out;
 }
 
+function envFlagEnabled(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return false;
+  return ['1', 'true', 'yes', 'on', 'secure'].includes(String(raw).trim().toLowerCase());
+}
+
 function isSecure() {
-  return process.env.NODE_ENV === 'production';
+  return envFlagEnabled('SESSION_COOKIE_SECURE') || process.env.NODE_ENV === 'production';
 }
 
 export function setSessionCookie(res, sid) {

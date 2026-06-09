@@ -232,7 +232,7 @@ cp .env.example .env
 http://localhost:8787
 ```
 
-`.env.example` 默认 `NODE_ENV=development` 以支持 HTTP 直连；如果放到 HTTPS 反向代理后面，请设置 `NODE_ENV=production`，以便 session cookie 带 `Secure`。
+`.env.example` 默认 `NODE_ENV=development` 以支持 HTTP 直连；如果放到 HTTPS 反向代理后面，请设置 `NODE_ENV=production`，或显式设置 `SESSION_COOKIE_SECURE=1`，以便 session cookie 带 `Secure`。
 
 健康检查：
 
@@ -251,6 +251,7 @@ GET /healthz
 | `PORT` | `8787` | Node 服务监听端口；Docker 内固定为 `8787`。 |
 | `HOST_PORT` | `8787` | Docker 宿主机暴露端口。 |
 | `NODE_ENV` | `development` | `production` 时 session cookie 会带 `Secure`。 |
+| `SESSION_COOKIE_SECURE` | `0` | 设为 `1` 可在非 production 环境强制 session cookie 带 `Secure`，适合 HTTPS 反代但不想改变 `NODE_ENV` 的部署。 |
 | `IMAGE_STUDIO_SECRET_KEY` | 空 | 系统默认接口 API Key 的本地加密主密钥；生产建议设置长随机值。 |
 | `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限。 |
 | `CONTAINER_MEMORY_LIMIT` | `768m` | Docker 容器内存上限。 |
