@@ -1,11 +1,22 @@
 // 通用右侧抽屉组件。基于 #appDrawer 容器（见 index.html），
-// open({ eyebrow, title, body, onClose }) 渲染并打开；body 既可是字符串也可是 DOM 节点。
+// open({ eyebrow, title, body, unsafeHtml, onClose }) 渲染并打开；body 既可是字符串也可是 DOM 节点。
 // TAG: hmt---
 
 import { $ } from './dom.js';
 
 let bound = false;
 let activeCloseHandler = null;
+
+function renderBody(bodyEl, body, { unsafeHtml = false } = {}) {
+  bodyEl.replaceChildren();
+  if (body instanceof Node) {
+    bodyEl.appendChild(body);
+  } else if (unsafeHtml) {
+    bodyEl.innerHTML = String(body || '');
+  } else {
+    bodyEl.textContent = String(body || '');
+  }
+}
 
 function ensureContainer() {
   return $('appDrawer');
@@ -24,7 +35,7 @@ function bindOnce() {
   });
 }
 
-export function open({ eyebrow = '', title = '详情', body = '', onClose } = {}) {
+export function open({ eyebrow = '', title = '详情', body = '', unsafeHtml = false, onClose } = {}) {
   const wrap = ensureContainer();
   if (!wrap) return;
   bindOnce();
@@ -35,9 +46,7 @@ export function open({ eyebrow = '', title = '详情', body = '', onClose } = {}
   if (eyebrowEl) eyebrowEl.textContent = eyebrow || '';
   if (titleEl) titleEl.textContent = title || '详情';
   if (bodyEl) {
-    bodyEl.replaceChildren();
-    if (body instanceof Node) bodyEl.appendChild(body);
-    else bodyEl.innerHTML = String(body || '');
+    renderBody(bodyEl, body, { unsafeHtml });
   }
 
   wrap.hidden = false;
@@ -46,12 +55,10 @@ export function open({ eyebrow = '', title = '详情', body = '', onClose } = {}
   activeCloseHandler = typeof onClose === 'function' ? onClose : null;
 }
 
-export function update({ body } = {}) {
+export function update({ body, unsafeHtml = false } = {}) {
   const bodyEl = $('appDrawerBody');
   if (!bodyEl) return;
-  bodyEl.replaceChildren();
-  if (body instanceof Node) bodyEl.appendChild(body);
-  else bodyEl.innerHTML = String(body || '');
+  renderBody(bodyEl, body, { unsafeHtml });
 }
 
 export function close() {

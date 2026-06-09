@@ -250,7 +250,8 @@ async function openUsageDrawer() {
   drawer.open({
     eyebrow: '我的用量',
     title: '使用情况',
-    body: '<div class="empty-state"><p>正在加载…</p></div>'
+    body: '<div class="empty-state"><p>正在加载…</p></div>',
+    unsafeHtml: true
   });
   try {
     const resp = await apiFetch('/api/quota/me');
@@ -282,9 +283,9 @@ async function openUsageDrawer() {
         <p class="hint">额度由管理员维护；日/月次数统计系统默认接口调用（含生图与提示词优化），存储与并发对系统默认和个人自定义接口都生效。</p>
       </div>
     `;
-    drawer.update({ body: html });
+    drawer.update({ body: html, unsafeHtml: true });
   } catch (err) {
-    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>` });
+    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`, unsafeHtml: true });
   }
 }
 

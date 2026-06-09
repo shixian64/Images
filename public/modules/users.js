@@ -1838,7 +1838,7 @@ function openImageDetail(item) {
       ` : ''}
     </div>
   `;
-  drawer.open({ eyebrow: '图库详情', title: item.filename || '图片', body: html });
+  drawer.open({ eyebrow: '图库详情', title: item.filename || '图片', body: html, unsafeHtml: true });
 }
 
 async function runOrphanScan() {
@@ -1890,7 +1890,7 @@ async function runOrphanScan() {
         </section>
       </div>
     `;
-    drawer.open({ eyebrow: '图库管理', title: '孤儿扫描', body: html });
+    drawer.open({ eyebrow: '图库管理', title: '孤儿扫描', body: html, unsafeHtml: true });
   } catch (err) {
     setStatus(`孤儿扫描失败：${err?.message || err}`, 'err', 2400);
   }
@@ -2180,9 +2180,9 @@ async function refreshOpenDetail() {
   if (!openDetailUserId) return;
   try {
     const detail = await fetchUserDetail(openDetailUserId);
-    drawer.update({ body: renderDetailBody(detail) });
+    drawer.update({ body: renderDetailBody(detail), unsafeHtml: true });
   } catch (err) {
-    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>` });
+    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`, unsafeHtml: true });
   }
 }
 
@@ -2192,6 +2192,7 @@ async function openUserDetail(userId) {
     eyebrow: '用户管理',
     title: userLabel(userId),
     body: '<div class="empty-state"><p>正在加载…</p></div>',
+    unsafeHtml: true,
     onClose: () => { openDetailUserId = null; }
   });
   await refreshOpenDetail();
