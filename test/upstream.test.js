@@ -118,8 +118,16 @@ test('assertAllowedUpstreamUrl rejects localhost and private upstreams in produc
   });
 });
 
-test('assertAllowedUpstreamUrl allows private upstreams by default in development', async () => {
+test('assertAllowedUpstreamUrl rejects private upstreams by default in development', async () => {
   await withEnv({ NODE_ENV: 'development', ALLOW_PRIVATE_UPSTREAMS: undefined }, async () => {
+    await assert.rejects(() => assertAllowedUpstreamUrl('https://internal.example/v1/models', {
+      lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
+    }), /private address/);
+  });
+});
+
+test('assertAllowedUpstreamUrl allows private upstreams only with explicit opt-in', async () => {
+  await withEnv({ NODE_ENV: 'development', ALLOW_PRIVATE_UPSTREAMS: '1' }, async () => {
     await assert.doesNotReject(() => assertAllowedUpstreamUrl('https://internal.example/v1/models', {
       lookupImpl: async () => [{ address: '192.168.1.10', family: 4 }]
     }));
