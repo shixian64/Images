@@ -3,7 +3,7 @@
 // 元数据写入 SQLite images 表（走 services/db.js）。
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 import { positiveIntFromEnv } from '../utils/config.js';
@@ -19,6 +19,7 @@ import {
 } from './path-guard.js';
 
 const GALLERY_ROOT = guardPaths.generatedRoot;
+const DOWNLOAD_TMP_DIR = join(GALLERY_ROOT, 'tmp', 'downloads');
 const DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 const DEFAULT_DAILY_PUBLIC_LIKE_LIMIT = 10;
@@ -206,50 +207,80 @@ function throwIfDownloadAborted(signal) {
   if (signal?.aborted) throw downloadAbortError();
 }
 
-async function readResponseBufferLimited(response, maxBytes, { signal } = {}) {
+function appendSniffBytes(current, chunk, maxBytes = 16) {
+  if (current.length >= maxBytes || !chunk.length) return current;
+  const need = maxBytes - current.length;
+  return Buffer.concat([current, chunk.subarray(0, need)], Math.min(maxBytes, current.length + chunk.length));
+}
+
+async function cleanupTempFile(filePath) {
+  if (!filePath) return;
+  try { await unlink(filePath); } catch { /* best effort */ }
+}
+
+async function downloadResponseFileLimited(response, maxBytes, { signal } = {}) {
   throwIfDownloadAborted(signal);
   assertContentLengthWithinLimit(response, maxBytes);
+  await mkdir(DOWNLOAD_TMP_DIR, { recursive: true });
+  const tempFilePath = join(DOWNLOAD_TMP_DIR, `${Date.now()}-${randomUUID()}.download`);
+  let handle = null;
 
-  // Node/Undici Response.body 是 Web ReadableStream；测试替身可能没有 body，
-  // 因此保留 arrayBuffer 兜底，但仍在读完后做一次大小校验。
-  if (!response.body?.getReader) {
-    const buffer = Buffer.from(await response.arrayBuffer());
-    throwIfDownloadAborted(signal);
-    if (buffer.length > maxBytes) {
-      throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
-    }
-    return buffer;
-  }
-
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  const onAbort = () => {
-    try { reader.cancel?.(downloadAbortError()); } catch { /* ignore */ }
-  };
   try {
-    if (signal) {
-      if (signal.aborted) onAbort();
-      else signal.addEventListener('abort', onAbort, { once: true });
-    }
-    while (true) {
+    handle = await open(tempFilePath, 'wx');
+
+    // Node/Undici Response.body is a Web ReadableStream. Keep an arrayBuffer
+    // fallback for non-standard test doubles, while real URL downloads stream
+    // chunks directly to the temporary file.
+    if (!response.body?.getReader) {
+      const buffer = Buffer.from(await response.arrayBuffer());
       throwIfDownloadAborted(signal);
-      const { done, value } = await reader.read();
-      throwIfDownloadAborted(signal);
-      if (done) break;
-      const chunk = Buffer.from(value);
-      total += chunk.length;
-      if (total > maxBytes) {
-        await reader.cancel?.();
+      if (buffer.length > maxBytes) {
         throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
       }
-      chunks.push(chunk);
+      await handle.writeFile(buffer);
+      await handle.close();
+      handle = null;
+      return { tempFilePath, bytes: buffer.length, sniffBuffer: buffer.subarray(0, 16) };
     }
-  } finally {
-    signal?.removeEventListener?.('abort', onAbort);
-    reader.releaseLock?.();
+
+    const reader = response.body.getReader();
+    let total = 0;
+    let sniffBuffer = Buffer.alloc(0);
+    const onAbort = () => {
+      try { reader.cancel?.(downloadAbortError()); } catch { /* ignore */ }
+    };
+    try {
+      if (signal) {
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
+      while (true) {
+        throwIfDownloadAborted(signal);
+        const { done, value } = await reader.read();
+        throwIfDownloadAborted(signal);
+        if (done) break;
+        const chunk = Buffer.from(value);
+        total += chunk.length;
+        if (total > maxBytes) {
+          await reader.cancel?.();
+          throw new Error(`downloaded image too large (max ${maxBytes} bytes)`);
+        }
+        sniffBuffer = appendSniffBytes(sniffBuffer, chunk);
+        await handle.write(chunk);
+      }
+    } finally {
+      signal?.removeEventListener?.('abort', onAbort);
+      reader.releaseLock?.();
+    }
+
+    await handle.close();
+    handle = null;
+    return { tempFilePath, bytes: total, sniffBuffer };
+  } catch (err) {
+    try { await handle?.close(); } catch { /* best effort */ }
+    await cleanupTempFile(tempFilePath);
+    throw err;
   }
-  return Buffer.concat(chunks, total);
 }
 
 async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } = {}) {
@@ -270,9 +301,14 @@ async function assetFromUrl(url, { fetchImpl = fetch, fallbackFormat = 'png' } =
     if (!response.ok) throw new Error(`download failed with ${response.status}`);
     assertResponseLooksLikeImage(response);
     const contentType = response.headers?.get?.('content-type') || '';
-    const buffer = await readResponseBufferLimited(response, maxBytes, { signal: controller.signal });
-    const detected = detectImageType(buffer, { contentType, fallbackFormat, requireMagic: true });
-    return { ...detected, buffer, sourceType: 'url' };
+    const downloaded = await downloadResponseFileLimited(response, maxBytes, { signal: controller.signal });
+    try {
+      const detected = detectImageType(downloaded.sniffBuffer, { contentType, fallbackFormat, requireMagic: true });
+      return { ...detected, tempFilePath: downloaded.tempFilePath, bytes: downloaded.bytes, sourceType: 'url' };
+    } catch (err) {
+      await cleanupTempFile(downloaded.tempFilePath);
+      throw err;
+    }
   } catch (err) {
     if (err?.name === 'AbortError') throw new Error('image download timed out');
     throw err;
@@ -399,18 +435,21 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
     let storageReservation = null;
     let writtenFilePath = '';
     let dbInserted = false;
+    let asset = null;
     try {
-      const asset = await assetFromItem(item, {
+      asset = await assetFromItem(item, {
         fetchImpl: options.fetchImpl || fetch,
         fallbackFormat: context.outputFormat
       });
+      const assetBytes = Number(asset?.bytes ?? asset?.buffer?.length ?? 0);
 
-      if (!asset?.buffer?.length) {
+      if (!assetBytes) {
         nextItems.push({ ...item, save_error: 'No image payload found.' });
+        await cleanupTempFile(asset?.tempFilePath);
         continue;
       }
 
-      storageReservation = tryReserveStorageBytes(userId, asset.buffer.length);
+      storageReservation = tryReserveStorageBytes(userId, assetBytes);
       if (!storageReservation.ok) {
         throw new Error(storageReservation.message || 'storage limit exceeded');
       }
@@ -425,7 +464,12 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       assertUserPath(filePath, userId);
 
       await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, asset.buffer);
+      if (asset.tempFilePath) {
+        await rename(asset.tempFilePath, filePath);
+        asset.tempFilePath = '';
+      } else {
+        await writeFile(filePath, asset.buffer);
+      }
       writtenFilePath = filePath;
 
       // 相对路径（存库 & 给前端拼 URL）：users/<uid>/images/<date>/<file>
@@ -439,7 +483,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         filename: fileName,
         path: relPath,
         mimeType: asset.mimeType,
-        bytes: asset.buffer.length,
+        bytes: assetBytes,
         isPublic: false,
         prompt: context.prompt || '',
         revisedPrompt: item?.revised_prompt || '',
@@ -469,7 +513,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         path: relPath,
         url: publicUrl,
         mimeType: asset.mimeType,
-        bytes: asset.buffer.length,
+        bytes: assetBytes,
         isPublic: false,
         publishedAt: null,
         likeCount: 0,
@@ -499,9 +543,10 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         comic_panel_index: comicPageIndex || undefined,
         file_name: fileName,
         mime_type: asset.mimeType,
-        bytes: asset.buffer.length
+        bytes: assetBytes
       });
     } catch (err) {
+      await cleanupTempFile(asset?.tempFilePath);
       if (writtenFilePath && !dbInserted) {
         try { await unlink(writtenFilePath); } catch { /* best-effort cleanup */ }
       }

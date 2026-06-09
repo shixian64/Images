@@ -17,6 +17,15 @@ function response(bytes, { status = 200, headers = {} } = {}) {
   return new Response(bytes, { status, headers });
 }
 
+function chunkedResponse(chunks, { status = 200, headers = {} } = {}) {
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    }
+  }), { status, headers });
+}
+
 function listFilesRecursive(dir) {
   if (!existsSync(dir)) return [];
   const out = [];
@@ -63,7 +72,7 @@ after(() => {
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
-test('saveGeneratedImages downloads URL images with redirect disabled', async () => {
+test('saveGeneratedImages streams URL images with redirect disabled', async () => {
   let seenOptions = null;
   const result = await gallery.saveGeneratedImages(
     [{ url: 'https://example.com/image.png' }],
@@ -72,7 +81,7 @@ test('saveGeneratedImages downloads URL images with redirect disabled', async ()
       userId: user.id,
       fetchImpl: async (_url, options) => {
         seenOptions = options;
-        return response(PNG_BYTES, {
+        return chunkedResponse([PNG_BYTES.slice(0, 2), PNG_BYTES.slice(2)], {
           headers: { 'content-type': 'image/png', 'content-length': String(PNG_BYTES.length) }
         });
       }
@@ -82,6 +91,9 @@ test('saveGeneratedImages downloads URL images with redirect disabled', async ()
   assert.equal(result.saved.length, 1);
   assert.equal(seenOptions.redirect, 'manual');
   assert.equal(seenOptions.method, 'GET');
+  assert.equal(result.saved[0].bytes, PNG_BYTES.length);
+  assert.equal(result.items[0].bytes, PNG_BYTES.length);
+  assert.deepEqual(listFilesRecursive(join(workDir, 'generated', 'tmp', 'downloads')), []);
 });
 
 test('comic project images are saved under projects and hidden from my gallery', async () => {
@@ -158,6 +170,7 @@ test('saveGeneratedImages rejects URL downloads over byte limit', async () => {
 
     assert.equal(result.saved.length, 0);
     assert.match(result.items[0].save_error, /too large/);
+    assert.deepEqual(listFilesRecursive(join(workDir, 'generated', 'tmp', 'downloads')), []);
   });
 });
 
@@ -183,6 +196,7 @@ test('saveGeneratedImages applies timeout while reading URL image body', async (
     assert.equal(result.saved.length, 0);
     assert.match(result.items[0].save_error, /timed out/);
     assert.equal(canceled, true);
+    assert.deepEqual(listFilesRecursive(join(workDir, 'generated', 'tmp', 'downloads')), []);
   });
 });
 
