@@ -185,6 +185,10 @@ function normalizeSystemDefault(raw = {}) {
     isSystemDefault: true,
     enabled,
     ready: Boolean(raw.ready),
+    capabilities: {
+      image: Boolean(raw.capabilities?.image),
+      chat: Boolean(raw.capabilities?.chat)
+    },
     updatedAt: raw.updatedAt || null,
     updatedBy: raw.updatedBy || null
   };

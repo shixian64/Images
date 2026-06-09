@@ -60,6 +60,26 @@ test('adminInterfaceConfig keeps probe details while redacting raw keys', () => 
   assert.equal(config.image.testedAt, '2026-04-26T00:00:00.000Z');
 });
 
+test('interface readiness is tracked per capability', () => {
+  const imageOnly = sampleConfig();
+  imageOnly.chat.apiKey = '';
+  const imageConfig = publicInterfaceConfig(imageOnly);
+  assert.equal(imageConfig.ready, true);
+  assert.deepEqual(imageConfig.capabilities, { image: true, chat: false });
+
+  const chatOnly = sampleConfig();
+  chatOnly.image.apiKey = '';
+  const adminConfig = adminInterfaceConfig(chatOnly);
+  assert.equal(adminConfig.ready, true);
+  assert.deepEqual(adminConfig.capabilities, { image: false, chat: true });
+
+  const disabled = sampleConfig();
+  disabled.enabled = false;
+  const disabledConfig = publicInterfaceConfig(disabled);
+  assert.equal(disabledConfig.ready, false);
+  assert.deepEqual(disabledConfig.capabilities, { image: false, chat: false });
+});
+
 test('interface defaults reject base URLs with embedded credentials', () => {
   const config = sampleConfig();
   config.image.baseUrl = 'https://user:pass@api.example.com';

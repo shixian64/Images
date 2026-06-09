@@ -158,23 +158,43 @@ function publicEndpoint(endpoint, { includeTestDetails = false } = {}) {
   return out;
 }
 
+function readiness(normalized) {
+  const imageReady = Boolean(normalized.enabled && normalized.image.apiKey);
+  const chatReady = Boolean(normalized.enabled && normalized.chat.apiKey);
+  return {
+    imageReady,
+    chatReady,
+    ready: imageReady || chatReady
+  };
+}
+
 export function publicInterfaceConfig(config) {
   const normalized = normalizeConfig(config);
+  const ready = readiness(normalized);
   return {
     ...normalized,
     image: publicEndpoint(normalized.image),
     chat: publicEndpoint(normalized.chat),
-    ready: Boolean(normalized.enabled && normalized.image.apiKey && normalized.chat.apiKey)
+    ready: ready.ready,
+    capabilities: {
+      image: ready.imageReady,
+      chat: ready.chatReady
+    }
   };
 }
 
 export function adminInterfaceConfig(config) {
   const normalized = normalizeConfig(config);
+  const ready = readiness(normalized);
   return {
     ...normalized,
     image: publicEndpoint(normalized.image, { includeTestDetails: true }),
     chat: publicEndpoint(normalized.chat, { includeTestDetails: true }),
-    ready: Boolean(normalized.enabled && normalized.image.apiKey && normalized.chat.apiKey)
+    ready: ready.ready,
+    capabilities: {
+      image: ready.imageReady,
+      chat: ready.chatReady
+    }
   };
 }
 
