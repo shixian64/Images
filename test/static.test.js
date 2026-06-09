@@ -147,12 +147,11 @@ test('owner can access own user-scoped image', async () => {
   assert.ok(Buffer.isBuffer(res.body) && res.body.length === 4);
 });
 
-test('saved gallery images use immutable private cache headers with ETag revalidation', async () => {
+test('saved gallery images require revalidation with ETag cache headers', async () => {
   const url = `/gallery-files/users/${userA.id}/images/2026-04-25/a.png`;
   const res = await call(url, { user: userA, sessionId: 's' });
   assert.equal(res.statusCode, 200);
-  assert.match(res.headers['cache-control'], /max-age=31536000/);
-  assert.match(res.headers['cache-control'], /immutable/);
+  assert.equal(res.headers['cache-control'], 'private, no-cache, max-age=0');
   assert.match(res.headers.etag, /^"[0-9a-f]+-[0-9a-f]+"$/);
 
   const cached = await call(url, { user: userA, sessionId: 's' }, {
@@ -201,7 +200,7 @@ test('logged-in users can access prompt example images by dedicated route', asyn
     { user: userB, sessionId: 's' }
   );
   assert.equal(res.statusCode, 200);
-  assert.match(res.headers['cache-control'], /max-age=31536000/);
+  assert.equal(res.headers['cache-control'], 'private, no-cache, max-age=0');
 });
 
 test('anonymous users cannot access prompt example images', async () => {

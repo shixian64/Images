@@ -28,7 +28,7 @@ const MIME = {
   '.gif': 'image/gif'
 };
 
-const GALLERY_IMAGE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
+const USER_IMAGE_CACHE_CONTROL = 'private, no-cache, max-age=0';
 const DEFAULT_CACHE_CONTROL = 'no-cache';
 
 function send403(res) {
@@ -201,7 +201,7 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
       const isUserImageFile = isGalleryFile || isPromptExampleFile;
       const cacheHeaders = isUserImageFile
         ? {
-            'cache-control': GALLERY_IMAGE_CACHE_CONTROL,
+            'cache-control': USER_IMAGE_CACHE_CONTROL,
             'etag': etagForStat(fileStat)
           }
         : { 'cache-control': DEFAULT_CACHE_CONTROL };
