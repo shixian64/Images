@@ -4,7 +4,7 @@
 
 ## 通用约定
 
-- 所有响应默认为 JSON，错误形态通常为 `{ "error": "message" }`。
+- 所有响应默认为 JSON，错误形态通常为 `{ "error": "message" }`；SSE、204 空响应和静态文件路由除外。
 - 除 `GET` / `HEAD` / `OPTIONS` 外，所有 `/api/*` 请求都需要：
   - `X-Requested-With: fetch`
   - `Origin` 或 `Referer` 与当前 `Host` 同源
@@ -25,7 +25,8 @@
 | POST | `/api/auth/register` | 公开 + CSRF | 注册；空库首个账号自动成为管理员，其他注册受注册策略限制。 |
 | POST | `/api/auth/login` | 公开 + CSRF | 登录并设置 session cookie。 |
 | POST | `/api/auth/logout` | 公开 + CSRF | 销毁当前 session。 |
-| GET | `/api/auth/me` | 公开 | 返回当前登录用户；未登录时返回空状态。 |
+| GET | `/api/auth/registration-policy` | 公开 | 返回当前注册策略摘要，供登录页决定是否展示邀请码入口。 |
+| GET | `/api/auth/me` | 公开 | 返回当前登录用户；未登录时返回 401。 |
 
 ## 当前用户
 
@@ -58,13 +59,14 @@
 | GET | `/api/jobs/:id` | 登录 | 当前用户读取单个任务。 |
 | POST | `/api/jobs/:id/cancel` | 登录 | 取消当前用户任务。 |
 | POST | `/api/jobs/:id/retry` | 登录 | 重试当前用户可重试任务。 |
-| GET | `/api/jobs/:id/events` | 登录 | 订阅单任务 SSE。 |
-| GET | `/api/jobs/events` | 登录 | 订阅当前用户任务 SSE。 |
+| GET | `/api/jobs/stream` | 登录 | 订阅当前用户任务 SSE。 |
+| GET | `/api/jobs/:id/stream` | 登录 | 订阅单任务 SSE。 |
 | GET | `/api/admin/jobs` | 管理员 | 管理员任务列表。 |
 | GET/PUT | `/api/admin/jobs/settings` | 管理员 | 读取/保存队列设置。 |
+| GET | `/api/admin/jobs/:id` | 管理员 | 管理员读取单个任务。 |
 | POST | `/api/admin/jobs/:id/cancel` | 管理员 | 管理员取消任务。 |
-| PATCH | `/api/admin/jobs/:id/priority` | 管理员 | 调整任务优先级。 |
-| GET | `/api/admin/jobs/events` | 管理员 | 订阅管理员任务 SSE。 |
+| PATCH/POST | `/api/admin/jobs/:id/priority` | 管理员 | 调整任务优先级。 |
+| GET | `/api/admin/jobs/stream` | 管理员 | 订阅管理员任务 SSE。 |
 
 队列当前运行边界：SQLite 持久化 + 单 Node 进程调度。系统默认接口任务可在重启后继续排队执行；个人覆盖 Key 只在当前进程内存中存在，重启后需要用户重新提交。
 
@@ -72,15 +74,16 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/gallery` | 登录 | 当前用户图库列表。 |
-| PATCH | `/api/gallery/:id` | 登录 | 更新当前用户图片公开状态等元数据。 |
+| GET | `/api/gallery` | 登录 | 当前用户图库或公开图库列表；`scope=public` 时读取公开图库。 |
+| POST | `/api/gallery/:id/visibility` | 登录 | 设置图片公开/取消公开；普通用户只能操作自己的图片。 |
+| POST | `/api/gallery/:id/like` | 登录 | 点赞公开图片；受每日点赞次数限制。 |
 | DELETE | `/api/gallery/:id` | 登录 | 删除当前用户图片。 |
 | GET | `/api/admin/gallery` | 管理员 | 管理员图库列表，支持筛选、分页、排序。 |
 | GET | `/api/admin/gallery/stats` | 管理员 | 图库统计。 |
 | DELETE | `/api/admin/gallery/:id` | 管理员 | 管理员删除单张图片。 |
 | POST | `/api/admin/gallery/bulk-delete` | 管理员 | 管理员批量删除图片。 |
 | GET | `/api/admin/gallery/orphans` | 管理员 | 扫描 DB 缺失文件与磁盘孤儿文件。 |
-| POST | `/api/admin/gallery/orphans/delete-dangling` | 管理员 | 删除孤儿文件。 |
+| DELETE | `/api/admin/gallery/orphans` | 管理员 | 删除孤儿文件；请求体为 `{ "path": "users/<uid>/images/..." }`。 |
 
 图片文件不直接走 `/api`，由 `/gallery-files/*` 和 `/prompt-example-files/*` 静态路由按 session 与 DB 归属校验。
 
@@ -89,17 +92,16 @@
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET/POST | `/api/prompt-square` | 登录 | 浏览或发布 Prompt Square 条目。 |
-| GET/PATCH/DELETE | `/api/prompt-square/:id` | 登录 | 读取、更新或删除条目。 |
+| GET/DELETE | `/api/prompt-square/:id` | 登录 | 读取或删除条目；删除仅限作者或管理员。 |
 | POST | `/api/prompt-square/:id/use` | 登录 | 记录使用次数。 |
-| GET/POST | `/api/prompt-examples` | 登录 | 管理提示词示例图。 |
-| DELETE | `/api/prompt-examples/:id` | 登录 | 删除提示词示例图。 |
+| POST | `/api/prompt-examples` | 登录 | 上传提示词示例图。 |
 
 ## 漫画工作流
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET/POST | `/api/comic-projects` | 登录 | 列表 / 创建漫画项目。 |
-| GET/PATCH/DELETE | `/api/comic-projects/:id` | 登录 | 读取、更新、删除漫画项目。 |
+| GET/PUT/PATCH/DELETE | `/api/comic-projects/:id` | 登录 | 读取、更新、删除漫画项目。 |
 | POST | `/api/comic-storyboards` | 登录 | 创建分镜生成任务。 |
 
 ## 管理后台
@@ -111,12 +113,13 @@
 | POST | `/api/users/:id/reset-password` | 管理员 | 重置用户密码。 |
 | POST | `/api/users/:id/logout` | 管理员 | 强制用户所有 session 下线。 |
 | GET/PUT | `/api/admin/quota/defaults` | 管理员 | 读取/保存默认额度。 |
-| GET/PATCH | `/api/admin/quota/users/:id` | 管理员 | 读取/修改单用户额度覆盖。 |
+| GET/PUT/DELETE | `/api/admin/quota/users/:id` | 管理员 | 读取、修改或清除单用户额度覆盖。 |
 | POST | `/api/admin/quota/users/:id/reset` | 管理员 | 重置用户今日或本月用量。 |
-| GET/PUT | `/api/admin/registration/settings` | 管理员 | 读取/保存注册策略。 |
-| POST | `/api/admin/registration/invites/generate` | 管理员 | 生成邀请码。 |
-| POST | `/api/admin/registration/invites/reset` | 管理员 | 重置邀请码。 |
-| POST | `/api/admin/registration/invites/:code/disable` | 管理员 | 停用邀请码。 |
+| GET/PUT | `/api/admin/registration` 或 `/api/admin/registration/settings` | 管理员 | 读取/保存注册策略。 |
+| POST | `/api/admin/registration/invites` | 管理员 | 生成邀请码。 |
+| POST/DELETE | `/api/admin/registration/invites/reset` | 管理员 | 重置邀请码。 |
+| POST/DELETE | `/api/admin/registration/invites/:code` | 管理员 | 停用邀请码。 |
+| POST/DELETE | `/api/admin/registration/redemptions/cleanup` | 管理员 | 清理邀请码兑换记录，可选同步停用未使用旧邀请码。 |
 | GET | `/api/admin/client-logs` | 管理员 | 查询前端同步的客户端日志。 |
 
 ## 常见错误码
