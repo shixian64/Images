@@ -1,6 +1,6 @@
 // Browser/client log ingestion and admin querying.
 
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { positiveIntFromEnv } from '../utils/config.js';
 import { clientIp } from '../utils/request.js';
@@ -12,10 +12,6 @@ import {
 
 const DEFAULT_CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE = 60;
 const DEFAULT_CLIENT_LOG_RATE_LIMIT_WINDOW_MS = 60_000;
-
-function statusFromError(err) {
-  return err?.statusCode || bodyErrorStatus(err);
-}
 
 function clientLogLimitSnapshot() {
   return {
@@ -65,7 +61,7 @@ export async function handleClientLogsRoute(req, res, pathname, urlObj) {
       const result = recordClientLogs(req, body || {});
       return sendJson(res, 200, { ok: true, ...result });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
     }
   }
 

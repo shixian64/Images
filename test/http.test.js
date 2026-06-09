@@ -8,6 +8,7 @@ import {
   createHttpError,
   readJsonBody,
   readMultipartFormData,
+  routeErrorStatus,
   sendJson,
   sendMethodNotAllowed,
   sendNoContent
@@ -71,6 +72,20 @@ test('createHttpError keeps status/statusCode/code compatibility', () => {
   assert.equal(err.status, 429);
   assert.equal(err.code, 'rate_limited');
   assert.equal(bodyErrorStatus(err), 429);
+});
+
+test('routeErrorStatus centralizes explicit and message-based route status mapping', () => {
+  assert.equal(routeErrorStatus(createHttpError(429, 'limited')), 429);
+  assert.equal(routeErrorStatus(new Error('user not found')), 404);
+  assert.equal(routeErrorStatus(new Error('username already taken')), 409);
+  assert.equal(routeErrorStatus(new Error('image not public'), { 'image not public': 403 }), 403);
+  assert.equal(routeErrorStatus(new Error('接口已停用'), {
+    includes: { 已停用: 409 }
+  }), 409);
+  assert.equal(routeErrorStatus(new Error('invalid quota value'), {
+    startsWith: { 'invalid ': 400 }
+  }), 400);
+  assert.equal(routeErrorStatus(new Error('unexpected failure')), 400);
 });
 
 test('readJsonBody invalid JSON includes stable error code', async () => {

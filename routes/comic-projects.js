@@ -1,6 +1,6 @@
 // /api/comic-projects —— 漫画项目的保存、列表、详情与删除。
 
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import {
   deleteComicProject,
   getComicProjectDetail,
@@ -10,15 +10,10 @@ import {
 } from '../services/comic-projects.js';
 import { record as auditRecord } from '../services/audit.js';
 
-function statusForError(err) {
-  const map = {
-    unauthorized: 401,
-    forbidden: 403,
-    'comic project not found': 404,
-    'failed to delete some project images': 500
-  };
-  return err.status || err.statusCode || map[err.message] || 400;
-}
+const COMIC_PROJECT_ERROR_STATUSES = Object.freeze({
+  'comic project not found': 404,
+  'failed to delete some project images': 500
+});
 
 async function readBody(req, res) {
   try {
@@ -50,7 +45,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
         });
         return sendJson(res, 200, { ok: true, project });
       } catch (err) {
-        return sendJson(res, statusForError(err), { error: err.message || String(err), code: err.code });
+        return sendJson(res, routeErrorStatus(err, COMIC_PROJECT_ERROR_STATUSES), { error: err.message || String(err), code: err.code });
       }
     }
     return sendMethodNotAllowed(res, ['GET', 'POST']);
@@ -63,7 +58,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
       try {
         return sendJson(res, 200, await getComicProjectDetail(id, { userId: user.id, isAdmin }));
       } catch (err) {
-        return sendJson(res, statusForError(err), { error: err.message || String(err), code: err.code });
+        return sendJson(res, routeErrorStatus(err, COMIC_PROJECT_ERROR_STATUSES), { error: err.message || String(err), code: err.code });
       }
     }
     if (req.method === 'PUT' || req.method === 'PATCH') {
@@ -77,7 +72,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
         });
         return sendJson(res, 200, { ok: true, project });
       } catch (err) {
-        return sendJson(res, statusForError(err), { error: err.message || String(err), code: err.code });
+        return sendJson(res, routeErrorStatus(err, COMIC_PROJECT_ERROR_STATUSES), { error: err.message || String(err), code: err.code });
       }
     }
     if (req.method === 'DELETE') {
@@ -88,7 +83,7 @@ export async function handleComicProjectsRoute(req, res, pathname, url) {
         });
         return sendJson(res, 200, { ok: true, removed });
       } catch (err) {
-        return sendJson(res, statusForError(err), {
+        return sendJson(res, routeErrorStatus(err, COMIC_PROJECT_ERROR_STATUSES), {
           error: err.message || String(err),
           code: err.code,
           failed: err.failed || undefined

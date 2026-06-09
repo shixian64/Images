@@ -6,7 +6,7 @@
 //   /api/admin/quota/users/:id/reset  —— POST { scope: today|month }
 // TAG: hmt---
 
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { users as usersTable } from '../services/db.js';
 import {
@@ -21,12 +21,6 @@ import {
 } from '../services/quota.js';
 import { record as auditRecord } from '../services/audit.js';
 import { sanitizeUser } from '../services/auth.js';
-
-function statusFromError(msg) {
-  if (msg === 'user not found') return 404;
-  if (String(msg).startsWith('invalid ')) return 400;
-  return 400;
-}
 
 async function handleMe(req, res) {
   const data = summary(req.session.user.id);
@@ -49,7 +43,7 @@ async function handleDefaults(req, res) {
       auditRecord(req, 'quota.defaults_update', { type: 'system', id: 'quota.defaults' }, next);
       sendJson(res, 200, { defaults: next });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -115,7 +109,7 @@ async function handleUserDetail(req, res, id) {
       auditRecord(req, 'quota.user_update', { type: 'user', id }, body);
       sendJson(res, 200, { quota, usage: usageSnapshot(id) });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -126,7 +120,7 @@ async function handleUserDetail(req, res, id) {
       auditRecord(req, 'quota.user_clear', { type: 'user', id });
       sendJson(res, 200, { quota, usage: usageSnapshot(id) });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }

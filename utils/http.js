@@ -88,6 +88,55 @@ export function bodyErrorStatus(error) {
   return errorStatus(error, 400);
 }
 
+const COMMON_ROUTE_ERROR_STATUSES = Object.freeze({
+  unauthorized: 401,
+  forbidden: 403,
+  'self-modify forbidden': 403,
+  'user not found': 404,
+  'image not found': 404,
+  'username already taken': 409,
+  'email already taken': 409,
+  'cannot remove last active admin': 409
+});
+
+function normalizeRouteErrorStatusOptions(options = {}) {
+  if (
+    options.messages ||
+    options.startsWith ||
+    options.includes ||
+    options.fallback !== undefined
+  ) {
+    return options;
+  }
+  return { messages: options };
+}
+
+function mappedStatus(message, mappings = {}) {
+  if (!message) return 0;
+  if (Object.hasOwn(mappings, message)) return Number(mappings[message]) || 0;
+  return 0;
+}
+
+export function routeErrorStatus(error, options = {}, fallback = 400) {
+  const explicit = errorStatus(error, 0);
+  if (explicit) return explicit;
+
+  const normalized = normalizeRouteErrorStatusOptions(options);
+  const finalFallback = Number(normalized.fallback ?? fallback) || 400;
+  const message = typeof error === 'string' ? error : error?.message || String(error || '');
+  const messages = { ...COMMON_ROUTE_ERROR_STATUSES, ...(normalized.messages || {}) };
+  const exact = mappedStatus(message, messages);
+  if (exact) return exact;
+
+  for (const [prefix, status] of Object.entries(normalized.startsWith || {})) {
+    if (message.startsWith(prefix)) return Number(status) || finalFallback;
+  }
+  for (const [needle, status] of Object.entries(normalized.includes || {})) {
+    if (message.includes(needle)) return Number(status) || finalFallback;
+  }
+  return finalFallback;
+}
+
 export async function readJsonBody(req, { limitBytes = getJsonBodyLimitBytes() } = {}) {
   const chunks = [];
   let total = 0;

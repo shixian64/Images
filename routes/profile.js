@@ -1,7 +1,7 @@
 // /api/profile* 路由：当前用户的资料与密码维护。
 // TAG: hmt---
 
-import { sendJson, sendMethodNotAllowed, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, sendNoContent, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { users, sessions } from '../services/db.js';
 import { updateProfile, changePassword } from '../services/users.js';
 import { createSession, sanitizeUser } from '../services/auth.js';
@@ -49,8 +49,7 @@ async function handlePassword(req, res) {
   try {
     changePassword(userId, oldPassword, newPassword);
   } catch (err) {
-    const status = err.message === 'invalid credentials' ? 401 : 400;
-    sendJson(res, status, { error: err.message });
+    sendJson(res, routeErrorStatus(err, { 'invalid credentials': 401 }), { error: err.message });
     return;
   }
   // 改密后吊销该用户所有 session（含其他设备），为当前请求重建一条

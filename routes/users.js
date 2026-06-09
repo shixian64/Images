@@ -1,7 +1,7 @@
 // /api/users* 路由：仅 admin 可用。
 // TAG: hmt---
 
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listUsers,
@@ -39,14 +39,6 @@ function applyFilters(items, urlObj) {
   });
 }
 
-function statusFromError(msg) {
-  if (msg === 'user not found') return 404;
-  if (msg === 'self-modify forbidden') return 403;
-  if (msg === 'cannot remove last active admin') return 409;
-  if (msg === 'username already taken' || msg === 'email already taken') return 409;
-  return 400;
-}
-
 async function handleCollection(req, res, urlObj) {
   if (req.method === 'GET') {
     const all = listUsers();
@@ -67,7 +59,7 @@ async function handleCollection(req, res, urlObj) {
       });
       sendJson(res, 200, { user });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -86,7 +78,7 @@ async function handleDetail(req, res, id) {
       const clientLogs = listClientLogsForUser(id, { limit: 100 });
       sendJson(res, 200, { ...detail, audits, activityLogs, jobs, clientLogs });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -103,7 +95,7 @@ async function handleDetail(req, res, id) {
       auditRecord(req, 'user.patch', { type: 'user', id }, { role, status });
       sendJson(res, 200, { user });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -118,7 +110,7 @@ async function handleDetail(req, res, id) {
       });
       sendJson(res, 200, { ok: true, removed: result });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -153,7 +145,7 @@ async function handleAction(req, res, id, action) {
         password: result.generated ? result.password : null
       });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }
@@ -164,7 +156,7 @@ async function handleAction(req, res, id, action) {
       auditRecord(req, 'user.force_logout', { type: 'user', id });
       sendJson(res, 200, { ok: true, user });
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message });
+      sendJson(res, routeErrorStatus(err), { error: err.message });
     }
     return;
   }

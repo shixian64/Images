@@ -1,6 +1,6 @@
 // /api/jobs and /api/admin/jobs routes for the persistent generation queue.
 
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { createSseSession, openSse, writeSse } from '../utils/sse.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
@@ -19,10 +19,6 @@ import {
   subscribeUserJobs,
   updateJobPriority
 } from '../services/job-queue.js';
-
-function statusFromError(err) {
-  return err?.statusCode || bodyErrorStatus(err);
-}
 
 async function readBodyOrEmpty(req) {
   try { return await readJsonBody(req); }
@@ -60,7 +56,7 @@ async function handleUserJobs(req, res, pathname) {
       const cleanup = subscribeJob(id, res);
       createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
     }
     return;
   }
@@ -72,7 +68,7 @@ async function handleUserJobs(req, res, pathname) {
       const job = cancelJob(decodeURIComponent(cancelMatch[1]), user);
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err), code: err.code });
     }
   }
 
@@ -83,7 +79,7 @@ async function handleUserJobs(req, res, pathname) {
       const job = await retryJob(decodeURIComponent(retryMatch[1]), user);
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err), code: err.code });
     }
   }
 
@@ -94,7 +90,7 @@ async function handleUserJobs(req, res, pathname) {
       const job = getJobForUser(decodeURIComponent(detailMatch[1]), user);
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
     }
   }
 
@@ -143,7 +139,7 @@ async function handleAdminJobs(req, res, pathname, url) {
         });
         return sendJson(res, 200, { settings });
       } catch (err) {
-        return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+        return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
       }
     }
     return sendMethodNotAllowed(res, ['GET', 'PUT']);
@@ -156,7 +152,7 @@ async function handleAdminJobs(req, res, pathname, url) {
       const job = cancelJob(decodeURIComponent(cancelMatch[1]), req.session.user, { admin: true });
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err), code: err.code });
     }
   }
 
@@ -170,7 +166,7 @@ async function handleAdminJobs(req, res, pathname, url) {
       const job = updateJobPriority(decodeURIComponent(priorityMatch[1]), body?.priority, req.session.user);
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err), code: err.code });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err), code: err.code });
     }
   }
 
@@ -182,7 +178,7 @@ async function handleAdminJobs(req, res, pathname, url) {
       if (!job) return sendJson(res, 404, { error: 'job not found' });
       return sendJson(res, 200, { job });
     } catch (err) {
-      return sendJson(res, statusFromError(err), { error: err.message || String(err) });
+      return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
     }
   }
 

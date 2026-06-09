@@ -2,7 +2,7 @@
 // POST /api/generate now enqueues a persistent job and returns immediately.
 // POST /api/generate/stream keeps legacy semantics: enqueue, stream status, end with result/error.
 
-import { readJsonBody, readMultipartFormData, sendJson, bodyErrorStatus } from '../utils/http.js';
+import { readJsonBody, readMultipartFormData, sendJson, routeErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { createSseSession, openSse, writeSse, writeSseComment } from '../utils/sse.js';
 import {
@@ -25,10 +25,6 @@ export function handleGenerateConfig(req, res) {
     return sendJson(res, 401, { error: 'unauthorized' });
   }
   return sendJson(res, 200, { maxImagesPerRequest: getMaxImagesPerRequest() });
-}
-
-function statusFromError(error) {
-  return error?.statusCode || bodyErrorStatus(error);
 }
 
 function parseMaybeJson(value, fallback = {}) {
@@ -88,7 +84,7 @@ export async function handleGenerate(req, res) {
       code: error?.code,
       error: error.message || String(error)
     });
-    return sendJson(res, statusFromError(error), {
+    return sendJson(res, routeErrorStatus(error), {
       error: error.message || String(error),
       code: error?.code
     });
@@ -147,7 +143,7 @@ export async function handleGenerateStream(req, res) {
       code: error?.code,
       error: error.message || String(error)
     });
-    return sendJson(res, statusFromError(error), {
+    return sendJson(res, routeErrorStatus(error), {
       error: error.message || String(error),
       code: error?.code
     });

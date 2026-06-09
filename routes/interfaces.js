@@ -3,7 +3,7 @@
 //   /api/admin/interfaces/default           —— 管理员读取/保存全局默认接口
 //   /api/admin/interfaces/default/test      —— 管理员测试已保存的全局默认接口
 
-import { readJsonBody, sendJson, sendMethodNotAllowed, bodyErrorStatus } from '../utils/http.js';
+import { readJsonBody, sendJson, sendMethodNotAllowed, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
@@ -47,13 +47,12 @@ function kindLabel(kind) {
   return kind === 'chat' ? '对话' : '生图';
 }
 
-function statusFromError(message) {
-  if (typeof message === 'object' && message?.statusCode) return Number(message.statusCode) || 400;
-  if (String(message).startsWith('invalid ')) return 400;
-  if (String(message).includes('缺少 API Key')) return 400;
-  if (String(message).includes('已停用')) return 409;
-  return 400;
-}
+const INTERFACE_ERROR_STATUS_OPTIONS = Object.freeze({
+  includes: {
+    '缺少 API Key': 400,
+    '已停用': 409
+  }
+});
 
 function publicPayload() {
   return { default: getGlobalInterfaceConfig({ publicView: true }) };
@@ -99,7 +98,7 @@ async function handleAdminDefault(req, res) {
       });
       sendJson(res, 200, adminPayload(next));
     } catch (err) {
-      sendJson(res, statusFromError(err.message), { error: err.message || String(err) });
+      sendJson(res, routeErrorStatus(err, INTERFACE_ERROR_STATUS_OPTIONS), { error: err.message || String(err) });
     }
     return;
   }
@@ -222,7 +221,7 @@ async function handleAdminTest(req, res) {
       }
     }, req.session.user.id);
     logger.warn('interface.default.test.rejected', { kind, durationMs, error });
-    sendJson(res, statusFromError(err), {
+    sendJson(res, routeErrorStatus(err, INTERFACE_ERROR_STATUS_OPTIONS), {
       ok: false,
       error,
       default: adminInterfaceConfig(next)

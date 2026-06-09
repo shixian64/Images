@@ -6,7 +6,7 @@ import {
   setImagePublic,
   likePublicImage
 } from '../services/gallery-store.js';
-import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { record as auditRecord } from '../services/audit.js';
 
@@ -38,8 +38,7 @@ export async function handleGallery(req, res, pathname) {
       });
       return sendJson(res, 200, { ok: true, item });
     } catch (err) {
-      const map = { 'image not found': 404, 'forbidden': 403, unauthorized: 401 };
-      return sendJson(res, err.status || map[err.message] || 400, { error: err.message, code: err.code });
+      return sendJson(res, routeErrorStatus(err), { error: err.message, code: err.code });
     }
   }
 
@@ -56,13 +55,10 @@ export async function handleGallery(req, res, pathname) {
       });
       return sendJson(res, 200, { ok: true, ...result });
     } catch (err) {
-      const map = {
-        'image not found': 404,
+      return sendJson(res, routeErrorStatus(err, {
         'image not public': 403,
-        unauthorized: 401,
         'daily like limit exceeded': 429
-      };
-      return sendJson(res, err.status || map[err.message] || 400, { error: err.message, code: err.code });
+      }), { error: err.message, code: err.code });
     }
   }
 
@@ -80,8 +76,7 @@ export async function handleGallery(req, res, pathname) {
       });
       return sendJson(res, 200, { ok: true, removed });
     } catch (err) {
-      const map = { 'image not found': 404, 'forbidden': 403 };
-      return sendJson(res, map[err.message] || 400, { error: err.message });
+      return sendJson(res, routeErrorStatus(err), { error: err.message });
     }
   }
 

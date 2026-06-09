@@ -2,7 +2,7 @@
 // 列表（带筛选/分页）、单张/批量删除、统计、孤儿扫描与清理。
 // TAG: hmt---
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, readJsonBody, bodyErrorStatus, routeErrorStatus } from '../utils/http.js';
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listAdminGallery,
@@ -86,8 +86,7 @@ async function handleDeleteOne(req, res, id) {
     });
     sendJson(res, 200, { ok: true, removed });
   } catch (err) {
-    const status = err.message === 'image not found' ? 404 : 400;
-    sendJson(res, status, { error: err.message });
+    sendJson(res, routeErrorStatus(err), { error: err.message });
   }
 }
 
@@ -136,7 +135,7 @@ async function handleDeleteDangling(req, res) {
     auditRecord(req, 'image.dangling_delete', { type: 'image', id: null }, { path });
     sendJson(res, 200, { ok: true, removed: out });
   } catch (err) {
-    sendJson(res, 400, { error: err.message });
+    sendJson(res, routeErrorStatus(err), { error: err.message });
   }
 }
 
