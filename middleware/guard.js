@@ -2,6 +2,7 @@
 // TAG: hmt---
 
 import { sendJson } from '../utils/http.js';
+import { isTrustProxyEnabled } from '../utils/request.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -18,14 +19,53 @@ export function requireAdmin(req, res) {
   return false;
 }
 
-// 取 URL 的 host 部分（含端口），失败返 null
-function hostOf(url) {
+// Compare the full origin (scheme + host) for CSRF checks.
+function firstHeader(value) {
+  if (Array.isArray(value)) return value[0] || '';
+  return value || '';
+}
+
+function firstHeaderToken(value) {
+  return String(firstHeader(value) || '').split(',')[0]?.trim() || '';
+}
+
+function forwardedProto(value) {
+  const first = String(firstHeader(value) || '').split(',')[0] || '';
+  const match = first.match(/(?:^|;)\s*proto=(?:"?)(https?)(?:"?)(?:;|$)/i);
+  return match?.[1]?.toLowerCase() || '';
+}
+
+function normalizedProtocol(value) {
+  const protocol = String(value || '').trim().replace(/:$/, '').toLowerCase();
+  return protocol === 'http' || protocol === 'https' ? protocol : '';
+}
+
+function requestProtocol(req) {
+  if (isTrustProxyEnabled()) {
+    const headers = req?.headers || {};
+    const proxyProtocol = normalizedProtocol(firstHeaderToken(headers['x-forwarded-proto']))
+      || normalizedProtocol(forwardedProto(headers.forwarded));
+    if (proxyProtocol) return proxyProtocol;
+  }
+  return req?.socket?.encrypted ? 'https' : 'http';
+}
+
+function originOf(url) {
   if (!url) return null;
   try {
-    return new URL(url).host;
+    const parsed = new URL(url);
+    const protocol = normalizedProtocol(parsed.protocol);
+    if (!protocol || !parsed.host) return null;
+    return `${protocol}://${parsed.host.toLowerCase()}`;
   } catch {
     return null;
   }
+}
+
+function selfOrigin(req) {
+  const host = String(req?.headers?.host || '').trim().toLowerCase();
+  if (!host) return null;
+  return `${requestProtocol(req)}://${host}`;
 }
 
 export function requireCsrf(req, res) {
@@ -35,9 +75,9 @@ export function requireCsrf(req, res) {
     sendJson(res, 403, { error: 'csrf' });
     return false;
   }
-  const selfHost = req.headers.host;
-  const originHost = hostOf(req.headers.origin) || hostOf(req.headers.referer);
-  if (!selfHost || !originHost || originHost !== selfHost) {
+  const expectedOrigin = selfOrigin(req);
+  const requestOrigin = originOf(req.headers.origin) || originOf(req.headers.referer);
+  if (!expectedOrigin || !requestOrigin || requestOrigin !== expectedOrigin) {
     sendJson(res, 403, { error: 'csrf' });
     return false;
   }
