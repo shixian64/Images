@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS registration_invites (
   created_at  TEXT NOT NULL,
   created_by  TEXT,
   updated_at  TEXT NOT NULL,
+  expires_at  TEXT,
   disabled_at TEXT,
   disabled_by TEXT
 );
@@ -261,6 +262,8 @@ CREATE INDEX IF NOT EXISTS idx_registration_invites_created
   ON registration_invites(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_registration_invites_active
   ON registration_invites(disabled_at, used_count, max_uses);
+CREATE INDEX IF NOT EXISTS idx_registration_invites_expires
+  ON registration_invites(expires_at);
 
 CREATE TABLE IF NOT EXISTS registration_invite_redemptions (
   id            TEXT PRIMARY KEY,
@@ -318,6 +321,7 @@ export function migrate() {
   db.exec(DATA_LIFECYCLE_INDEXES);
   runSchemaMigration(db, 6, 'prompt_square_nullable_owner', () => migratePromptSquareNullableOwner(db), { transaction: false });
   runSchemaMigration(db, 7, 'registration_invite_code_hashes', () => migrateRegistrationInviteCodeHashes(db));
+  runSchemaMigration(db, 8, 'registration_invite_expiry', () => migrateRegistrationInviteExpiry(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -402,6 +406,14 @@ function migrateRegistrationInviteCodeHashes(db) {
     if (!code || isInviteCodeHash(code)) continue;
     updateRedemptions.run(hashInviteCode(code), code);
   }
+}
+
+function migrateRegistrationInviteExpiry(db) {
+  addColumnIfMissing(db, 'registration_invites', 'expires_at', 'expires_at TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_registration_invites_expires
+      ON registration_invites(expires_at);
+  `);
 }
 
 function migrateImagePublicColumns(db) {
@@ -1859,11 +1871,20 @@ function inviteDisplayCode(code) {
   return `${INVITE_CODE_HASH_PREFIX}${hash.slice(0, 10)}...`;
 }
 
+function isPastIso(value, nowMs = Date.now()) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  const time = Date.parse(text);
+  return Number.isFinite(time) && time <= nowMs;
+}
+
 function parseInvite(row) {
   if (!row) return null;
   const maxUses = Math.max(1, Math.floor(Number(row.max_uses) || 1));
   const usedCount = Math.max(0, Math.floor(Number(row.used_count) || 0));
   const remainingUses = Math.max(0, maxUses - usedCount);
+  const expiresAt = row.expires_at || null;
+  const expired = isPastIso(expiresAt);
   return {
     code: row.code,
     displayCode: inviteDisplayCode(row.code),
@@ -1874,9 +1895,11 @@ function parseInvite(row) {
     createdAt: row.created_at,
     createdBy: row.created_by || null,
     updatedAt: row.updated_at,
+    expiresAt,
+    expired,
     disabledAt: row.disabled_at || null,
     disabledBy: row.disabled_by || null,
-    active: !row.disabled_at && remainingUses > 0
+    active: !row.disabled_at && !expired && remainingUses > 0
   };
 }
 
@@ -1906,24 +1929,40 @@ export const registrationInvites = {
     `).all().map(parseInvite);
   },
   activeCount() {
+    const now = nowIso();
     const row = open().prepare(`
       SELECT COUNT(*) AS n
       FROM registration_invites
-      WHERE disabled_at IS NULL AND used_count < max_uses
-    `).get();
+      WHERE disabled_at IS NULL
+        AND used_count < max_uses
+        AND (expires_at IS NULL OR expires_at > ?)
+    `).get(now);
     return Number(row?.n) || 0;
   },
   findUsable(code) {
     const keys = inviteLookupKeys(code);
     if (!keys.length) return null;
+    const now = nowIso();
     const row = open().prepare(`
       SELECT * FROM registration_invites
       WHERE code IN (${keys.map(() => '?').join(',')})
         AND disabled_at IS NULL
         AND used_count < max_uses
+        AND (expires_at IS NULL OR expires_at > ?)
+      LIMIT 1
+    `).get(...keys, now);
+    return parseInvite(row);
+  },
+  exists(code) {
+    const keys = inviteLookupKeys(code, { allowStoredIdentifier: true });
+    if (!keys.length) return false;
+    const row = open().prepare(`
+      SELECT 1 AS found
+      FROM registration_invites
+      WHERE code IN (${keys.map(() => '?').join(',')})
       LIMIT 1
     `).get(...keys);
-    return parseInvite(row);
+    return Boolean(row?.found);
   },
   createMany(items = [], { createdBy = null } = {}) {
     const rows = Array.isArray(items) ? items : [];
@@ -1932,8 +1971,8 @@ export const registrationInvites = {
     const createdAt = nowIso();
     const stmt = db.prepare(`
       INSERT INTO registration_invites
-      (code, max_uses, used_count, created_at, created_by, updated_at, disabled_at, disabled_by)
-      VALUES (?, ?, 0, ?, ?, ?, NULL, NULL)
+      (code, max_uses, used_count, created_at, created_by, updated_at, expires_at, disabled_at, disabled_by)
+      VALUES (?, ?, 0, ?, ?, ?, ?, NULL, NULL)
     `);
     const created = [];
     db.exec('BEGIN;');
@@ -1943,7 +1982,8 @@ export const registrationInvites = {
         if (!code) continue;
         const storedCode = hashInviteCode(code);
         const maxUses = Math.max(1, Math.floor(Number(item?.maxUses) || 1));
-        stmt.run(storedCode, maxUses, createdAt, createdBy || null, createdAt);
+        const expiresAt = String(item?.expiresAt || '').trim() || null;
+        stmt.run(storedCode, maxUses, createdAt, createdBy || null, createdAt, expiresAt);
         created.push({
           ...parseInvite({
             code: storedCode,
@@ -1952,6 +1992,7 @@ export const registrationInvites = {
             created_at: createdAt,
             created_by: createdBy || null,
             updated_at: createdAt,
+            expires_at: expiresAt,
             disabled_at: null,
             disabled_by: null
           }),
@@ -1982,7 +2023,8 @@ export const registrationInvites = {
         WHERE code IN (${keys.map(() => '?').join(',')})
           AND disabled_at IS NULL
           AND used_count < max_uses
-      `).run(usedAt, ...keys);
+          AND (expires_at IS NULL OR expires_at > ?)
+      `).run(usedAt, ...keys, usedAt);
       if (!res.changes) {
         db.exec('ROLLBACK;');
         return null;

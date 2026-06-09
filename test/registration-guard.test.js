@@ -23,6 +23,7 @@ let guard;
 let rateLimit;
 
 const INVITE_CODE_HASH_PREFIX = 'inv:v1:';
+const TEST_DAY_MS = 24 * 60 * 60 * 1000;
 
 function hashInviteCodeForTest(code) {
   const digest = createHash('sha256')
@@ -38,6 +39,14 @@ function withSqlite(fn) {
   } finally {
     sqlite.close();
   }
+}
+
+function assertExpiresInDays(expiresAt, days) {
+  const expiresMs = Date.parse(expiresAt);
+  assert.ok(Number.isFinite(expiresMs), 'expiresAt should be a parseable ISO timestamp');
+  const delta = expiresMs - Date.now();
+  assert.ok(delta > (days * TEST_DAY_MS) - 10_000, 'expiresAt should use the configured TTL');
+  assert.ok(delta <= (days * TEST_DAY_MS) + 10_000, 'expiresAt should not exceed the configured TTL');
 }
 
 before(async () => {
@@ -141,14 +150,17 @@ test('UI settings can enable invite-only registration with single-use codes', ()
     const saved = guard.setRegistrationSettings({
       allowPublicRegistration: false,
       allowInviteRegistration: true,
-      defaultInviteUses: 1
+      defaultInviteUses: 1,
+      defaultInviteTtlDays: 14
     }, 'admin-1');
     assert.equal(saved.source, 'db');
     assert.equal(saved.inviteRequired, true);
+    assert.equal(saved.defaultInviteTtlDays, 14);
 
     const [invite] = guard.generateRegistrationInviteCodes({ count: 1, createdBy: 'admin-1' });
     assert.ok(invite.code);
     assert.equal(invite.maxUses, 1);
+    assertExpiresInDays(invite.expiresAt, 14);
     const expectedHash = hashInviteCodeForTest(invite.code);
     assert.equal(invite.codeHash, expectedHash);
     assert.equal(invite.displayCode, invite.code);
@@ -163,6 +175,8 @@ test('UI settings can enable invite-only registration with single-use codes', ()
     assert.equal(snapshotAfterGenerate.invites.length, 1);
     assert.equal(snapshotAfterGenerate.invites[0].code, expectedHash);
     assert.equal(snapshotAfterGenerate.invites[0].codeHash, expectedHash);
+    assert.equal(snapshotAfterGenerate.invites[0].expiresAt, invite.expiresAt);
+    assert.equal(snapshotAfterGenerate.invites[0].expired, false);
     assert.equal(
       snapshotAfterGenerate.invites[0].displayCode,
       `${INVITE_CODE_HASH_PREFIX}${expectedHash.slice(
@@ -238,6 +252,35 @@ test('UI settings can allow public registration while also managing invite codes
       isAdminBootstrap: false
     });
     assert.equal(withInvite.inviteAccepted, true);
+  });
+});
+
+test('expired UI invite codes are not usable', () => {
+  return withEnv({}, () => {
+    guard.setRegistrationSettings({
+      allowPublicRegistration: false,
+      allowInviteRegistration: true,
+      defaultInviteUses: 1,
+      defaultInviteTtlDays: 1
+    }, 'admin-1');
+    const expiredAt = new Date(Date.now() - TEST_DAY_MS).toISOString();
+    const [invite] = db.registrationInvites.createMany([
+      { code: 'EXPIRED-CODE-1', maxUses: 1, expiresAt: expiredAt }
+    ], { createdBy: 'admin-1' });
+
+    assert.equal(invite.expiresAt, expiredAt);
+    assert.equal(invite.expired, true);
+    assert.equal(invite.active, false);
+    assert.equal(guard.registrationSettingsSnapshot().activeInviteCount, 0);
+    assert.equal(guard.registrationSettingsSnapshot().inviteConfigured, false);
+    assert.throws(
+      () => guard.assertRegistrationAllowed({
+        body: { email: 'expired@example.com', registrationCode: 'EXPIRED-CODE-1' },
+        isAdminBootstrap: false
+      }),
+      (err) => err instanceof guard.RegistrationRejectedError &&
+        err.code === 'invalid_registration_invite_code'
+    );
   });
 });
 

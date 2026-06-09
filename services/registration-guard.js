@@ -8,8 +8,11 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const REGISTRATION_SETTINGS_KEY = 'registration.settings';
 const DEFAULT_INVITE_USES = 1;
+const DEFAULT_INVITE_TTL_DAYS = 30;
 const MAX_DEFAULT_INVITE_USES = 100_000;
+const MAX_INVITE_TTL_DAYS = 3650;
 const MAX_INVITE_BATCH_SIZE = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class RegistrationRejectedError extends Error {
   constructor(message, { status = 400, code = 'registration_rejected', retryAfterMs = 0 } = {}) {
@@ -93,6 +96,7 @@ function envRegistrationSettings() {
     inviteRequired: mode === 'invite' || codes.length > 0,
     inviteConfigured: codes.length > 0,
     defaultInviteUses: DEFAULT_INVITE_USES,
+    defaultInviteTtlDays: DEFAULT_INVITE_TTL_DAYS,
     legacyInviteCodes: codes
   };
 }
@@ -122,6 +126,11 @@ function normalizeStoredSettings(value = {}) {
       value.defaultInviteUses,
       DEFAULT_INVITE_USES,
       { max: MAX_DEFAULT_INVITE_USES }
+    ),
+    defaultInviteTtlDays: clampPositiveInt(
+      value.defaultInviteTtlDays,
+      DEFAULT_INVITE_TTL_DAYS,
+      { max: MAX_INVITE_TTL_DAYS }
     )
   };
 }
@@ -205,7 +214,8 @@ export function adminRegistrationSnapshot() {
     redemptions: settings.source === 'db' ? registrationInviteRedemptions.list() : [],
     limits: {
       maxInviteBatchSize: MAX_INVITE_BATCH_SIZE,
-      maxDefaultInviteUses: MAX_DEFAULT_INVITE_USES
+      maxDefaultInviteUses: MAX_DEFAULT_INVITE_USES,
+      maxInviteTtlDays: MAX_INVITE_TTL_DAYS
     }
   };
 }
@@ -218,23 +228,31 @@ export function setRegistrationSettings(patch = {}, updatedBy = null) {
     allowPublicRegistration: patch.allowPublicRegistration ?? patch.allowNewUsers ??
       patch.allowRegistration ?? current.allowPublicRegistration,
     allowInviteRegistration: patch.allowInviteRegistration ?? current.allowInviteRegistration,
-    defaultInviteUses: patch.defaultInviteUses ?? current.defaultInviteUses
+    defaultInviteUses: patch.defaultInviteUses ?? current.defaultInviteUses,
+    defaultInviteTtlDays: patch.defaultInviteTtlDays ?? current.defaultInviteTtlDays
   });
   systemSettings.set(REGISTRATION_SETTINGS_KEY, {
     allowPublicRegistration: next.allowPublicRegistration,
     allowInviteRegistration: next.allowInviteRegistration,
-    defaultInviteUses: next.defaultInviteUses
+    defaultInviteUses: next.defaultInviteUses,
+    defaultInviteTtlDays: next.defaultInviteTtlDays
   }, updatedBy);
   return registrationSettingsSnapshot();
 }
 
-export function generateRegistrationInviteCodes({ count = 1, maxUses = null, createdBy = null } = {}) {
+export function generateRegistrationInviteCodes({
+  count = 1,
+  maxUses = null,
+  expiresInDays = null,
+  createdBy = null
+} = {}) {
   let settings = registrationSettingsSnapshot();
   if (settings.source !== 'db') {
     settings = setRegistrationSettings({
       allowPublicRegistration: settings.allowPublicRegistration,
       allowInviteRegistration: settings.allowInviteRegistration,
-      defaultInviteUses: settings.defaultInviteUses || DEFAULT_INVITE_USES
+      defaultInviteUses: settings.defaultInviteUses || DEFAULT_INVITE_USES,
+      defaultInviteTtlDays: settings.defaultInviteTtlDays || DEFAULT_INVITE_TTL_DAYS
     }, createdBy);
   }
   const safeCount = clampPositiveInt(count, 1, { max: MAX_INVITE_BATCH_SIZE });
@@ -243,13 +261,19 @@ export function generateRegistrationInviteCodes({ count = 1, maxUses = null, cre
     settings.defaultInviteUses || DEFAULT_INVITE_USES,
     { max: MAX_DEFAULT_INVITE_USES }
   );
+  const safeExpiresInDays = clampPositiveInt(
+    expiresInDays,
+    settings.defaultInviteTtlDays || DEFAULT_INVITE_TTL_DAYS,
+    { max: MAX_INVITE_TTL_DAYS }
+  );
+  const expiresAt = new Date(Date.now() + safeExpiresInDays * DAY_MS).toISOString();
   const items = [];
   const seen = new Set();
   while (items.length < safeCount) {
     const code = randomInviteCode();
-    if (seen.has(code) || registrationInvites.findUsable(code)) continue;
+    if (seen.has(code) || registrationInvites.exists(code)) continue;
     seen.add(code);
-    items.push({ code, maxUses: safeMaxUses });
+    items.push({ code, maxUses: safeMaxUses, expiresAt });
   }
   return registrationInvites.createMany(items, { createdBy });
 }

@@ -102,8 +102,13 @@ function modeLabel(settings) {
 
 function inviteStatus(item) {
   if (item?.disabledAt) return { className: 'err', label: '已停用' };
+  if (item?.expired) return { className: 'err', label: '已过期' };
   if ((Number(item?.remainingUses) || 0) <= 0) return { className: '', label: '已用完' };
   return { className: 'ok', label: '可用' };
+}
+
+function formatInviteExpiry(item) {
+  return item?.expiresAt ? formatTime(item.expiresAt) : '永不过期';
 }
 
 function redemptionUserLabel(item) {
@@ -157,6 +162,7 @@ function renderRegistrationSummary() {
     <span class="chip ${settings.allowPublicRegistration || settings.allowInviteRegistration ? 'ok' : 'error'}">${escapeHtml(modeLabel(settings))}</span>
     <span class="chip ${settings.allowInviteRegistration ? 'ok' : ''}">邀请码注册：${settings.allowInviteRegistration ? '允许' : '关闭'}</span>
     <span class="chip">默认次数：${Number(settings.defaultInviteUses) || 1}</span>
+    <span class="chip">默认有效期：${Number(settings.defaultInviteTtlDays) || 30} 天</span>
     <span class="chip info">可用邀请码：${active} 个 / 剩余 ${totalRemaining} 次</span>
     <span class="chip">已停用：${disabled} 个</span>
     <span class="chip">兑换记录：${redemptions.length} 条</span>
@@ -169,9 +175,11 @@ function renderRegistrationForm() {
   const allowPublic = $('registrationAllowPublic');
   const allowInvite = $('registrationAllowInvite');
   const defaultUses = $('registrationDefaultInviteUses');
+  const defaultTtlDays = $('registrationDefaultInviteTtlDays');
   if (allowPublic) allowPublic.checked = Boolean(settings.allowPublicRegistration);
   if (allowInvite) allowInvite.checked = Boolean(settings.allowInviteRegistration);
   if (defaultUses) defaultUses.value = String(Number(settings.defaultInviteUses) || 1);
+  if (defaultTtlDays) defaultTtlDays.value = String(Number(settings.defaultInviteTtlDays) || 30);
   renderRegistrationSummary();
   renderRegistrationInvites();
   renderRegistrationRedemptions();
@@ -201,6 +209,7 @@ function renderRegistrationInvites() {
           <th>使用用户</th>
           <th>状态</th>
           <th>创建时间</th>
+          <th>过期时间</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -217,6 +226,7 @@ function renderRegistrationInvites() {
             <td>${renderInviteUsers(code, byCode.get(code) || [], item.usedCount)}</td>
             <td><span class="chip ${status.className}">${status.label}</span></td>
             <td>${escapeHtml(formatTime(item.createdAt))}</td>
+            <td>${escapeHtml(formatInviteExpiry(item))}</td>
             <td>${canDisable ? `<button class="danger ghost small" type="button" data-disable-invite="${escapeHtml(code)}" data-invite-label="${escapeHtml(displayCode)}">停用</button>` : '<span class="muted">-</span>'}</td>
           </tr>`;
         }).join('')}
@@ -288,7 +298,8 @@ function readRegistrationSettingsForm() {
   return {
     allowPublicRegistration: Boolean($('registrationAllowPublic')?.checked),
     allowInviteRegistration: Boolean($('registrationAllowInvite')?.checked),
-    defaultInviteUses: readPositiveInput('registrationDefaultInviteUses', 1)
+    defaultInviteUses: readPositiveInput('registrationDefaultInviteUses', 1),
+    defaultInviteTtlDays: readPositiveInput('registrationDefaultInviteTtlDays', 30)
   };
 }
 

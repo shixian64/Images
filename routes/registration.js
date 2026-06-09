@@ -68,6 +68,10 @@ function settingsPatch(body = {}) {
   if (allowInviteRegistration !== undefined) patch.allowInviteRegistration = allowInviteRegistration;
   const defaultInviteUses = positiveIntOrUndefined(body.defaultInviteUses);
   if (defaultInviteUses !== undefined) patch.defaultInviteUses = defaultInviteUses;
+  const defaultInviteTtlDays = positiveIntOrUndefined(
+    body.defaultInviteTtlDays ?? body.defaultInviteExpiresDays ?? body.inviteTtlDays
+  );
+  if (defaultInviteTtlDays !== undefined) patch.defaultInviteTtlDays = defaultInviteTtlDays;
   return patch;
 }
 
@@ -93,7 +97,8 @@ async function handleSettings(req, res) {
       auditRecord(req, 'registration.settings_update', { type: 'system', id: 'registration.settings' }, {
         allowPublicRegistration: settings.allowPublicRegistration,
         allowInviteRegistration: settings.allowInviteRegistration,
-        defaultInviteUses: settings.defaultInviteUses
+        defaultInviteUses: settings.defaultInviteUses,
+        defaultInviteTtlDays: settings.defaultInviteTtlDays
       });
       sendJson(res, 200, adminRegistrationSnapshot());
     } catch (err) {
@@ -115,11 +120,15 @@ async function handleGenerateInvites(req, res) {
     const generated = generateRegistrationInviteCodes({
       count: positiveIntOrUndefined(body?.count) ?? 1,
       maxUses: positiveIntOrUndefined(body?.maxUses),
+      expiresInDays: positiveIntOrUndefined(
+        body?.expiresInDays ?? body?.ttlDays ?? body?.defaultInviteTtlDays
+      ),
       createdBy: req.session.user.id
     });
     auditRecord(req, 'registration.invites_generate', { type: 'system', id: 'registration.invites' }, {
       count: generated.length,
-      maxUses: generated[0]?.maxUses || null
+      maxUses: generated[0]?.maxUses || null,
+      expiresAt: generated[0]?.expiresAt || null
     });
     sendJson(res, 200, { ...adminRegistrationSnapshot(), generated });
   } catch (err) {
