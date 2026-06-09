@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -55,6 +55,108 @@ test('migrate creates schema and is idempotent', () => {
     migrations.slice(0, 6).map((item) => item.version),
     [1, 2, 3, 4, 5, 6]
   );
+});
+
+test('destructive prompt square migration creates a database backup first', () => {
+  db.migrate();
+  const owner = db.users.create({
+    username: 'migration_owner',
+    email: 'migration-owner@example.com',
+    passwordHash: 'hash',
+    passwordSalt: 'salt'
+  });
+  const now = new Date().toISOString();
+
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    sqlite.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE IF EXISTS prompt_square_legacy;
+      CREATE TABLE prompt_square_legacy (
+        id                TEXT PRIMARY KEY,
+        user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        source_prompt_id  TEXT,
+        title             TEXT NOT NULL,
+        prompt            TEXT NOT NULL,
+        tags              TEXT NOT NULL DEFAULT '[]',
+        source            TEXT NOT NULL DEFAULT 'manual',
+        meta              TEXT NOT NULL DEFAULT '{}',
+        use_count         INTEGER NOT NULL DEFAULT 0,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        published_at      TEXT NOT NULL
+      );
+    `);
+    sqlite.prepare(`
+      INSERT INTO prompt_square_legacy
+      (id, user_id, source_prompt_id, title, prompt, tags, source, meta, use_count, created_at, updated_at, published_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'legacy-prompt-square-1',
+      owner.id,
+      'legacy-source-1',
+      'Legacy prompt',
+      'legacy prompt body',
+      '[]',
+      'manual',
+      '{}',
+      7,
+      now,
+      now,
+      now
+    );
+    sqlite.exec(`
+      DROP TABLE prompt_square;
+      ALTER TABLE prompt_square_legacy RENAME TO prompt_square;
+      DELETE FROM schema_migrations WHERE version = 6;
+      PRAGMA foreign_keys = ON;
+    `);
+  } finally {
+    sqlite.close();
+  }
+
+  const backupRoot = db.dbPaths.migrationBackups;
+  const beforeBackups = new Set(existsSync(backupRoot) ? readdirSync(backupRoot) : []);
+
+  db.migrate();
+
+  const migrated = new DatabaseSync(db.dbPaths.file);
+  try {
+    const cols = migrated.prepare('PRAGMA table_info(prompt_square)').all();
+    const userIdCol = cols.find((col) => col.name === 'user_id');
+    assert.equal(userIdCol.notnull, 0);
+    assert.equal(
+      migrated.prepare('SELECT COUNT(*) AS n FROM prompt_square WHERE id = ? AND user_id = ?').get(
+        'legacy-prompt-square-1',
+        owner.id
+      ).n,
+      1
+    );
+    assert.equal(
+      migrated.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 6').get().n,
+      1
+    );
+  } finally {
+    migrated.close();
+  }
+
+  const newBackupNames = readdirSync(backupRoot).filter((name) => !beforeBackups.has(name));
+  assert.equal(newBackupNames.length, 1);
+  const backupDir = join(backupRoot, newBackupNames[0]);
+  const manifest = JSON.parse(readFileSync(join(backupDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.kind, 'sqlite-migration-backup');
+  assert.equal(manifest.migration.version, 6);
+  assert.equal(manifest.migration.name, 'prompt_square_nullable_owner');
+  assert.ok(manifest.files.some((file) => file.path === 'app.db' && file.size > 0 && file.sha256.length === 64));
+
+  const backupDb = new DatabaseSync(join(backupDir, 'app.db'), { readOnly: true });
+  try {
+    const backupCols = backupDb.prepare('PRAGMA table_info(prompt_square)').all();
+    const backupUserIdCol = backupCols.find((col) => col.name === 'user_id');
+    assert.equal(backupUserIdCol.notnull, 1);
+  } finally {
+    backupDb.close();
+  }
 });
 
 test('migrate creates lifecycle and hot-query indexes idempotently', () => {
