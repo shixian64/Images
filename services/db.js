@@ -626,10 +626,61 @@ function migratePromptSquareNullableOwner(db) {
   }
 }
 
+function promptSquareSeedSourceId(seed) {
+  return `promptsref:sref:${seed.sref}`;
+}
+
+function promptSquareSeedDigest() {
+  const payload = {
+    sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
+    seeds: PROMPT_SQUARE_SEEDS.map((seed) => ({
+      rank: seed.rank,
+      sref: seed.sref,
+      title: seed.title,
+      prompt: seed.prompt,
+      tags: seed.tags,
+      sourceHot: seed.sourceHot,
+      previewImages: Array.isArray(seed.previewImages) ? seed.previewImages : []
+    }))
+  };
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function parsePromptSquareSeedState(value) {
+  try {
+    const parsed = JSON.parse(String(value || 'null'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function countExistingPromptSquareSeeds(db) {
+  if (!PROMPT_SQUARE_SEEDS.length) return 0;
+  const sourceIds = [...new Set(PROMPT_SQUARE_SEEDS.map(promptSquareSeedSourceId))];
+  const placeholders = sourceIds.map(() => '?').join(', ');
+  const row = db.prepare(`
+    SELECT COUNT(DISTINCT source_prompt_id) AS count
+    FROM prompt_square
+    WHERE source_prompt_id IN (${placeholders})
+  `).get(...sourceIds);
+  return Number(row?.count) || 0;
+}
+
 function seedPromptSquareDefaults(db) {
   const seedKey = PROMPT_SQUARE_SEED_KEY;
-  const done = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey);
-  if (done) return;
+  const seedState = parsePromptSquareSeedState(
+    db.prepare('SELECT value FROM system_settings WHERE key = ?').get(seedKey)?.value
+  );
+  const seedDigest = promptSquareSeedDigest();
+  const existingSeedCount = countExistingPromptSquareSeeds(db);
+  if (
+    seedState?.digest === seedDigest
+    && Number(seedState?.total) === PROMPT_SQUARE_SEEDS.length
+    && existingSeedCount >= PROMPT_SQUARE_SEEDS.length
+  ) {
+    return;
+  }
 
   const exists = db.prepare('SELECT id, published_at FROM prompt_square WHERE source_prompt_id = ? LIMIT 1');
   const insert = db.prepare(`
@@ -646,7 +697,7 @@ function seedPromptSquareDefaults(db) {
   let inserted = 0;
   let updated = 0;
   for (const seed of PROMPT_SQUARE_SEEDS) {
-    const sourcePromptId = `promptsref:sref:${seed.sref}`;
+    const sourcePromptId = promptSquareSeedSourceId(seed);
     const existing = exists.get(sourcePromptId);
     const publishedAt = new Date(startedAt - (seed.rank - 1) * 1000).toISOString();
     const meta = {
@@ -689,11 +740,19 @@ function seedPromptSquareDefaults(db) {
     VALUES (?, ?, ?, NULL)
   `).run(seedKey, JSON.stringify({
     sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
+    digest: seedDigest,
     total: PROMPT_SQUARE_SEEDS.length,
     inserted,
-    updated
+    updated,
+    previousDigest: seedState?.digest || null,
+    existingBefore: existingSeedCount
   }), nowIso());
-  logger.info('prompt_square.seed.done', { source: PROMPT_SQUARE_SEED_KEY, inserted, updated });
+  logger.info('prompt_square.seed.done', {
+    source: PROMPT_SQUARE_SEED_KEY,
+    inserted,
+    updated,
+    existingBefore: existingSeedCount
+  });
 }
 
 function migrateLegacyGallery(db) {

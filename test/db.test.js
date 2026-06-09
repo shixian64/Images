@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { PROMPT_SQUARE_SEED_KEY } from '../services/prompt-square-seeds.js';
 
 let workDir;
 let prevCwd;
@@ -55,6 +56,70 @@ test('migrate creates schema and is idempotent', () => {
     migrations.slice(0, 6).map((item) => item.version),
     [1, 2, 3, 4, 5, 6]
   );
+});
+
+test('prompt square seed sync refreshes stale rows even when seed marker exists', () => {
+  db.migrate();
+  const staleTitle = 'stale seed title';
+  const stalePrompt = 'stale seed prompt';
+  const now = new Date().toISOString();
+  let seedRow;
+
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    seedRow = sqlite.prepare(`
+      SELECT id, source_prompt_id, title, prompt
+      FROM prompt_square
+      WHERE source = 'seed'
+      ORDER BY published_at DESC
+      LIMIT 1
+    `).get();
+    assert.ok(seedRow, 'expected an existing prompt square seed row');
+    sqlite.prepare(`
+      UPDATE prompt_square
+      SET title = ?, prompt = ?, tags = ?, meta = ?, updated_at = ?
+      WHERE id = ?
+    `).run(staleTitle, stalePrompt, '["stale"]', '{}', now, seedRow.id);
+    sqlite.prepare(`
+      UPDATE system_settings
+      SET value = ?, updated_at = ?
+      WHERE key = ?
+    `).run(JSON.stringify({
+      sourceUrl: 'legacy',
+      total: 999,
+      inserted: 0,
+      updated: 0
+    }), now, PROMPT_SQUARE_SEED_KEY);
+  } finally {
+    sqlite.close();
+  }
+
+  db.migrate();
+
+  const refreshedDb = new DatabaseSync(db.dbPaths.file);
+  try {
+    const refreshed = refreshedDb.prepare(`
+      SELECT title, prompt, tags, source, meta
+      FROM prompt_square
+      WHERE id = ?
+    `).get(seedRow.id);
+    assert.notEqual(refreshed.title, staleTitle);
+    assert.notEqual(refreshed.prompt, stalePrompt);
+    assert.equal(refreshed.source, 'seed');
+    assert.notEqual(refreshed.tags, '["stale"]');
+    const meta = JSON.parse(refreshed.meta);
+    assert.equal(meta.seed, true);
+    assert.equal(meta.sourceName, 'Promptsref');
+
+    const state = JSON.parse(
+      refreshedDb.prepare('SELECT value FROM system_settings WHERE key = ?').get(PROMPT_SQUARE_SEED_KEY).value
+    );
+    assert.match(state.digest, /^[a-f0-9]{64}$/);
+    assert.equal(state.previousDigest, null);
+    assert.ok(state.total > 0);
+  } finally {
+    refreshedDb.close();
+  }
 });
 
 test('destructive prompt square migration creates a database backup first', () => {
