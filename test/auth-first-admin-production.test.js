@@ -28,14 +28,14 @@ before(async () => {
   prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   process.env.ADMIN_BOOTSTRAP_TOKEN = '';
   process.env.ALLOW_FIRST_ADMIN_WITHOUT_TOKEN = '';
-  process.env.NODE_ENV = 'development';
+  process.env.NODE_ENV = 'production';
   process.env.REGISTRATION_MODE = 'closed';
   process.env.REGISTRATION_INVITE_CODE = '';
   process.env.REGISTRATION_INVITE_CODES = '';
   process.env.REGISTRATION_EMAIL_DOMAIN_ALLOWLIST = '';
   process.env.REGISTRATION_EMAIL_DOMAIN_BLOCKLIST = '';
 
-  workDir = mkdtempSync(join(tmpdir(), 'image-studio-auth-first-admin-'));
+  workDir = mkdtempSync(join(tmpdir(), 'image-studio-auth-first-admin-prod-'));
   process.chdir(workDir);
 
   db = await import('../services/db.js');
@@ -54,7 +54,7 @@ after(() => {
   try { rmSync(workDir, { recursive: true, force: true }); } catch {}
 });
 
-function jsonReq(body, { ip = '198.51.100.91' } = {}) {
+function jsonReq(body, { ip = '198.51.100.92' } = {}) {
   const req = Readable.from([Buffer.from(JSON.stringify(body))]);
   req.method = 'POST';
   req.headers = { 'user-agent': 'node-test' };
@@ -90,33 +90,37 @@ async function postRegister(body, opts) {
   return res;
 }
 
-test('closed registration allows first account to become admin without bootstrap token', async () => {
-  const first = await postRegister({
-    username: 'first_admin',
-    email: 'first-admin@example.com',
+test('production first admin requires bootstrap token unless explicitly opted out', async () => {
+  const missing = await postRegister({
+    username: 'first_admin_prod',
+    email: 'first-admin-prod@example.com',
     password: 'longenough1'
   });
-  assert.equal(first.statusCode, 200);
-  const firstUser = JSON.parse(first.body).user;
-  assert.equal(firstUser.role, 'admin');
+  assert.equal(missing.statusCode, 400);
+  assert.equal(JSON.parse(missing.body).error, 'admin bootstrap token required');
+  assert.equal(db.users.count(), 0);
 
-  const blocked = await postRegister({
-    username: 'closed_user',
-    email: 'closed-user@example.com',
+  process.env.ALLOW_FIRST_ADMIN_WITHOUT_TOKEN = '1';
+  const optedOut = await postRegister({
+    username: 'first_admin_prod_optout',
+    email: 'first-admin-prod-optout@example.com',
     password: 'longenough1'
   });
-  assert.equal(blocked.statusCode, 403);
-  assert.equal(JSON.parse(blocked.body).code, 'registration_closed');
+  assert.equal(optedOut.statusCode, 200);
+  const optedOutUser = JSON.parse(optedOut.body).user;
+  assert.equal(optedOutUser.role, 'admin');
+  assert.equal(db.users.count(), 1);
+  db.users.delete(optedOutUser.id);
+  process.env.ALLOW_FIRST_ADMIN_WITHOUT_TOKEN = '';
+  assert.equal(db.users.count(), 0);
 
   process.env.ADMIN_BOOTSTRAP_TOKEN = 'bootstrap-secret';
-  db.users.updateRole(firstUser.id, 'user');
-
-  const legacyBootstrap = await postRegister({
-    username: 'legacy_admin',
-    email: 'legacy-admin@example.com',
+  const created = await postRegister({
+    username: 'first_admin_prod',
+    email: 'first-admin-prod@example.com',
     password: 'longenough1',
     adminBootstrapToken: 'bootstrap-secret'
   });
-  assert.equal(legacyBootstrap.statusCode, 200);
-  assert.equal(JSON.parse(legacyBootstrap.body).user.role, 'admin');
+  assert.equal(created.statusCode, 200);
+  assert.equal(JSON.parse(created.body).user.role, 'admin');
 });

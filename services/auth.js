@@ -14,6 +14,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 一天毫秒数，用于判断是否需要滑动续期
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+function allowInsecureFirstAdmin() {
+  return String(process.env.ALLOW_FIRST_ADMIN_WITHOUT_TOKEN || '').trim() === '1';
+}
+
 export function hashPassword(plain) {
   const salt = randomBytes(16).toString('hex');
   const hash = scryptSync(plain, salt, KEY_LEN, SCRYPT_OPTS).toString('hex');
@@ -58,7 +62,12 @@ export function canUseAdminBootstrapToken(token) {
 }
 
 export function canCreateFirstAdminWithoutToken() {
-  return users.count() === 0;
+  if (users.count() !== 0) return false;
+  return process.env.NODE_ENV !== 'production' || allowInsecureFirstAdmin();
+}
+
+export function isFirstAdminBootstrapRequired() {
+  return users.count() === 0 && !canCreateFirstAdminWithoutToken();
 }
 
 export function canInitializeAdminRegistration({ adminBootstrapToken } = {}) {
@@ -90,6 +99,9 @@ export function register({ username, email, password, adminBootstrapToken, signu
       throw new Error('admin bootstrap token is no longer accepted');
     }
   }
+  if (!hasBootstrapToken && isFirstAdminBootstrapRequired()) {
+    throw new Error('admin bootstrap token required');
+  }
   // 查重（username / email 分别查一次，区分错误信息）
   if (users.findByLogin(username)) {
     throw new Error('username already taken');
@@ -98,7 +110,7 @@ export function register({ username, email, password, adminBootstrapToken, signu
     throw new Error('email already taken');
   }
   const { hash, salt } = hashPassword(password);
-  // 新部署不再强制要求 ADMIN_BOOTSTRAP_TOKEN：空库首个注册账号自动成为 admin。
+  // 开发/本地仍允许空库首个注册账号自动成为 admin；生产环境默认要求 bootstrap token。
   // 兼容旧部署：如果库里已有普通用户但没有活跃 admin，仍允许用有效令牌初始化 admin。
   const role = (users.count() === 0 || hasBootstrapToken) ? 'admin' : 'user';
   const row = users.create({

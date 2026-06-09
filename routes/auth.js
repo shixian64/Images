@@ -10,6 +10,7 @@ import {
   createSession,
   destroySession,
   canInitializeAdminRegistration,
+  isFirstAdminBootstrapRequired,
   isValidAdminBootstrapToken
 } from '../services/auth.js';
 import {
@@ -141,12 +142,17 @@ async function handleRegister(req, res) {
       throw new Error('invalid admin bootstrap token');
     }
     const canInitializeAdmin = canInitializeAdminRegistration({ adminBootstrapToken });
+    const firstAdminTokenRequired = !canInitializeAdmin && !adminBootstrapToken && isFirstAdminBootstrapRequired();
     const hasInviteAttempt = Boolean(suppliedRegistrationInviteCode(body));
     const settings = canInitializeAdmin ? null : registrationSettingsSnapshot();
     const missingRequiredInviteAttempt = Boolean(settings?.inviteRequired && !hasInviteAttempt);
-    const shouldPreLimitRegistration = !canInitializeAdmin && (hasInviteAttempt || missingRequiredInviteAttempt);
+    const shouldPreLimitRegistration = !canInitializeAdmin &&
+      (hasInviteAttempt || missingRequiredInviteAttempt || firstAdminTokenRequired);
     if (shouldPreLimitRegistration && !checkRegisterRateLimitResponse(res, ip)) {
       return;
+    }
+    if (firstAdminTokenRequired) {
+      throw new Error('admin bootstrap token required');
     }
     const registrationPolicy = assertRegistrationAllowed({ body, isAdminBootstrap: canInitializeAdmin });
     if (!canInitializeAdmin && !shouldPreLimitRegistration) {

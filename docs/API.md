@@ -22,7 +22,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| POST | `/api/auth/register` | 公开 + CSRF | 注册；空库首个账号自动成为管理员，其他注册受注册策略限制。 |
+| POST | `/api/auth/register` | 公开 + CSRF | 注册；本地 / 开发空库首个账号自动成为管理员，生产空库首个管理员需 bootstrap token，其他注册受注册策略限制。 |
 | POST | `/api/auth/login` | 公开 + CSRF | 登录并设置 session cookie。 |
 | POST | `/api/auth/logout` | 公开 + CSRF | 销毁当前 session。 |
 | GET | `/api/auth/registration-policy` | 公开 | 返回当前注册策略摘要，供登录页决定是否展示邀请码入口。 |
