@@ -23,7 +23,8 @@ const ENV_KEYS = [
   'DEFAULT_DAILY_LIMIT',
   'DEFAULT_MONTHLY_LIMIT',
   'DEFAULT_STORAGE_LIMIT_MB',
-  'DEFAULT_CONCURRENT_LIMIT'
+  'DEFAULT_CONCURRENT_LIMIT',
+  'MAX_IMAGES_PER_REQUEST'
 ];
 
 before(async () => {
@@ -33,6 +34,7 @@ before(async () => {
   process.env.ALLOW_INSECURE_UPSTREAMS = '1';
   process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
   process.env.DEFAULT_DAILY_LIMIT = '3';
+  process.env.MAX_IMAGES_PER_REQUEST = '4';
   workDir = mkdtempSync(join(tmpdir(), 'image-studio-jobq-'));
   process.chdir(workDir);
   db = await import('../services/db.js');
