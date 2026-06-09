@@ -16,7 +16,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET/HEAD | `/healthz` | 公开 | 返回 `{ ok, uptimeSec }`。 |
+| GET/HEAD | `/healthz` | 公开 | 返回 `{ ok, uptimeSec, db, disk, queue }`；DB、运行目录可写或队列状态检查失败时返回 503。 |
 
 ## Auth
 
@@ -120,6 +120,7 @@
 | POST/DELETE | `/api/admin/registration/invites/reset` | 管理员 | 重置邀请码。 |
 | POST/DELETE | `/api/admin/registration/invites/:code` | 管理员 | 停用邀请码。 |
 | POST/DELETE | `/api/admin/registration/redemptions/cleanup` | 管理员 | 清理邀请码兑换记录，可选同步停用未使用旧邀请码。 |
+| POST | `/api/client-logs` | 登录 | 同步前端客户端日志批次；服务端按用户和 IP 限流。 |
 | GET | `/api/admin/client-logs` | 管理员 | 查询前端同步的客户端日志。 |
 
 ## 常见错误码
