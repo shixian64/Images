@@ -68,16 +68,16 @@
 
 当前有两类接口凭证：
 
-- **系统默认接口 Key**：管理员在接口管理中配置；设置 `IMAGE_STUDIO_SECRET_KEY` 后会以 AES-256-GCM 加密形式保存在 SQLite 的系统设置中；未设置时为兼容旧部署仍会明文保存，但不会通过普通用户接口、前端摘要或日志明文回显。
+- **系统默认接口 Key**：管理员在接口管理中配置；设置 `IMAGE_STUDIO_SECRET_KEY` 后会以 AES-256-GCM 加密形式保存在 SQLite 的系统设置中；生产环境未配置该主密钥时默认拒绝保存新的系统 Key。开发环境保留旧版明文兼容，但不会通过普通用户接口、前端摘要或日志明文回显。
 - **个人覆盖接口 Key**：用户在浏览器端填写；前端持久化会清除 API Key，队列任务只在当前 Node 进程内临时持有。
 
-生产环境应设置长随机 `IMAGE_STUDIO_SECRET_KEY`，并把该值纳入备份/恢复密钥材料；已加密数据需要同一个值才能解密。系统默认 Key 的风险接受条件和升级路径见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。如果作为公网 SaaS、多租户服务或运行在不完全可信主机上，应进一步升级到 KMS/Vault。
+生产环境应设置长随机 `IMAGE_STUDIO_SECRET_KEY`，并把该值纳入备份/恢复密钥材料；已加密数据需要同一个值才能解密。`ALLOW_PLAINTEXT_SYSTEM_KEYS=1` 可恢复生产明文兼容，但公网部署不建议启用。系统默认 Key 的风险接受条件和升级路径见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。如果作为公网 SaaS、多租户服务或运行在不完全可信主机上，应进一步升级到 KMS/Vault。
 
 ## 部署建议
 
 - 生产保持 `ALLOW_INSECURE_UPSTREAMS=0`、`ALLOW_PRIVATE_UPSTREAMS=0`。
 - 公开部署保持 `REGISTRATION_MODE=closed` 或 `invite`；生产首次初始化请设置长随机 `ADMIN_BOOTSTRAP_TOKEN`，不要启用 `ALLOW_FIRST_ADMIN_WITHOUT_TOKEN`。
 - 把 `NODE_ENV=production` 与 HTTPS 反向代理配套使用。
-- 设置长随机 `IMAGE_STUDIO_SECRET_KEY` 以加密 SQLite 中的系统默认接口 Key。
+- 设置长随机 `IMAGE_STUDIO_SECRET_KEY` 以加密 SQLite 中的系统默认接口 Key；不要启用 `ALLOW_PLAINTEXT_SYSTEM_KEYS`。
 - 限制宿主机上 `generated/` 卷的读写权限；备份同样按密钥材料处理。
 - 定期轮换系统默认上游 API Key，并清理不再使用的个人和系统配置。

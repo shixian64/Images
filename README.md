@@ -259,7 +259,8 @@ GET /healthz
 | `HOST_PORT` | `8787` | Docker 宿主机暴露端口。 |
 | `NODE_ENV` | `development` | `production` 时 session cookie 会带 `Secure`，且空库首个管理员默认要求 `ADMIN_BOOTSTRAP_TOKEN`。 |
 | `SESSION_COOKIE_SECURE` | `0` | 设为 `1` 可在非 production 环境强制 session cookie 带 `Secure`，适合 HTTPS 反代但不想改变 `NODE_ENV` 的部署。 |
-| `IMAGE_STUDIO_SECRET_KEY` | 空 | 系统默认接口 API Key 的本地加密主密钥；生产建议设置长随机值。 |
+| `IMAGE_STUDIO_SECRET_KEY` | 空 | 系统默认接口 API Key 的本地加密主密钥；生产环境必须设置长随机值才能保存系统 Key。 |
+| `ALLOW_PLAINTEXT_SYSTEM_KEYS` | `0` | 仅在生产环境显式设为 `1` 时允许系统默认 API Key 明文落库；公网部署不建议启用。 |
 | `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限。 |
 | `CONTAINER_MEMORY_LIMIT` | `768m` | Docker 容器内存上限。 |
 | `CONTAINER_CPUS` | `1.25` | Docker 容器 CPU 上限。 |
@@ -364,7 +365,7 @@ GET /healthz
 ## 数据与安全边界
 
 - `generated/` 是敏感运行时目录，包含 SQLite 数据库、WAL、用户图片、示例图和临时参考图；不要提交到 Git。
-- 系统默认 API Key 当前以明文存入 SQLite，请按密钥材料保护数据库和备份；详见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。
+- 系统默认 API Key 设置 `IMAGE_STUDIO_SECRET_KEY` 后会加密存入 SQLite；生产环境未配置主密钥时默认拒绝保存系统 Key（除非显式 `ALLOW_PLAINTEXT_SYSTEM_KEYS=1`）；详见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。
 - 个人接口 API Key 不写入 localStorage；队列任务只在当前 Node 进程内临时持有。
 - 上游请求默认只允许 HTTPS + 公网地址，并对 DNS rebinding / TOCTOU 做防护。
 - 静态文件、图库文件和示例图文件走路径防护，避免越权读取。

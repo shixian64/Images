@@ -1,5 +1,6 @@
-// 对运行时可恢复的系统级密钥做可选加密封装。
-// 未配置 IMAGE_STUDIO_SECRET_KEY 时保持兼容的明文存储；生产环境应设置该变量。
+// 对运行时可恢复的系统级密钥做加密封装。
+// 开发环境未配置 IMAGE_STUDIO_SECRET_KEY 时保持兼容的明文存储；
+// 生产环境默认拒绝新写入明文系统级密钥，除非显式打开兼容开关。
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
@@ -11,6 +12,12 @@ const SECRET_ENV_NAMES = Object.freeze([
   'SECRETS_MASTER_KEY',
   'APP_SECRET_KEY'
 ]);
+
+function envFlagEnabled(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return false;
+  return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+}
 
 function masterSecret() {
   for (const name of SECRET_ENV_NAMES) {
@@ -30,6 +37,10 @@ export function canEncryptSecrets() {
   return Boolean(encryptionKey());
 }
 
+export function requiresSecretEncryption() {
+  return process.env.NODE_ENV === 'production' && !envFlagEnabled('ALLOW_PLAINTEXT_SYSTEM_KEYS');
+}
+
 export function isProtectedSecret(value) {
   return typeof value === 'string' && value.startsWith(PROTECTED_SECRET_PREFIX);
 }
@@ -39,7 +50,12 @@ export function protectSecret(value) {
   if (!plain || isProtectedSecret(plain)) return plain;
 
   const key = encryptionKey();
-  if (!key) return plain;
+  if (!key) {
+    if (requiresSecretEncryption()) {
+      throw new Error('IMAGE_STUDIO_SECRET_KEY is required to store system API keys in production');
+    }
+    return plain;
+  }
 
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
