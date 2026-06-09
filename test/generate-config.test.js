@@ -32,7 +32,7 @@ test('generate numeric environment values fall back when invalid or non-positive
     const mod = await import(`../routes/generate.js?invalid-env=${Date.now()}`);
     assert.equal(mod.getImageGenerationTimeoutMs(), 10 * 60 * 1000);
     assert.equal(mod.getGenerateStreamHeartbeatMs(), 15 * 1000);
-    assert.equal(mod.getMaxImagesPerRequest(), 4);
+    assert.equal(mod.getMaxImagesPerRequest(), 1);
   });
 });
 

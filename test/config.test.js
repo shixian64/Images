@@ -19,14 +19,14 @@ afterEach(() => {
 });
 
 test('positiveIntFromEnv preserves legacy fallback behavior', () => {
-  process.env.MAX_IMAGES_PER_REQUEST = '3.9';
-  assert.equal(positiveIntFromEnv('MAX_IMAGES_PER_REQUEST', 4), 3);
+  process.env.TEST_POSITIVE_INT_HELPER = '3.9';
+  assert.equal(positiveIntFromEnv('TEST_POSITIVE_INT_HELPER', 4), 3);
 
-  process.env.MAX_IMAGES_PER_REQUEST = 'abc';
-  assert.equal(positiveIntFromEnv('MAX_IMAGES_PER_REQUEST', 4), 4);
+  process.env.TEST_POSITIVE_INT_HELPER = 'abc';
+  assert.equal(positiveIntFromEnv('TEST_POSITIVE_INT_HELPER', 4), 4);
 
-  process.env.MAX_IMAGES_PER_REQUEST = '0';
-  assert.equal(positiveIntFromEnv('MAX_IMAGES_PER_REQUEST', 4), 4);
+  process.env.TEST_POSITIVE_INT_HELPER = '0';
+  assert.equal(positiveIntFromEnv('TEST_POSITIVE_INT_HELPER', 4), 4);
 });
 
 test('positive int parser can explicitly allow zero', () => {
@@ -36,6 +36,7 @@ test('positive int parser can explicitly allow zero', () => {
 
 test('validateEnvConfig reports invalid configured numeric env values', () => {
   process.env.MAX_JSON_BODY_BYTES = 'abc';
+  process.env.MAX_IMAGES_PER_REQUEST = 'abc';
   process.env.SIGNUP_IP_DAILY_LIMIT = '0';
   process.env.CHAT_MAX_COMPLETION_TOKENS = 'abc';
 
@@ -45,6 +46,7 @@ test('validateEnvConfig reports invalid configured numeric env values', () => {
   });
 
   assert.ok(warnings.some((warning) => warning.name === 'MAX_JSON_BODY_BYTES'));
+  assert.ok(warnings.some((warning) => warning.name === 'MAX_IMAGES_PER_REQUEST' && warning.fallback === 1));
   assert.equal(warnings.some((warning) => warning.name === 'SIGNUP_IP_DAILY_LIMIT'), false);
   assert.ok(warnings.some((warning) => warning.name === 'CHAT_MAX_COMPLETION_TOKENS' && warning.fallback === 6000));
   assert.ok(events.some((event) => event.message === 'config.env.invalid_positive_int'));
