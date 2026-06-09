@@ -1,7 +1,7 @@
 // /api/profile* 路由：当前用户的资料与密码维护。
 // TAG: hmt---
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { requireAuth } from '../middleware/guard.js';
 import { users, sessions } from '../services/db.js';
 import { updateProfile, changePassword } from '../services/users.js';
@@ -63,8 +63,7 @@ async function handlePassword(req, res) {
   });
   setSessionCookie(res, sid);
   logger.info('profile.password_changed', { userId });
-  res.writeHead(204);
-  res.end();
+  sendNoContent(res);
 }
 
 export async function handleProfileRoute(req, res, pathname) {

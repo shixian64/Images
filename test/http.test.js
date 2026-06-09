@@ -8,7 +8,8 @@ import {
   createHttpError,
   readJsonBody,
   readMultipartFormData,
-  sendJson
+  sendJson,
+  sendNoContent
 } from '../utils/http.js';
 
 function captureRes() {
@@ -36,6 +37,18 @@ test('sendJson marks JSON API responses as no-store', () => {
   assert.equal(res.headers['x-content-type-options'], 'nosniff');
   assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.deepEqual(JSON.parse(res.body), { ok: true });
+});
+
+test('sendNoContent marks empty API responses as no-store with security headers', () => {
+  const res = captureRes();
+  sendNoContent(res);
+
+  assert.equal(res.statusCode, 204);
+  assert.equal(res.headers['cache-control'], 'no-store');
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.equal(res.body, '');
 });
 
 test('createHttpError keeps status/statusCode/code compatibility', () => {

@@ -42,6 +42,9 @@ test('openSse sends standard headers and connected comment', () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['content-type'], 'text/event-stream; charset=utf-8');
   assert.equal(res.headers['cache-control'], 'no-cache, no-transform');
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.ok(res.chunks.join('').includes(': connected'));
 });
 

@@ -1,3 +1,5 @@
+import { withSecurityHeaders } from './http.js';
+
 const DEFAULT_HEARTBEAT_MS = 25_000;
 
 function responseClosed(res) {
@@ -26,13 +28,13 @@ export function writeSseComment(res, message) {
 }
 
 export function openSse(res, { comment = 'connected', headers = {} } = {}) {
-  res.writeHead(200, {
+  res.writeHead(200, withSecurityHeaders({
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
     'connection': 'keep-alive',
     'x-accel-buffering': 'no',
     ...headers
-  });
+  }));
   res.flushHeaders?.();
   if (comment !== false) writeSseComment(res, comment);
 }

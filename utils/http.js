@@ -30,6 +30,13 @@ export function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+export function sendNoContent(res, status = 204) {
+  res.writeHead(status, withSecurityHeaders({
+    'cache-control': 'no-store'
+  }));
+  res.end();
+}
+
 export const DEFAULT_JSON_BODY_LIMIT_BYTES = 1024 * 1024;
 export const DEFAULT_MULTIPART_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
 

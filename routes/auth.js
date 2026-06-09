@@ -1,7 +1,7 @@
 // /api/auth/* 路由：注册 / 登录 / 退出 / 当前用户。
 // TAG: hmt---
 
-import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
+import { sendJson, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { parseCookies, setSessionCookie, clearSessionCookie, COOKIE_KEY } from '../utils/cookies.js';
 import { hit as rateLimitHit } from '../services/rate-limit.js';
 import {
@@ -213,8 +213,7 @@ function handleLogout(req, res) {
   const sid = cookies[COOKIE_KEY];
   if (sid) destroySession(sid);
   clearSessionCookie(res);
-  res.writeHead(204);
-  res.end();
+  sendNoContent(res);
 }
 
 function handleMe(req, res) {
