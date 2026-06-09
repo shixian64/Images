@@ -78,6 +78,7 @@ services:
       ALLOW_INSECURE_UPSTREAMS: "${ALLOW_INSECURE_UPSTREAMS:-0}"
       ALLOW_PRIVATE_UPSTREAMS: "${ALLOW_PRIVATE_UPSTREAMS:-0}"
       TRUST_PROXY: "${TRUST_PROXY:-0}"
+      TRUST_PROXY_ALLOWED_IPS: "${TRUST_PROXY_ALLOWED_IPS:-127.0.0.1,::1}"
 
       # 默认支持 README 中的 http://localhost:8787 直连；放到 HTTPS 反代后再设为 production 以给 cookie 加 Secure。
       NODE_ENV: "${NODE_ENV:-development}"

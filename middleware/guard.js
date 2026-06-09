@@ -2,7 +2,7 @@
 // TAG: hmt---
 
 import { sendJson } from '../utils/http.js';
-import { isTrustProxyEnabled } from '../utils/request.js';
+import { shouldTrustForwardedHeaders } from '../utils/request.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -41,7 +41,7 @@ function normalizedProtocol(value) {
 }
 
 function requestProtocol(req) {
-  if (isTrustProxyEnabled()) {
+  if (shouldTrustForwardedHeaders(req)) {
     const headers = req?.headers || {};
     const proxyProtocol = normalizedProtocol(firstHeaderToken(headers['x-forwarded-proto']))
       || normalizedProtocol(forwardedProto(headers.forwarded));

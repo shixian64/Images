@@ -28,7 +28,7 @@ function captureRes() {
   };
 }
 
-function req({ method = 'POST', headers = {}, encrypted = false } = {}) {
+function req({ method = 'POST', headers = {}, encrypted = false, remoteAddress = '203.0.113.10' } = {}) {
   return {
     method,
     headers: {
@@ -36,7 +36,7 @@ function req({ method = 'POST', headers = {}, encrypted = false } = {}) {
       'x-requested-with': 'fetch',
       ...headers
     },
-    socket: { encrypted }
+    socket: { encrypted, remoteAddress }
   };
 }
 
@@ -64,6 +64,7 @@ test('requireCsrf rejects same host with a different scheme', () => {
 
 test('requireCsrf trusts forwarded HTTPS scheme only when TRUST_PROXY is enabled', () => {
   process.env.TRUST_PROXY = '1';
+  process.env.TRUST_PROXY_ALLOWED_IPS = '203.0.113.10';
   const res = captureRes();
 
   assert.equal(requireCsrf(req({
@@ -73,6 +74,20 @@ test('requireCsrf trusts forwarded HTTPS scheme only when TRUST_PROXY is enabled
     }
   }), res), true);
   assert.equal(res.statusCode, null);
+});
+
+test('requireCsrf ignores forwarded scheme from non-allowlisted proxies', () => {
+  process.env.TRUST_PROXY = '1';
+  process.env.TRUST_PROXY_ALLOWED_IPS = '127.0.0.1';
+  const res = captureRes();
+
+  assert.equal(requireCsrf(req({
+    headers: {
+      origin: 'https://studio.example.test',
+      'x-forwarded-proto': 'https'
+    }
+  }), res), false);
+  assert.equal(res.statusCode, 403);
 });
 
 test('requireCsrf falls back to Referer origin with scheme comparison', () => {

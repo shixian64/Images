@@ -76,7 +76,7 @@ ADMIN_BOOTSTRAP_TOKEN=
 - `SIGNUP_IP_DAILY_LIMIT` / `SIGNUP_IP_MONTHLY_LIMIT`：同一注册 IP 下普通账号共享系统默认接口额度池。
 - `REGISTRATION_EMAIL_DOMAIN_ALLOWLIST` / `REGISTRATION_EMAIL_DOMAIN_BLOCKLIST`：邮箱域名放行 / 拒绝。
 - `LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE` / `LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE` / `LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE`：登录防爆破。
-- `TRUST_PROXY=1` 仅应在可信反向代理会清洗转发头时启用。
+- `TRUST_PROXY=1` 仅应在可信反向代理会清洗转发头时启用，并用 `TRUST_PROXY_ALLOWED_IPS` 限定直连代理来源。
 
 ## 功能概览
 
@@ -268,6 +268,7 @@ GET /healthz
 | `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。 |
 | `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost / 私网 / metadata 等上游。 |
 | `TRUST_PROXY` | `0` | 是否信任转发头。仅在可信反代后启用。 |
+| `TRUST_PROXY_ALLOWED_IPS` | `127.0.0.1,::1` | 启用 `TRUST_PROXY` 后允许信任的直连代理 IP，支持 IPv4 CIDR。 |
 | `TRUST_FORWARDED_HEADERS` | `0` | `TRUST_PROXY` 的兼容别名。 |
 | `TEST_PROFILE_TIMEOUT_MS` | `30000` | `/v1/models` 探活超时。 |
 
