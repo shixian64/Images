@@ -92,3 +92,44 @@ test('admin queue settings updates are audited', async () => {
   assert.equal(entry.meta.settings.maintenance_mode, true);
   assert.equal(entry.meta.settings.max_pending_global, 123);
 });
+
+test('admin job detail reads the requested job directly by id', async () => {
+  const owner = auth.register({
+    username: 'jobs_route_owner',
+    email: 'jobs_route_owner@example.com',
+    password: 'longenough1'
+  });
+  const admin = auth.register({
+    username: 'jobs_route_detail_admin',
+    email: 'jobs_route_detail_admin@example.com',
+    password: 'longenough1',
+    adminBootstrapToken: ''
+  });
+  // 第一个测试已创建首个管理员；这里通过 DB 提权一个独立账号用于管理员详情路由测试。
+  const freshAdmin = db.users.updateRole(admin.id, 'admin');
+  const job = db.generationJobs.create({
+    userId: owner.id,
+    status: 'queued',
+    priority: 7,
+    payload: { prompt: 'direct admin detail', n: 1 },
+    promptPreview: 'direct admin detail',
+    profileName: 'Route Test',
+    model: 'test-image-model',
+    n: 1
+  });
+
+  const res = captureRes();
+  await jobsRoutes.handleJobsRoute(
+    { method: 'GET', session: { user: freshAdmin }, headers: {}, socket: { remoteAddress: '127.0.0.1' } },
+    res,
+    `/api/admin/jobs/${encodeURIComponent(job.id)}`,
+    new URL(`http://localhost/api/admin/jobs/${encodeURIComponent(job.id)}`)
+  );
+
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.job.id, job.id);
+  assert.equal(body.job.userId, owner.id);
+  assert.equal(body.job.user.username, owner.username);
+  assert.equal(body.job.priority, 7);
+});

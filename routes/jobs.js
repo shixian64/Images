@@ -6,6 +6,7 @@ import { requireAdmin } from '../middleware/guard.js';
 import { record as auditRecord } from '../services/audit.js';
 import {
   cancelJob,
+  getAdminJob,
   getAdminJobs,
   getJobForUser,
   getQueueSettings,
@@ -177,7 +178,7 @@ async function handleAdminJobs(req, res, pathname, url) {
   if (detailMatch) {
     if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     try {
-      const job = getAdminJobs({ limit: 10000 }).find((item) => item.id === decodeURIComponent(detailMatch[1]));
+      const job = getAdminJob(decodeURIComponent(detailMatch[1]));
       if (!job) return sendJson(res, 404, { error: 'job not found' });
       return sendJson(res, 200, { job });
     } catch (err) {

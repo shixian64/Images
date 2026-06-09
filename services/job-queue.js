@@ -769,6 +769,18 @@ export function getAdminJobs({ limit = 200, status = '', userId = '' } = {}) {
   return generationJobs.listAll({ limit, status, userId }).map((job) => publicJob(job, { includeUser: true }));
 }
 
+export function getAdminJob(jobId) {
+  const job = generationJobs.findById(jobId);
+  if (!job) return null;
+  const user = job.user_id ? users.findById(job.user_id) : null;
+  return publicJob({
+    ...job,
+    user_username: user?.username || '',
+    user_email: user?.email || '',
+    user_role: user?.role || ''
+  }, { includeUser: true });
+}
+
 export function queueStats() {
   const all = generationJobs.listAll({ limit: 10000 });
   const byStatus = {};
