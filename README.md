@@ -24,6 +24,27 @@ npm start       # node --experimental-sqlite server.js，默认 http://localhost
 npm test        # Node 原生 test runner，零外部依赖
 ```
 
+> 注意：`docker compose` 会自动读取项目根目录的 `.env`，但本地 `npm start` 不会自动加载 `.env`（项目未引入 `dotenv`）。本地直跑前请先把需要的变量导入当前 shell，例如：
+>
+> PowerShell:
+>
+> ```powershell
+> Get-Content .env | Where-Object { $_ -match '^\s*[A-Z0-9_]+=' } | ForEach-Object {
+>   $name, $value = $_.Split('=', 2)
+>   Set-Item "Env:$name" $value
+> }
+> npm start
+> ```
+>
+> Bash / zsh:
+>
+> ```bash
+> set -a
+> . ./.env
+> set +a
+> npm start
+> ```
+
 要求：
 
 - Node.js `>=22.5.0`
