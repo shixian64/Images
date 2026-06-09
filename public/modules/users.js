@@ -208,15 +208,16 @@ function renderRegistrationInvites() {
         ${invites.map((item) => {
           const status = inviteStatus(item);
           const code = item.code || '';
+          const displayCode = item.displayCode || code;
           const canDisable = !item.disabledAt;
           return `<tr>
-            <td><code>${escapeHtml(code || '-')}</code></td>
+            <td><code>${escapeHtml(displayCode || '-')}</code></td>
             <td>${Number(item.usedCount) || 0} / ${Number(item.maxUses) || 1}</td>
             <td>${Number(item.remainingUses) || 0}</td>
             <td>${renderInviteUsers(code, byCode.get(code) || [], item.usedCount)}</td>
             <td><span class="chip ${status.className}">${status.label}</span></td>
             <td>${escapeHtml(formatTime(item.createdAt))}</td>
-            <td>${canDisable ? `<button class="danger ghost small" type="button" data-disable-invite="${escapeHtml(code)}">停用</button>` : '<span class="muted">-</span>'}</td>
+            <td>${canDisable ? `<button class="danger ghost small" type="button" data-disable-invite="${escapeHtml(code)}" data-invite-label="${escapeHtml(displayCode)}">停用</button>` : '<span class="muted">-</span>'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -249,7 +250,7 @@ function renderRegistrationRedemptions() {
       </thead>
       <tbody>
         ${redemptions.map((item) => `<tr>
-          <td><code>${escapeHtml(item.code || '-')}</code></td>
+          <td><code>${escapeHtml(item.displayCode || item.code || '-')}</code></td>
           <td>${escapeHtml(redemptionUserLabel(item))}</td>
           <td><code>${escapeHtml(item.userId || '-')}</code></td>
           <td>${escapeHtml(formatTime(item.usedAt))}</td>
@@ -369,10 +370,11 @@ async function resetRegistrationInvites() {
   }
 }
 
-async function disableRegistrationInvite(code) {
+async function disableRegistrationInvite(code, label = code) {
   const text = String(code || '').trim();
+  const displayLabel = String(label || text).trim();
   if (!text) return;
-  if (!confirm(`确定要停用邀请码 ${text} 吗？已注册用户不受影响。`)) return;
+  if (!confirm(`确定要停用邀请码 ${displayLabel || text} 吗？已注册用户不受影响。`)) return;
   try {
     const resp = await apiFetch(`/api/admin/registration/invites/${encodeURIComponent(text)}`, { method: 'DELETE' });
     const data = await resp.json().catch(() => ({}));
@@ -431,7 +433,7 @@ function bindRegistrationPanel() {
   $('registrationInviteTableWrap')?.addEventListener('click', (event) => {
     const button = event.target?.closest?.('[data-disable-invite]');
     if (!button) return;
-    disableRegistrationInvite(button.dataset.disableInvite);
+    disableRegistrationInvite(button.dataset.disableInvite, button.dataset.inviteLabel);
   });
 }
 

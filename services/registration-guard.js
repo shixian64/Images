@@ -177,7 +177,7 @@ function assertDbInvite(code, settings) {
       code: 'invalid_registration_invite_code'
     });
   }
-  return { inviteAccepted: true, inviteSource: 'db', inviteCode: invite.code };
+  return { inviteAccepted: true, inviteSource: 'db', inviteCode: code };
 }
 
 function assertInviteCode(code, settings) {

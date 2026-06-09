@@ -4,7 +4,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, renameSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
 import { positiveIntFromEnv } from '../utils/config.js';
 import {
@@ -317,6 +317,7 @@ export function migrate() {
   runSchemaMigration(db, 5, 'registration_invite_redemptions', () => migrateRegistrationInviteTables(db));
   db.exec(DATA_LIFECYCLE_INDEXES);
   runSchemaMigration(db, 6, 'prompt_square_nullable_owner', () => migratePromptSquareNullableOwner(db), { transaction: false });
+  runSchemaMigration(db, 7, 'registration_invite_code_hashes', () => migrateRegistrationInviteCodeHashes(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -381,6 +382,26 @@ function migrateRegistrationInviteTables(db) {
     CREATE INDEX IF NOT EXISTS idx_registration_invite_redemptions_used
       ON registration_invite_redemptions(used_at DESC);
   `);
+}
+
+function migrateRegistrationInviteCodeHashes(db) {
+  const rows = db.prepare('SELECT code FROM registration_invites').all();
+  const updateInvite = db.prepare('UPDATE registration_invites SET code = ?, updated_at = ? WHERE code = ?');
+  const updateRedemptions = db.prepare('UPDATE registration_invite_redemptions SET code = ? WHERE code = ?');
+  const updatedAt = nowIso();
+  for (const row of rows) {
+    const code = String(row?.code || '');
+    if (!code || isInviteCodeHash(code)) continue;
+    const hashed = hashInviteCode(code);
+    updateRedemptions.run(hashed, code);
+    updateInvite.run(hashed, updatedAt, code);
+  }
+  const orphanRedemptions = db.prepare('SELECT DISTINCT code FROM registration_invite_redemptions').all();
+  for (const row of orphanRedemptions) {
+    const code = String(row?.code || '');
+    if (!code || isInviteCodeHash(code)) continue;
+    updateRedemptions.run(hashInviteCode(code), code);
+  }
 }
 
 function migrateImagePublicColumns(db) {
@@ -1812,6 +1833,32 @@ export const generationJobs = {
 
 // ---- registration_invites ----
 
+const INVITE_CODE_HASH_PREFIX = 'inv:v1:';
+
+function isInviteCodeHash(value) {
+  return String(value || '').startsWith(INVITE_CODE_HASH_PREFIX);
+}
+
+function hashInviteCode(code) {
+  const text = String(code || '').trim();
+  return `${INVITE_CODE_HASH_PREFIX}${createHash('sha256').update(text).digest('hex')}`;
+}
+
+function inviteLookupKeys(code, { allowStoredIdentifier = false } = {}) {
+  const text = String(code || '').trim();
+  if (!text) return [];
+  const keys = [hashInviteCode(text)];
+  if (allowStoredIdentifier || !isInviteCodeHash(text)) keys.push(text);
+  return [...new Set(keys)];
+}
+
+function inviteDisplayCode(code) {
+  const text = String(code || '').trim();
+  if (!isInviteCodeHash(text)) return text;
+  const hash = text.slice(INVITE_CODE_HASH_PREFIX.length);
+  return `${INVITE_CODE_HASH_PREFIX}${hash.slice(0, 10)}...`;
+}
+
 function parseInvite(row) {
   if (!row) return null;
   const maxUses = Math.max(1, Math.floor(Number(row.max_uses) || 1));
@@ -1819,6 +1866,8 @@ function parseInvite(row) {
   const remainingUses = Math.max(0, maxUses - usedCount);
   return {
     code: row.code,
+    displayCode: inviteDisplayCode(row.code),
+    codeHash: isInviteCodeHash(row.code) ? row.code : hashInviteCode(row.code),
     maxUses,
     usedCount,
     remainingUses,
@@ -1838,6 +1887,7 @@ function parseInviteRedemption(row) {
   return {
     id: row.id,
     code: row.code,
+    displayCode: inviteDisplayCode(row.code),
     userId: row.user_id || null,
     username: currentUsername || row.user_username || null,
     email: currentEmail || row.user_email || null,
@@ -1864,13 +1914,15 @@ export const registrationInvites = {
     return Number(row?.n) || 0;
   },
   findUsable(code) {
-    const text = String(code || '').trim();
-    if (!text) return null;
+    const keys = inviteLookupKeys(code);
+    if (!keys.length) return null;
     const row = open().prepare(`
       SELECT * FROM registration_invites
-      WHERE code = ? AND disabled_at IS NULL AND used_count < max_uses
+      WHERE code IN (${keys.map(() => '?').join(',')})
+        AND disabled_at IS NULL
+        AND used_count < max_uses
       LIMIT 1
-    `).get(text);
+    `).get(...keys);
     return parseInvite(row);
   },
   createMany(items = [], { createdBy = null } = {}) {
@@ -1889,18 +1941,25 @@ export const registrationInvites = {
       for (const item of rows) {
         const code = String(item?.code || '').trim();
         if (!code) continue;
+        const storedCode = hashInviteCode(code);
         const maxUses = Math.max(1, Math.floor(Number(item?.maxUses) || 1));
-        stmt.run(code, maxUses, createdAt, createdBy || null, createdAt);
-        created.push(parseInvite({
+        stmt.run(storedCode, maxUses, createdAt, createdBy || null, createdAt);
+        created.push({
+          ...parseInvite({
+            code: storedCode,
+            max_uses: maxUses,
+            used_count: 0,
+            created_at: createdAt,
+            created_by: createdBy || null,
+            updated_at: createdAt,
+            disabled_at: null,
+            disabled_by: null
+          }),
           code,
-          max_uses: maxUses,
-          used_count: 0,
-          created_at: createdAt,
-          created_by: createdBy || null,
-          updated_at: createdAt,
-          disabled_at: null,
-          disabled_by: null
-        }));
+          codeHash: storedCode,
+          displayCode: code,
+          oneTimePlaintext: true
+        });
       }
       db.exec('COMMIT;');
     } catch (err) {
@@ -1910,8 +1969,8 @@ export const registrationInvites = {
     return created;
   },
   consume(code, { userId = null } = {}) {
-    const text = String(code || '').trim();
-    if (!text) return null;
+    const keys = inviteLookupKeys(code);
+    if (!keys.length) return null;
     const db = open();
     const usedAt = nowIso();
     db.exec('BEGIN;');
@@ -1920,14 +1979,20 @@ export const registrationInvites = {
         UPDATE registration_invites
         SET used_count = used_count + 1,
             updated_at = ?
-        WHERE code = ?
+        WHERE code IN (${keys.map(() => '?').join(',')})
           AND disabled_at IS NULL
           AND used_count < max_uses
-      `).run(usedAt, text);
+      `).run(usedAt, ...keys);
       if (!res.changes) {
         db.exec('ROLLBACK;');
         return null;
       }
+      const stored = db.prepare(`
+        SELECT * FROM registration_invites
+        WHERE code IN (${keys.map(() => '?').join(',')})
+        LIMIT 1
+      `).get(...keys);
+      const storedCode = stored?.code || keys[0];
       const safeUserId = String(userId || '').trim();
       const user = safeUserId
         ? db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(safeUserId)
@@ -1938,15 +2003,13 @@ export const registrationInvites = {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(
         randomUUID(),
-        text,
+        storedCode,
         user?.id || safeUserId || null,
         user?.username || null,
         user?.email || null,
         usedAt
       );
-      const invite = parseInvite(db.prepare(
-        'SELECT * FROM registration_invites WHERE code = ?'
-      ).get(text));
+      const invite = parseInvite(stored);
       db.exec('COMMIT;');
       return invite;
     } catch (err) {
@@ -1955,10 +2018,14 @@ export const registrationInvites = {
     }
   },
   disable(code, { disabledBy = null } = {}) {
-    const text = String(code || '').trim();
-    if (!text) return null;
+    const keys = inviteLookupKeys(code, { allowStoredIdentifier: true });
+    if (!keys.length) return null;
     const db = open();
-    const existing = db.prepare('SELECT * FROM registration_invites WHERE code = ?').get(text);
+    const existing = db.prepare(`
+      SELECT * FROM registration_invites
+      WHERE code IN (${keys.map(() => '?').join(',')})
+      LIMIT 1
+    `).get(...keys);
     if (!existing) return null;
     if (existing.disabled_at) return parseInvite(existing);
     const disabledAt = nowIso();
@@ -1968,8 +2035,8 @@ export const registrationInvites = {
           disabled_by = ?,
           updated_at = ?
       WHERE code = ? AND disabled_at IS NULL
-    `).run(disabledAt, disabledBy || null, disabledAt, text);
-    return parseInvite(db.prepare('SELECT * FROM registration_invites WHERE code = ?').get(text));
+    `).run(disabledAt, disabledBy || null, disabledAt, existing.code);
+    return parseInvite(db.prepare('SELECT * FROM registration_invites WHERE code = ?').get(existing.code));
   },
   disableUnusedBefore(cutoffIso, { disabledBy = null } = {}) {
     const cutoff = String(cutoffIso || '').trim();
