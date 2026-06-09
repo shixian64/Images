@@ -50,7 +50,7 @@ function sanitizeParts(parts) {
 
 function isAllowedPreviewImageUrl(url) {
   const value = trimText(url, 500);
-  if (/^https?:\/\//i.test(value)) return true;
+  if (/^https:\/\//i.test(value)) return true;
   return /^\/prompt-example-files\/users\/[a-zA-Z0-9._-]+\/images\/prompt-examples\/[^?#]+$/i.test(value);
 }
 

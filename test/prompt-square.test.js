@@ -235,3 +235,29 @@ test('prompt square keeps uploaded prompt example preview urls', async () => {
   assert.equal(result.statusCode, 200);
   assert.deepEqual(result.body.item.meta.previewImages, [previewUrl]);
 });
+
+test('prompt square only keeps HTTPS external preview image urls', async () => {
+  const owner = auth.register({
+    username: 'square_https_preview_owner',
+    email: 'square_https_preview_owner@example.com',
+    password: 'longenough1'
+  });
+  const httpsPreviewUrl = 'https://cdn.example.test/preview.png';
+
+  const result = await postSquare(owner, {
+    sourcePromptId: 'preview-external-url',
+    title: 'Preview external URL',
+    prompt: 'prompt with external example image',
+    tags: ['preview'],
+    source: 'manual',
+    meta: {
+      previewImages: [
+        httpsPreviewUrl,
+        'http://cdn.example.test/insecure.png'
+      ]
+    }
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.item.meta.previewImages, [httpsPreviewUrl]);
+});
