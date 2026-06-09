@@ -71,7 +71,7 @@ const API_ROUTES = [
 
 function dispatchApiRoute(req, res, pathname, url) {
   // 所有非 GET 请求统一走 CSRF（登录/注册即使未登录也要校验同源 + X-Requested-With）
-  if (!requireCsrf(req, res)) return;
+  if (!requireCsrf(req, res, pathname)) return;
 
   const route = API_ROUTES.find((item) => item.match(pathname, req));
   if (!route) return sendJson(res, 404, { error: 'not found' });

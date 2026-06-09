@@ -11,6 +11,7 @@ const KEY_LEN = 64;
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CSRF_TOKEN_BYTES = 32;
 
 // 一天毫秒数，用于判断是否需要滑动续期
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,6 +47,10 @@ function assertValidCredentials({ username, email, password }) {
     throw new Error('invalid email');
   }
   assertPasswordAllowed(password, { username, email });
+}
+
+function createCsrfToken() {
+  return randomBytes(CSRF_TOKEN_BYTES).toString('hex');
 }
 
 export function isValidAdminBootstrapToken(token) {
@@ -147,17 +152,19 @@ export function login({ login: loginId, password, ua, ip }) {
   }
   users.touchLogin(row.id);
   const sessionId = randomBytes(32).toString('hex');
-  sessions.create({ id: sessionId, userId: row.id, userAgent: ua, ip });
+  const csrfToken = createCsrfToken();
+  sessions.create({ id: sessionId, userId: row.id, userAgent: ua, ip, csrfToken });
   // 重新取一次以带上最新 last_login_at
   const fresh = users.findById(row.id);
-  return { user: sanitizeUser(fresh), sessionId };
+  return { user: sanitizeUser(fresh), sessionId, csrfToken };
 }
 
 // 直接创建 session（注册后自动登录用）
 export function createSession({ userId, ua, ip }) {
   const sessionId = randomBytes(32).toString('hex');
-  sessions.create({ id: sessionId, userId, userAgent: ua, ip });
-  return sessionId;
+  const csrfToken = createCsrfToken();
+  sessions.create({ id: sessionId, userId, userAgent: ua, ip, csrfToken });
+  return { sessionId, csrfToken };
 }
 
 export function getSessionUser(sessionId) {
@@ -186,7 +193,18 @@ export function getSessionUser(sessionId) {
     session.expires_at = newExpires;
     renewed = true;
   }
-  return { user: sanitizeUser(user), session, renewed };
+  return { user: sanitizeUser(user), session, csrfToken: session.csrf_token || '', renewed };
+}
+
+export function ensureSessionCsrfToken(sessionId) {
+  if (!sessionId) return '';
+  const session = sessions.get(sessionId);
+  if (!session) return '';
+  const existing = String(session.csrf_token || '').trim();
+  if (existing) return existing;
+  const csrfToken = createCsrfToken();
+  sessions.setCsrfToken(sessionId, csrfToken);
+  return csrfToken;
 }
 
 export function destroySession(sessionId) {

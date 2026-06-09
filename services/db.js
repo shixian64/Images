@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at  TEXT NOT NULL,
   expires_at  TEXT NOT NULL,
+  csrf_token  TEXT,
   user_agent  TEXT,
   ip          TEXT
 );
@@ -325,6 +326,7 @@ export function migrate() {
   runSchemaMigration(db, 8, 'registration_invite_expiry', () => migrateRegistrationInviteExpiry(db));
   runSchemaMigration(db, 9, 'session_id_hashes', () => migrateSessionIdHashes(db));
   runSchemaMigration(db, 10, 'user_password_reset_required', () => migrateUserPasswordResetRequired(db));
+  runSchemaMigration(db, 11, 'session_csrf_tokens', () => migrateSessionCsrfTokens(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -431,6 +433,10 @@ function migrateSessionIdHashes(db) {
 
 function migrateUserPasswordResetRequired(db) {
   addColumnIfMissing(db, 'users', 'password_reset_required', 'password_reset_required INTEGER NOT NULL DEFAULT 0');
+}
+
+function migrateSessionCsrfTokens(db) {
+  addColumnIfMissing(db, 'sessions', 'csrf_token', 'csrf_token TEXT');
 }
 
 function migrateImagePublicColumns(db) {
@@ -746,7 +752,7 @@ function sessionLookupKeys(id) {
 
 export const sessions = {
   TTL_MS: SESSION_TTL_MS,
-  create({ id, userId, userAgent, ip }) {
+  create({ id, userId, userAgent, ip, csrfToken }) {
     const text = String(id || '').trim();
     if (!text) throw new Error('session id is required');
     const storedId = hashSessionId(text);
@@ -754,13 +760,14 @@ export const sessions = {
     const now = new Date();
     const expires = new Date(now.getTime() + SESSION_TTL_MS);
     db.prepare(`
-      INSERT INTO sessions (id, user_id, created_at, expires_at, user_agent, ip)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(storedId, userId, now.toISOString(), expires.toISOString(), userAgent || null, ip || null);
+      INSERT INTO sessions (id, user_id, created_at, expires_at, csrf_token, user_agent, ip)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(storedId, userId, now.toISOString(), expires.toISOString(), csrfToken || null, userAgent || null, ip || null);
     return {
       id: text,
       sessionIdHash: storedId,
       userId,
+      csrfToken: csrfToken || '',
       createdAt: now.toISOString(),
       expiresAt: expires.toISOString()
     };
@@ -784,6 +791,15 @@ export const sessions = {
       WHERE id IN (${keys.map(() => '?').join(',')})
     `).run(expires, ...keys);
     return expires;
+  },
+  setCsrfToken(id, csrfToken) {
+    const keys = sessionLookupKeys(id);
+    if (!keys.length) return 0;
+    return open().prepare(`
+      UPDATE sessions
+      SET csrf_token = ?
+      WHERE id IN (${keys.map(() => '?').join(',')})
+    `).run(csrfToken || null, ...keys).changes || 0;
   },
   destroy(id) {
     const keys = sessionLookupKeys(id);

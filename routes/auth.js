@@ -9,6 +9,7 @@ import {
   login as authLogin,
   createSession,
   destroySession,
+  ensureSessionCsrfToken,
   canInitializeAdminRegistration,
   isFirstAdminBootstrapRequired,
   isValidAdminBootstrapToken
@@ -183,15 +184,15 @@ async function handleRegister(req, res) {
       }
     }
     // 注册成功自动登录：创建一条 session，下发 cookie
-    const sid = createSession({ userId: user.id, ua: userAgent(req), ip });
-    setSessionCookie(res, sid);
+    const { sessionId, csrfToken } = createSession({ userId: user.id, ua: userAgent(req), ip });
+    setSessionCookie(res, sessionId);
     logger.info('auth.register', {
       userId: user.id,
       role: user.role,
       ip,
       inviteRequired: registrationPolicy.inviteRequired
     });
-    sendJson(res, 200, { user });
+    sendJson(res, 200, { user, csrfToken });
   } catch (err) {
     const { status, payload } = registrationErrorResponse(err);
     sendJson(res, status, payload);
@@ -211,7 +212,7 @@ async function handleLogin(req, res) {
   // 同时按 IP、账号和 IP+账号限流，避免攻击者变换 login 绕过单一组合 key。
   if (!checkLoginRateLimit(res, ip, login)) return;
   try {
-    const { user, sessionId } = authLogin({
+    const { user, sessionId, csrfToken } = authLogin({
       login,
       password,
       ua: userAgent(req),
@@ -219,7 +220,7 @@ async function handleLogin(req, res) {
     });
     setSessionCookie(res, sessionId);
     logger.info('auth.login', { userId: user.id });
-    sendJson(res, 200, { user });
+    sendJson(res, 200, { user, csrfToken });
   } catch (err) {
     // 登录类错误统一 401 并使用固定文案，避免账号枚举
     const msg = err.message === 'invalid credentials' ? 'invalid credentials' : 'invalid credentials';
@@ -240,7 +241,9 @@ function handleMe(req, res) {
     sendJson(res, 401, { error: 'unauthorized' });
     return;
   }
-  sendJson(res, 200, { user: req.session.user });
+  const csrfToken = req.session.csrfToken || ensureSessionCsrfToken(req.session.sessionId);
+  req.session.csrfToken = csrfToken;
+  sendJson(res, 200, { user: req.session.user, csrfToken });
 }
 
 export async function handleAuthRoute(req, res, pathname) {

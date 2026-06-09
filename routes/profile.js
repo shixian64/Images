@@ -56,12 +56,12 @@ async function handlePassword(req, res) {
   }
   // 改密后吊销该用户所有 session（含其他设备），为当前请求重建一条
   sessions.destroyByUser(userId);
-  const sid = createSession({
+  const { sessionId } = createSession({
     userId,
     ua: req.headers['user-agent'] || '',
     ip: clientIp(req)
   });
-  setSessionCookie(res, sid);
+  setSessionCookie(res, sessionId);
   logger.info('profile.password_changed', { userId });
   sendNoContent(res);
 }

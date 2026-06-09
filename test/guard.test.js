@@ -40,6 +40,22 @@ function req({ method = 'POST', headers = {}, encrypted = false, remoteAddress =
   };
 }
 
+function authedReq({ csrfToken = 'csrf-session-token', headers = {}, ...rest } = {}) {
+  return {
+    ...req({
+      ...rest,
+      headers: {
+        origin: 'http://studio.example.test',
+        ...headers
+      }
+    }),
+    session: {
+      user: { id: 'u1' },
+      csrfToken
+    }
+  };
+}
+
 test('requireCsrf allows safe methods without fetch headers', () => {
   const res = captureRes();
 
@@ -99,6 +115,25 @@ test('requireCsrf falls back to Referer origin with scheme comparison', () => {
     }
   }), res), true);
   assert.equal(res.statusCode, null);
+});
+
+test('requireCsrf requires matching per-session token for authenticated unsafe requests', () => {
+  const missing = captureRes();
+  assert.equal(requireCsrf(authedReq(), missing, '/api/profile'), false);
+  assert.equal(missing.statusCode, 403);
+  assert.deepEqual(JSON.parse(missing.body), { error: 'csrf', code: 'csrf_token_invalid' });
+
+  const wrong = captureRes();
+  assert.equal(requireCsrf(authedReq({
+    headers: { 'x-csrf-token': 'wrong-token' }
+  }), wrong, '/api/profile'), false);
+  assert.equal(wrong.statusCode, 403);
+
+  const ok = captureRes();
+  assert.equal(requireCsrf(authedReq({
+    headers: { 'x-csrf-token': 'csrf-session-token' }
+  }), ok, '/api/profile'), true);
+  assert.equal(ok.statusCode, null);
 });
 
 test('requireFreshPassword blocks business APIs while reset is required', () => {

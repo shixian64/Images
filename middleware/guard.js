@@ -1,6 +1,8 @@
 // 鉴权/鉴权等级/CSRF 三个守卫。每个守卫都返回 bool，便于路由层链式短路。
 // TAG: hmt---
 
+import { timingSafeEqual } from 'node:crypto';
+
 import { sendJson } from '../utils/http.js';
 import { shouldTrustForwardedHeaders } from '../utils/request.js';
 
@@ -91,7 +93,26 @@ function selfOrigin(req) {
   return `${requestProtocol(req)}://${host}`;
 }
 
-export function requireCsrf(req, res) {
+function csrfHeader(req) {
+  return String(req?.headers?.['x-csrf-token'] || '').trim();
+}
+
+function csrfTokenMatches(expected, actual) {
+  const left = String(expected || '').trim();
+  const right = String(actual || '').trim();
+  if (!left || !right) return false;
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function requiresSessionCsrfToken(req, pathname = '') {
+  if (!req.session?.user) return false;
+  if (pathname === '/api/auth/login' || pathname === '/api/auth/register') return false;
+  return true;
+}
+
+export function requireCsrf(req, res, pathname = '') {
   if (SAFE_METHODS.has(req.method)) return true;
   // 要求调用方显式声明是 fetch 发起，挡住 <form> / <img> 这类原生请求
   if (req.headers['x-requested-with'] !== 'fetch') {
@@ -102,6 +123,10 @@ export function requireCsrf(req, res) {
   const requestOrigin = originOf(req.headers.origin) || originOf(req.headers.referer);
   if (!expectedOrigin || !requestOrigin || requestOrigin !== expectedOrigin) {
     sendJson(res, 403, { error: 'csrf' });
+    return false;
+  }
+  if (requiresSessionCsrfToken(req, pathname) && !csrfTokenMatches(req.session.csrfToken, csrfHeader(req))) {
+    sendJson(res, 403, { error: 'csrf', code: 'csrf_token_invalid' });
     return false;
   }
   return true;

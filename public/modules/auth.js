@@ -3,6 +3,7 @@
 
 const CURRENT_USER_KEY = Symbol.for('image-key-manager.currentUser');
 let lastRequestTraceId = '';
+let csrfToken = '';
 
 function authState() {
   if (!globalThis[CURRENT_USER_KEY]) {
@@ -19,6 +20,7 @@ export async function apiFetch(url, opts = {}) {
   // 非 GET/HEAD 必须带 CSRF 标记，后端 requireCsrf 校验。
   if (method !== 'GET' && method !== 'HEAD') {
     if (!headers.has('X-Requested-With')) headers.set('X-Requested-With', 'fetch');
+    if (csrfToken && !headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', csrfToken);
   }
 
   let body = opts.body;
@@ -52,6 +54,7 @@ export async function getMe() {
     if (!resp.ok) return null;
     const data = await resp.json().catch(() => ({}));
     const user = data?.user || null;
+    setCsrfToken(data?.csrfToken || '');
     if (user) setCurrentUser(user);
     return user;
   } catch {
@@ -66,11 +69,20 @@ export async function logout() {
     // 失败也跳转，避免卡在中间态。
   }
   authState().currentUser = null;
+  setCsrfToken('');
   location.href = '/login.html';
 }
 
 export function setCurrentUser(user) {
   authState().currentUser = user || null;
+}
+
+export function setCsrfToken(token) {
+  csrfToken = String(token || '').trim();
+}
+
+export function getCsrfToken() {
+  return csrfToken;
 }
 
 export function getCurrentUser() {

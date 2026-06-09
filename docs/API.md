@@ -8,6 +8,7 @@
 - 除 `GET` / `HEAD` / `OPTIONS` 外，所有 `/api/*` 请求都需要：
   - `X-Requested-With: fetch`
   - `Origin` 或 `Referer` 与当前 `Host` 同源
+- 已登录 session 的非安全方法还需要携带 `/api/auth/me`、登录或注册响应返回的 `csrfToken`：`X-CSRF-Token: <csrfToken>`。
 - 除 `/api/auth/*` 外，业务接口都要求已登录。
 - `/api/admin/*` 以及 `/api/users*` 要求当前用户为 `admin`。
 - 请求体大小由 `MAX_JSON_BODY_BYTES` 限制；上传类 multipart 由 `MAX_MULTIPART_BODY_BYTES` 限制。

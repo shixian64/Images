@@ -501,9 +501,10 @@ test('admin password reset requires the user to change password after login', ()
 });
 
 test('login + getSessionUser + destroySession round-trip', () => {
-  const { user, sessionId } = auth.login({ login: 'alice', password: 'longenough1', ua: 'jest', ip: '127.0.0.1' });
+  const { user, sessionId, csrfToken } = auth.login({ login: 'alice', password: 'longenough1', ua: 'jest', ip: '127.0.0.1' });
   assert.equal(user.username, 'alice');
   assert.ok(sessionId && sessionId.length === 64);
+  assert.ok(csrfToken && csrfToken.length >= 32);
   const storedSessionId = hashSessionIdForTest(sessionId);
   const sqlite = new DatabaseSync(db.dbPaths.file);
   try {
@@ -522,6 +523,7 @@ test('login + getSessionUser + destroySession round-trip', () => {
   const got = auth.getSessionUser(sessionId);
   assert.ok(got, 'session should resolve');
   assert.equal(got.user.id, user.id);
+  assert.equal(got.csrfToken, csrfToken);
 
   auth.destroySession(sessionId);
   assert.equal(auth.getSessionUser(sessionId), null);

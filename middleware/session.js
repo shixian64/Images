@@ -14,7 +14,7 @@ export default function attachSession(req, res) {
     if (!sid) return;
     const result = getSessionUser(sid);
     if (!result) return;
-    req.session = { user: result.user, sessionId: sid };
+    req.session = { user: result.user, sessionId: sid, csrfToken: result.csrfToken || '' };
     if (result.renewed && res) {
       setSessionCookie(res, sid);
     }

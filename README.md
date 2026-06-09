@@ -207,7 +207,7 @@ docs/                     # 产品、安全与决策文档
 
 ## API 快览
 
-所有 `/api/*` 非 GET 请求都需要 CSRF 保护：`X-Requested-With: fetch`，且 `Origin` / `Referer` 必须同源。除 `/api/auth/*` 外，业务接口都要求已登录。
+所有 `/api/*` 非 GET 请求都需要 CSRF 保护：`X-Requested-With: fetch`，且 `Origin` / `Referer` 必须同源。已登录 session 的非安全方法还需要携带 `/api/auth/me`、登录或注册响应返回的 `csrfToken`（`X-CSRF-Token`）。除 `/api/auth/*` 外，业务接口都要求已登录。
 
 | 路径 | 说明 |
 | --- | --- |

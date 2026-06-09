@@ -54,6 +54,7 @@
 - 当 `NODE_ENV=production` 时，session cookie 会额外带 `Secure`；因此生产环境应放在 HTTPS 后面。
 - 所有 `/api/*` 非 GET 请求都需要 `X-Requested-With: fetch`。
 - 非 GET 请求还要求 `Origin` 或 `Referer` 与当前 Host 同源，用于拦截普通表单、图片等跨站请求。
+- 已登录 session 的非安全方法还要求匹配每会话 `csrfToken`（`X-CSRF-Token`）；该 token 由登录、注册或 `/api/auth/me` 返回，前端统一 `apiFetch` 自动携带。
 - 除 `/api/auth/*` 外，业务 API 都要求登录；`/api/admin/*` 和管理功能要求管理员角色。
 
 ## 注册和登录防护
