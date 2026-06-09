@@ -71,7 +71,7 @@
 - **系统默认接口 Key**：管理员在接口管理中配置；设置 `IMAGE_STUDIO_SECRET_KEY` 后会以 AES-256-GCM 加密形式保存在 SQLite 的系统设置中；生产环境未配置该主密钥时默认拒绝保存新的系统 Key。开发环境保留旧版明文兼容，但不会通过普通用户接口、前端摘要或日志明文回显。
 - **个人覆盖接口 Key**：用户在浏览器端填写；前端持久化会清除 API Key，队列任务只在当前 Node 进程内临时持有。
 
-生产环境应设置长随机 `IMAGE_STUDIO_SECRET_KEY`，并把该值纳入备份/恢复密钥材料；已加密数据需要同一个值才能解密。`ALLOW_PLAINTEXT_SYSTEM_KEYS=1` 可恢复生产明文兼容，但公网部署不建议启用。系统默认 Key 的风险接受条件和升级路径见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。如果作为公网 SaaS、多租户服务或运行在不完全可信主机上，应进一步升级到 KMS/Vault。
+生产环境应设置长随机 `IMAGE_STUDIO_SECRET_KEY`，并把该值纳入备份/恢复密钥材料；已加密数据需要同一个值才能解密。系统默认 Key 支持受控重加密到新主密钥，但轮换前后都要保护旧/新主密钥。`ALLOW_PLAINTEXT_SYSTEM_KEYS=1` 可恢复生产明文兼容，但公网部署不建议启用。系统默认 Key 的风险接受条件和升级路径见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。如果作为公网 SaaS、多租户服务或运行在不完全可信主机上，应进一步升级到 KMS/Vault。
 
 ## 部署建议
 

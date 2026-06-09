@@ -27,10 +27,42 @@ function masterSecret() {
   return '';
 }
 
-function encryptionKey() {
-  const secret = masterSecret();
+function encryptionKeyFromSecret(secret) {
   if (!secret) return null;
   return createHash('sha256').update(secret, 'utf8').digest();
+}
+
+function encryptionKey() {
+  return encryptionKeyFromSecret(masterSecret());
+}
+
+function encryptPlaintext(plain, key) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(AAD);
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [
+    PROTECTED_SECRET_PREFIX.slice(0, -1),
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    encrypted.toString('base64url')
+  ].join(':');
+}
+
+function decryptProtected(stored, key) {
+  const parts = stored.split(':');
+  if (parts.length !== 5) throw new Error('invalid encrypted secret format');
+  const [, version, ivRaw, tagRaw, encryptedRaw] = parts;
+  if (version !== 'v1') throw new Error('unsupported encrypted secret version');
+
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivRaw, 'base64url'));
+  decipher.setAAD(AAD);
+  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedRaw, 'base64url')),
+    decipher.final()
+  ]).toString('utf8');
 }
 
 export function canEncryptSecrets() {
@@ -56,18 +88,15 @@ export function protectSecret(value) {
     }
     return plain;
   }
+  return encryptPlaintext(plain, key);
+}
 
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  cipher.setAAD(AAD);
-  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return [
-    PROTECTED_SECRET_PREFIX.slice(0, -1),
-    iv.toString('base64url'),
-    tag.toString('base64url'),
-    encrypted.toString('base64url')
-  ].join(':');
+export function protectSecretWithMaster(value, master) {
+  const plain = String(value || '');
+  if (!plain || isProtectedSecret(plain)) return plain;
+  const key = encryptionKeyFromSecret(String(master || '').trim());
+  if (!key) throw new Error('new IMAGE_STUDIO_SECRET_KEY is required to rotate system API keys');
+  return encryptPlaintext(plain, key);
 }
 
 export function secretUnavailableError() {
@@ -82,17 +111,23 @@ export function unprotectSecret(value) {
 
   const key = encryptionKey();
   if (!key) throw secretUnavailableError();
+  return decryptProtected(stored, key);
+}
 
-  const parts = stored.split(':');
-  if (parts.length !== 5) throw new Error('invalid encrypted secret format');
-  const [, version, ivRaw, tagRaw, encryptedRaw] = parts;
-  if (version !== 'v1') throw new Error('unsupported encrypted secret version');
+export function unprotectSecretWithMaster(value, master) {
+  const stored = String(value || '');
+  if (!stored || !isProtectedSecret(stored)) return stored;
 
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivRaw, 'base64url'));
-  decipher.setAAD(AAD);
-  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(encryptedRaw, 'base64url')),
-    decipher.final()
-  ]).toString('utf8');
+  const key = encryptionKeyFromSecret(String(master || '').trim());
+  if (!key) throw secretUnavailableError();
+  return decryptProtected(stored, key);
+}
+
+export function reencryptSecret(value, { currentSecret = '', nextSecret = '' } = {}) {
+  const stored = String(value || '');
+  if (!stored) return '';
+  const plain = isProtectedSecret(stored)
+    ? unprotectSecretWithMaster(stored, currentSecret)
+    : stored;
+  return protectSecretWithMaster(plain, nextSecret);
 }

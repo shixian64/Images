@@ -3,7 +3,7 @@
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../shared/constants.js';
 import { systemSettings } from './db.js';
 import { redactSecrets } from '../utils/mask.js';
-import { isProtectedSecret, protectSecret, unprotectSecret } from './secrets.js';
+import { isProtectedSecret, protectSecret, reencryptSecret, unprotectSecret } from './secrets.js';
 
 const SETTINGS_KEY = 'interfaces.default';
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -215,6 +215,43 @@ export function setGlobalInterfaceConfig(patch = {}, updatedBy = '') {
   }, current);
   systemSettings.set(SETTINGS_KEY, encodeStoredConfig(next), updatedBy || null);
   return next;
+}
+
+function rotateStoredEndpointSecret(endpoint = {}, options = {}) {
+  const stored = { ...(endpoint || {}) };
+  if (!stored.apiKey) return { endpoint: stored, rotated: 0 };
+  const nextApiKey = reencryptSecret(stored.apiKey, options);
+  return {
+    endpoint: {
+      ...stored,
+      protectedApiKey: undefined,
+      secretError: undefined,
+      apiKey: nextApiKey
+    },
+    rotated: nextApiKey !== stored.apiKey ? 1 : 0
+  };
+}
+
+export function rotateGlobalInterfaceSecrets({ currentSecret = '', nextSecret = '', updatedBy = 'secret-rotation' } = {}) {
+  const stored = systemSettings.get(SETTINGS_KEY);
+  if (!stored || typeof stored !== 'object') {
+    return { rotated: 0, updatedAt: null };
+  }
+
+  const image = rotateStoredEndpointSecret(stored.image, { currentSecret, nextSecret });
+  const chat = rotateStoredEndpointSecret(stored.chat, { currentSecret, nextSecret });
+  const rotated = image.rotated + chat.rotated;
+  if (!rotated) return { rotated: 0, updatedAt: stored.updatedAt || null };
+
+  const updatedAt = nowIso();
+  systemSettings.set(SETTINGS_KEY, {
+    ...stored,
+    image: image.endpoint,
+    chat: chat.endpoint,
+    updatedAt,
+    updatedBy: updatedBy || stored.updatedBy || null
+  }, updatedBy || null);
+  return { rotated, updatedAt };
 }
 
 export function getSystemEndpoint(kind) {

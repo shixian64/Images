@@ -39,7 +39,7 @@
 - 开发环境未设置 `IMAGE_STUDIO_SECRET_KEY`，或生产环境显式 `ALLOW_PLAINTEXT_SYSTEM_KEYS=1` 时，能读取宿主机持久化卷或 SQLite 文件的人，可以读取系统默认 API Key。
 - 已设置 `IMAGE_STUDIO_SECRET_KEY` 时，能同时读取 SQLite 文件和主密钥的人，可以解密系统默认 API Key。
 - 当前方案不满足“平台方也无法解密”的零知识要求。
-- 当前方案不提供 API Key 轮换历史、密文版本管理或 KMS 审计。
+- 当前方案提供系统默认 Key 的离线重加密能力，但不提供多版本密钥历史、自动轮换调度或 KMS 审计。
 
 ## 何时必须升级
 
@@ -57,12 +57,13 @@
 - 管理端 API 继续只返回 `hasApiKey` 和测试状态，不返回明文。
 - 开发环境未设置 `IMAGE_STUDIO_SECRET_KEY` 时保留旧版明文兼容；生产环境默认拒绝无主密钥写入系统 Key。
 - 读取旧明文后再次保存且主密钥存在时会写回密文。
+- `rotateGlobalInterfaceSecrets()` 可用旧主密钥解密系统默认接口 Key，并用新主密钥重加密写回，用于受控轮换或明文迁移。
 - 测试覆盖加密往返和 SQLite at-rest 不含原始 Key。
 
 ## 后续更高等级升级路径
 
 1. 把主密钥来源从环境变量替换为 KMS/Vault。
-2. 增加 key id / key hint、密钥版本、在线轮换和销毁流程。
+2. 增加 key id / key hint、密钥版本、在线轮换调度和销毁流程。
 3. 增加“错误主密钥 / 丢失主密钥”的管理员恢复向导。
 4. 对团队共享 Profile、客户托管密钥和审计合规做单独设计。
 
