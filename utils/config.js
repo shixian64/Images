@@ -1,6 +1,6 @@
 const POSITIVE_INT_ENV_SPECS = new Map([
   ['MAX_JSON_BODY_BYTES', { fallback: 1024 * 1024 }],
-  ['MAX_MULTIPART_BODY_BYTES', { fallback: 100 * 1024 * 1024 }],
+  ['MAX_MULTIPART_BODY_BYTES', { fallback: 64 * 1024 * 1024 }],
   ['MAX_UPSTREAM_RESPONSE_BYTES', { fallback: 40 * 1024 * 1024 }],
   ['MAX_IMAGES_PER_REQUEST', { fallback: 1 }],
   ['IMAGE_GENERATION_BATCH_CONCURRENCY', { fallback: 2 }],
@@ -17,8 +17,8 @@ const POSITIVE_INT_ENV_SPECS = new Map([
   ['IMAGE_DOWNLOAD_TIMEOUT_MS', { fallback: 60_000 }],
   ['MAX_IMAGE_DOWNLOAD_BYTES', { fallback: 25 * 1024 * 1024 }],
   ['MAX_REFERENCE_IMAGES', { fallback: 4 }],
-  ['MAX_REFERENCE_IMAGE_BYTES', { fallback: 20 * 1024 * 1024 }],
-  ['MAX_REFERENCE_IMAGE_TOTAL_BYTES', { fallback: 80 * 1024 * 1024 }],
+  ['MAX_REFERENCE_IMAGE_BYTES', { fallback: 12 * 1024 * 1024 }],
+  ['MAX_REFERENCE_IMAGE_TOTAL_BYTES', { fallback: 48 * 1024 * 1024 }],
   ['REFERENCE_JOB_FILE_TTL_HOURS', { fallback: 24 }],
   ['GENERATE_STREAM_HEARTBEAT_MS', { fallback: 15 * 1000 }],
   ['SHUTDOWN_TIMEOUT_MS', { fallback: 10_000 }],

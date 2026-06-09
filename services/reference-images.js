@@ -12,8 +12,8 @@ import { generationJobs, images as imagesTable } from './db.js';
 import { guardPaths } from './path-guard.js';
 
 const DEFAULT_MAX_REFERENCE_IMAGES = 4;
-const DEFAULT_MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;
-const DEFAULT_MAX_REFERENCE_IMAGE_TOTAL_BYTES = 80 * 1024 * 1024;
+const DEFAULT_MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024;
+const DEFAULT_MAX_REFERENCE_IMAGE_TOTAL_BYTES = 48 * 1024 * 1024;
 const DEFAULT_REFERENCE_JOB_FILE_TTL_HOURS = 24;
 
 const ALLOWED_REFERENCE_MIME_TYPES = new Set([

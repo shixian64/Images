@@ -7,6 +7,9 @@ import {
   positiveIntFromEnv,
   validateEnvConfig
 } from '../utils/config.js';
+import { getMultipartBodyLimitBytes } from '../utils/http.js';
+
+const MIB = 1024 * 1024;
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -50,6 +53,21 @@ test('validateEnvConfig reports invalid configured numeric env values', () => {
   assert.equal(warnings.some((warning) => warning.name === 'SIGNUP_IP_DAILY_LIMIT'), false);
   assert.ok(warnings.some((warning) => warning.name === 'CHAT_MAX_COMPLETION_TOKENS' && warning.fallback === 6000));
   assert.ok(events.some((event) => event.message === 'config.env.invalid_positive_int'));
+});
+
+test('resource guard fallbacks fit the low-memory container profile', () => {
+  delete process.env.MAX_MULTIPART_BODY_BYTES;
+  assert.equal(getMultipartBodyLimitBytes(), 64 * MIB);
+
+  process.env.MAX_MULTIPART_BODY_BYTES = 'invalid';
+  process.env.MAX_REFERENCE_IMAGE_BYTES = 'invalid';
+  process.env.MAX_REFERENCE_IMAGE_TOTAL_BYTES = 'invalid';
+
+  const warnings = validateEnvConfig();
+  const byName = new Map(warnings.map((warning) => [warning.name, warning]));
+  assert.equal(byName.get('MAX_MULTIPART_BODY_BYTES')?.fallback, 64 * MIB);
+  assert.equal(byName.get('MAX_REFERENCE_IMAGE_BYTES')?.fallback, 12 * MIB);
+  assert.equal(byName.get('MAX_REFERENCE_IMAGE_TOTAL_BYTES')?.fallback, 48 * MIB);
 });
 
 test('config center knows common positive integer env names', () => {

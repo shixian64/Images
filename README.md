@@ -293,7 +293,7 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | `SESSION_COOKIE_SECURE` | `0` | 设为 `1` 可在非 production 环境强制 session cookie 带 `Secure`，适合 HTTPS 反代但不想改变 `NODE_ENV` 的部署。 |
 | `IMAGE_STUDIO_SECRET_KEY` | 空 | 系统默认接口 API Key 的本地加密主密钥；生产环境必须设置长随机值才能保存系统 Key。 |
 | `ALLOW_PLAINTEXT_SYSTEM_KEYS` | `0` | 仅在生产环境显式设为 `1` 时允许系统默认 API Key 明文落库；公网部署不建议启用。 |
-| `NODE_OPTIONS` | `--max-old-space-size=512` | V8 heap 上限。 |
+| `NODE_OPTIONS` | `--max-old-space-size=384` | V8 heap 上限；需给 Buffer/SQLite/native 内存留余量。 |
 | `CONTAINER_MEMORY_LIMIT` | `768m` | Docker 容器内存上限。 |
 | `CONTAINER_CPUS` | `1.25` | Docker 容器 CPU 上限。 |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | 优雅关闭等待时间。 |
@@ -303,7 +303,7 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `MAX_JSON_BODY_BYTES` | `1048576` | JSON body 最大字节数。 |
-| `MAX_MULTIPART_BODY_BYTES` | `104857600` | multipart body 最大字节数。 |
+| `MAX_MULTIPART_BODY_BYTES` | `67108864` | multipart body 最大字节数。 |
 | `MAX_UPSTREAM_RESPONSE_BYTES` | `41943040` | 单次上游响应读取上限。 |
 | `ALLOW_INSECURE_UPSTREAMS` | `0` | 是否允许 HTTP 上游。 |
 | `ALLOW_PRIVATE_UPSTREAMS` | `0` | 是否允许 localhost / 私网 / metadata 等上游。 |
@@ -324,8 +324,8 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | `60000` | 上游 URL 图片下载超时。 |
 | `MAX_IMAGE_DOWNLOAD_BYTES` | `26214400` | URL 图片最大下载大小。 |
 | `MAX_REFERENCE_IMAGES` | `4` | 单次参考图数量上限。 |
-| `MAX_REFERENCE_IMAGE_BYTES` | `20971520` | 单张参考图大小上限。 |
-| `MAX_REFERENCE_IMAGE_TOTAL_BYTES` | `83886080` | 单次参考图总大小上限。 |
+| `MAX_REFERENCE_IMAGE_BYTES` | `12582912` | 单张参考图大小上限。 |
+| `MAX_REFERENCE_IMAGE_TOTAL_BYTES` | `50331648` | 单次参考图总大小上限。 |
 | `REFERENCE_JOB_FILE_TTL_HOURS` | `24` | 参考图临时目录保留时间。 |
 
 ### 额度与图库

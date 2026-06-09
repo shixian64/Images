@@ -48,7 +48,7 @@ export function sendNoContent(res, status = 204) {
 }
 
 export const DEFAULT_JSON_BODY_LIMIT_BYTES = 1024 * 1024;
-export const DEFAULT_MULTIPART_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_MULTIPART_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 
 export function getJsonBodyLimitBytes() {
   return positiveIntFromEnv('MAX_JSON_BODY_BYTES', DEFAULT_JSON_BODY_LIMIT_BYTES);
