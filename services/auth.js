@@ -80,11 +80,24 @@ export function sanitizeUser(row, { includeSecurity = false } = {}) {
   const passwordResetRequired = Boolean(rest.password_reset_required);
   rest.password_reset_required = passwordResetRequired;
   rest.passwordResetRequired = passwordResetRequired;
+  rest.avatar_url = publicAvatarUrl(rest.avatar_url);
   if (!includeSecurity) {
     delete rest.signup_ip;
     delete rest.signup_user_agent;
   }
   return rest;
+}
+
+function publicAvatarUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 export function register({ username, email, password, adminBootstrapToken, signupIp, signupUserAgent }) {

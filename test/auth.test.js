@@ -450,6 +450,10 @@ test('updateProfile rejects unsafe avatar URL schemes and credentials', () => {
   const u = auth.register({ username: 'avataruser', email: 'avatar@x.com', password: 'longenough1' });
 
   assert.throws(
+    () => users.updateProfile(u.id, { avatarUrl: 'http://example.com/avatar.png' }),
+    /HTTPS/
+  );
+  assert.throws(
     () => users.updateProfile(u.id, { avatarUrl: 'javascript:alert(1)' }),
     /invalid avatar URL/
   );
@@ -460,6 +464,13 @@ test('updateProfile rejects unsafe avatar URL schemes and credentials', () => {
 
   const updated = users.updateProfile(u.id, { avatarUrl: 'https://example.com/avatar.png' });
   assert.equal(updated.avatar_url, 'https://example.com/avatar.png');
+
+  db.users.updateProfile(u.id, {
+    username: updated.username,
+    email: updated.email,
+    avatarUrl: 'http://legacy.example.com/avatar.png'
+  });
+  assert.equal(auth.sanitizeUser(db.users.findById(u.id)).avatar_url, '');
 
   const cleared = users.updateProfile(u.id, { avatarUrl: '' });
   assert.equal(cleared.avatar_url, '');

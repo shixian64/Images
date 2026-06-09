@@ -33,7 +33,7 @@
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/api/profile` | 登录 | 读取当前用户资料。 |
-| PATCH | `/api/profile` | 登录 | 修改用户名、邮箱、头像 URL。 |
+| PATCH | `/api/profile` | 登录 | 修改用户名、邮箱、头像 URL；头像 URL 仅接受无凭据的 HTTPS 地址。 |
 | POST | `/api/profile/password` | 登录 | 修改密码；成功后吊销旧 session 并重建当前 session。 |
 | GET | `/api/quota/me` | 登录 | 读取当前用户有效额度、用量和存储统计。 |
 
@@ -95,6 +95,8 @@
 | GET/DELETE | `/api/prompt-square/:id` | 登录 | 读取或删除条目；删除仅限作者或管理员。 |
 | POST | `/api/prompt-square/:id/use` | 登录 | 记录使用次数。 |
 | POST | `/api/prompt-examples` | 登录 | 上传提示词示例图。 |
+
+Prompt Square `meta.previewImages` 仅保留本地提示词示例图路径或无凭据的 HTTPS 外部图片 URL。
 
 ## 漫画工作流
 

@@ -106,7 +106,7 @@ export function updateProfile(userId, { username, email, avatarUrl } = {}) {
 }
 
 function normalizeAvatarUrl(value, current = '') {
-  if (value === undefined || value === null) return current;
+  if (value === undefined || value === null) return normalizeExistingAvatarUrl(current);
   const text = String(value || '').trim();
   if (!text) return '';
   if (text.length > MAX_AVATAR_URL_LEN) throw new Error(`avatar URL too long (max ${MAX_AVATAR_URL_LEN} characters)`);
@@ -116,13 +116,28 @@ function normalizeAvatarUrl(value, current = '') {
   } catch {
     throw new Error('invalid avatar URL');
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  if (parsed.protocol === 'http:') {
+    throw new Error('avatar URL must use HTTPS');
+  }
+  if (parsed.protocol !== 'https:') {
     throw new Error('invalid avatar URL');
   }
   if (parsed.username || parsed.password) {
     throw new Error('avatar URL must not include credentials');
   }
   return parsed.toString();
+}
+
+function normalizeExistingAvatarUrl(value) {
+  const text = String(value || '').trim();
+  if (!text || text.length > MAX_AVATAR_URL_LEN) return '';
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 export function createUserByAdmin({ username, email, password, role = 'user' } = {}) {

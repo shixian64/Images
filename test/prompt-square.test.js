@@ -251,13 +251,16 @@ test('prompt square only keeps HTTPS external preview image urls', async () => {
     tags: ['preview'],
     source: 'manual',
     meta: {
+      sourceUrl: 'http://cdn.example.test/source',
       previewImages: [
         httpsPreviewUrl,
-        'http://cdn.example.test/insecure.png'
+        'http://cdn.example.test/insecure.png',
+        'https://user:pass@cdn.example.test/credentialed.png'
       ]
     }
   });
 
   assert.equal(result.statusCode, 200);
+  assert.equal(result.body.item.meta.sourceUrl, undefined);
   assert.deepEqual(result.body.item.meta.previewImages, [httpsPreviewUrl]);
 });

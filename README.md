@@ -111,7 +111,7 @@ ALLOW_FIRST_ADMIN_WITHOUT_TOKEN=0
 - Prompt 历史：保存、固定、搜索、导出、复用。
 - Prompt Square：浏览公开提示词，按时间范围 / 标签筛选，复制或一键使用。
 - 用户可从历史提示词发布到广场，也可删除自己发布的条目。
-- 示例图上传：支持 PNG / JPEG / WebP，复用用户存储配额和路径防护。
+- 示例图上传：支持 PNG / JPEG / WebP，复用用户存储配额和路径防护；外部预览图仅保留无凭据的 HTTPS URL。
 
 ### 图库（Gallery）
 
@@ -370,6 +370,7 @@ GET /healthz
 - 系统默认 API Key 设置 `IMAGE_STUDIO_SECRET_KEY` 后会加密存入 SQLite；生产环境未配置主密钥时默认拒绝保存系统 Key（除非显式 `ALLOW_PLAINTEXT_SYSTEM_KEYS=1`）；详见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。
 - 个人接口 API Key 不写入 localStorage；队列任务只在当前 Node 进程内临时持有。
 - 上游请求默认只允许 HTTPS + 公网地址，并对 DNS rebinding / TOCTOU 做防护。
+- 头像 URL 仅接受无凭据的 HTTPS 地址；外部图片渲染默认不发送 Referer。
 - 静态文件、图库文件和示例图文件走路径防护，避免越权读取。
 - Docker compose 默认只读根文件系统，并仅持久化 `/app/generated`。
 

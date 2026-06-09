@@ -48,10 +48,22 @@ function sanitizeParts(parts) {
   return Object.keys(out).length ? out : null;
 }
 
-function isAllowedPreviewImageUrl(url) {
+function normalizePreviewImageUrl(url) {
   const value = trimText(url, 500);
-  if (/^https:\/\//i.test(value)) return true;
-  return /^\/prompt-example-files\/users\/[a-zA-Z0-9._-]+\/images\/prompt-examples\/[^?#]+$/i.test(value);
+  const externalUrl = normalizeSafeHttpsUrl(value);
+  if (externalUrl) return externalUrl;
+  if (/^\/prompt-example-files\/users\/[a-zA-Z0-9._-]+\/images\/prompt-examples\/[^?#]+$/i.test(value)) return value;
+  return '';
+}
+
+function normalizeSafeHttpsUrl(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 function sanitizeMeta(input, parts) {
@@ -68,11 +80,12 @@ function sanitizeMeta(input, parts) {
   const sourceHot = Number(src.sourceHot);
   if (Number.isFinite(sourceHot) && sourceHot > 0) meta.sourceHot = Math.floor(sourceHot);
   const sourceUrl = trimText(src.sourceUrl, 500);
-  if (/^https?:\/\//i.test(sourceUrl)) meta.sourceUrl = sourceUrl;
+  const cleanSourceUrl = normalizeSafeHttpsUrl(sourceUrl);
+  if (cleanSourceUrl) meta.sourceUrl = cleanSourceUrl;
   const previewImages = Array.isArray(src.previewImages) ? src.previewImages : [];
   const cleanPreviewImages = previewImages
-    .map((url) => trimText(url, 500))
-    .filter(isAllowedPreviewImageUrl)
+    .map(normalizePreviewImageUrl)
+    .filter(Boolean)
     .slice(0, 4);
   if (cleanPreviewImages.length) meta.previewImages = cleanPreviewImages;
   const cleanParts = sanitizeParts(parts || src.parts);
@@ -108,7 +121,7 @@ function mapSquareRow(row, viewerId) {
     owner: {
       id: row.user_id || 'system',
       username: row.owner_username || '系统精选',
-      avatarUrl: row.owner_avatar_url || ''
+      avatarUrl: normalizeSafeHttpsUrl(row.owner_avatar_url)
     },
     isMine: Boolean(row.user_id && row.user_id === viewerId)
   };

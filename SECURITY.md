@@ -41,6 +41,7 @@
 - 上游请求使用已校验 DNS 结果发起连接，降低 DNS rebinding / TOCTOU 风险。
 - API Key、Authorization、Cookie 等敏感字段在 UI、前端日志和服务端日志中脱敏。
 - 客户端日志的服务端同步在日志面板中提供用户可见开关；关闭后新日志仅保留在当前浏览器，不再上报页面 URL、User-Agent、窗口尺寸和错误上下文，并清空待同步队列。
+- 头像和 Prompt Square 外部预览图只接受无凭据的 HTTPS URL；前端渲染外链图片时使用 `referrerpolicy="no-referrer"`，降低浏览器侧来源泄露。
 - 运行时数据默认写入 `generated/`。
 - Docker compose 默认使用只读根文件系统，并仅持久化 `/app/generated`。
 - 静态文件、图库文件、提示词示例图和参考图临时文件都有路径边界检查。

@@ -17,13 +17,19 @@ function avatarInitial(user) {
   return s.slice(0, 1).toUpperCase();
 }
 
+function displayAvatarUrl(user) {
+  const value = String(user?.avatar_url || user?.avatarUrl || '').trim();
+  return /^https:\/\//i.test(value) ? value : '';
+}
+
 function renderMenu() {
   const host = $('userMenu');
   if (!host || !currentUser) return;
+  const avatarUrl = displayAvatarUrl(currentUser);
   host.innerHTML = `
     <button class="user-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">
-      ${currentUser.avatar_url
-        ? `<img class="user-avatar" src="${escapeHtml(currentUser.avatar_url)}" alt="" />`
+      ${avatarUrl
+        ? `<img class="user-avatar" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
         : `<span class="user-avatar user-avatar-text">${escapeHtml(avatarInitial(currentUser))}</span>`}
       <span class="user-name">${escapeHtml(currentUser.username || currentUser.email || '用户')}</span>
       <span class="user-caret" aria-hidden="true">▾</span>
@@ -66,8 +72,8 @@ function ensureProfileDialog() {
       <label class="field"><span>邮箱</span>
         <input name="email" type="email" required />
       </label>
-      <label class="field"><span>头像 URL（可选）</span>
-        <input name="avatarUrl" type="url" />
+      <label class="field"><span>头像 URL（可选，仅 HTTPS）</span>
+        <input name="avatarUrl" type="url" placeholder="https://example.com/avatar.png" />
       </label>
       <div class="app-dialog-actions">
         <button value="cancel" class="ghost" type="submit">取消</button>
@@ -121,7 +127,7 @@ function openProfileDialog() {
   const form = dlg.querySelector('[data-profile-form]');
   form.username.value = currentUser?.username || '';
   form.email.value = currentUser?.email || '';
-  form.avatarUrl.value = currentUser?.avatar_url || currentUser?.avatarUrl || '';
+  form.avatarUrl.value = displayAvatarUrl(currentUser);
   dlg.querySelector('[data-err]').hidden = true;
   if (typeof dlg.showModal === 'function') dlg.showModal();
   else dlg.setAttribute('open', '');

@@ -486,7 +486,7 @@ function renderHistoryExamples(item) {
   return `<div class="prompt-history-examples" aria-label="示例图">
     ${previews.map((url, index) => `
       <button class="prompt-history-example" type="button" data-history-preview="${escapeHtml(url)}" aria-label="预览第 ${index + 1} 张示例图">
-        <img src="${escapeHtml(url)}" alt="${escapeHtml(`${item.title} 示例图 ${index + 1}`)}" loading="lazy" />
+        <img src="${escapeHtml(url)}" alt="${escapeHtml(`${item.title} 示例图 ${index + 1}`)}" loading="lazy" referrerpolicy="no-referrer" />
       </button>
     `).join('')}
   </div>`;
