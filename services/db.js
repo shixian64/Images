@@ -1758,6 +1758,33 @@ export const generationJobs = {
       LIMIT ?
     `).all(...args).map(parseJob);
   },
+  claimQueued(id, { startedAt = Date.now(), attempts = 0, progress = null } = {}) {
+    const db = open();
+    const now = Date.now();
+    const result = db.prepare(`
+      UPDATE generation_jobs
+      SET status = 'running',
+          started_at = ?,
+          finished_at = NULL,
+          result_json = NULL,
+          error_message = NULL,
+          progress_json = ?,
+          attempts = ?,
+          cancel_requested = 0,
+          updated_at = ?
+      WHERE id = ?
+        AND status = 'queued'
+        AND cancel_requested = 0
+    `).run(
+      startedAt,
+      progress === null || progress === undefined ? null : JSON.stringify(progress || {}),
+      Math.max(0, Math.floor(Number(attempts) || 0)),
+      now,
+      id
+    );
+    if ((result.changes || 0) !== 1) return null;
+    return this.findById(id);
+  },
   updateStatus(id, status, patch = {}) {
     const db = open();
     const current = this.findById(id);

@@ -169,6 +169,53 @@ test('admin stats counts today with an index-friendly day range', () => {
   assert.equal(stats.savedToday, 2);
 });
 
+test('generation job claim atomically moves only queued uncancelled jobs to running', () => {
+  db.migrate();
+  const user = auth.register({
+    username: 'job_claim_user',
+    email: 'job-claim@example.com',
+    password: 'longenough1'
+  });
+  if (user.role === 'admin') db.users.updateRole(user.id, 'user');
+
+  const job = db.generationJobs.create({
+    userId: user.id,
+    status: 'queued',
+    priority: 3,
+    payload: { prompt: 'claim me', n: 1 },
+    promptPreview: 'claim me',
+    profileName: 'Claim Test',
+    model: 'test-image-model',
+    n: 1
+  });
+
+  const claimed = db.generationJobs.claimQueued(job.id, {
+    startedAt: 12345,
+    attempts: 1,
+    progress: { stage: 'started', message: 'claimed' }
+  });
+
+  assert.equal(claimed.status, 'running');
+  assert.equal(claimed.started_at, 12345);
+  assert.equal(claimed.attempts, 1);
+  assert.deepEqual(claimed.progress, { stage: 'started', message: 'claimed' });
+  assert.equal(db.generationJobs.claimQueued(job.id, { attempts: 2 }), null);
+
+  const cancelled = db.generationJobs.create({
+    userId: user.id,
+    status: 'queued',
+    payload: { prompt: 'cancelled', n: 1 },
+    promptPreview: 'cancelled',
+    profileName: 'Claim Test',
+    model: 'test-image-model',
+    n: 1
+  });
+  db.generationJobs.requestCancel(cancelled.id);
+
+  assert.equal(db.generationJobs.claimQueued(cancelled.id, { attempts: 1 }), null);
+  assert.equal(db.generationJobs.findById(cancelled.id).status, 'queued');
+});
+
 test('legacy gallery.json migration: deferred until admin exists, then idempotent', () => {
   const galleryPath = join(workDir, 'generated', 'gallery.json');
   const migratedPath = join(workDir, 'generated', 'gallery.json.migrated');

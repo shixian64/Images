@@ -514,14 +514,23 @@ async function executeJob(job, slot, userInfo) {
   }, timeoutMs) : null;
   timeoutId?.unref?.();
 
-  let running = generationJobs.updateStatus(job.id, 'running', {
+  const running = generationJobs.claimQueued(job.id, {
     startedAt,
     attempts,
-    errorMessage: null,
-    result: null,
-    progress: { stage: 'started', message: '任务已开始执行', elapsedMs: 0 },
-    cancelRequested: false
+    progress: { stage: 'started', message: '任务已开始执行', elapsedMs: 0 }
   });
+  if (!running) {
+    if (timeoutId) clearTimeout(timeoutId);
+    slot.release?.();
+    logger.info('job.claim_skipped', {
+      jobId: job.id,
+      userId: job.user_id,
+      status: generationJobs.findById(job.id)?.status || 'missing'
+    });
+    kickScheduler();
+    return null;
+  }
+
   activeJobs.set(job.id, { controller, startedAt, release: slot.release, userId: job.user_id });
   logger.info('job.started', { jobId: job.id, userId: job.user_id, attempts, model: job.model });
   emitJobStatus(running, 'job');
