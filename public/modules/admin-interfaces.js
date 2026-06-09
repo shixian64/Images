@@ -190,6 +190,7 @@ async function testGlobalInterface(kind) {
 }
 
 export function bindGlobalInterfacePanel() {
+  $('globalInterfaceForm')?.addEventListener('submit', (ev) => ev.preventDefault());
   $('globalInterfaceRefresh')?.addEventListener('click', () => refreshGlobalInterface());
   $('globalInterfaceSave')?.addEventListener('click', () => saveGlobalInterface());
   $('globalTestImage')?.addEventListener('click', () => testGlobalInterface('image'));

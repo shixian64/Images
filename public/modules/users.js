@@ -436,6 +436,8 @@ async function cleanupRegistrationRedemptions() {
 }
 
 function bindRegistrationPanel() {
+  $('registrationForm')?.addEventListener('submit', (ev) => ev.preventDefault());
+  $('registrationCleanupForm')?.addEventListener('submit', (ev) => ev.preventDefault());
   $('registrationRefresh')?.addEventListener('click', () => refreshRegistration());
   $('registrationSave')?.addEventListener('click', () => saveRegistrationSettings());
   $('registrationGenerate')?.addEventListener('click', () => generateRegistrationInvites());

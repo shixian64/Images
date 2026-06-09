@@ -8,48 +8,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css?v=c5902f1-comic-style-menu" />
   <link rel="stylesheet" href="./admin.css?v=admin-split-20260608" />
-  <style>
-    html.auth-pending body > * { visibility: hidden; }
-    html.auth-pending body::before {
-      content: "正在确认登录状态…";
-      visibility: visible;
-      position: fixed;
-      inset: 0;
-      display: grid;
-      place-items: center;
-      background: Canvas;
-      color: CanvasText;
-      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      z-index: 2147483647;
-    }
-    html.auth-pending[data-auth-state="redirecting"] body::before {
-      content: "登录态已失效，正在跳转登录页…";
-    }
-    html.auth-pending[data-auth-state="error"] body::before {
-      content: "页面加载失败，请刷新重试";
-    }
-  </style>
-  <script>
-    // why：HTML 解析阶段就同步应用主题与隐藏 body，避免两类闪烁：
-    //   1) 主题闪烁：CSS 默认无 data-theme 跟随系统色，会先以系统色渲染一帧再被 JS 改色；
-    //   2) 主界面闪现：未登录时 location.href 跳转前主界面已经画到屏幕。
-    // 默认 'light' 必须与 modules/theme.js 保持一致。
-    try {
-      var t = localStorage.getItem('image-key-manager.theme');
-      if (t !== 'dark' && t !== 'light' && t !== 'system') t = 'light';
-      if (t === 'system') document.documentElement.removeAttribute('data-theme');
-      else document.documentElement.setAttribute('data-theme', t);
-    } catch (e) {}
-    // 只在 app.js 确认已登录后移除；未登录/慢网络时不能用超时兜底显示主界面。
-    document.documentElement.classList.add('auth-pending');
-    // 如果 app.js 或其子模块加载失败，至少给出错误提示而不是一直显示“确认中”。
-    setTimeout(function () {
-      if (document.documentElement.classList.contains('auth-pending') &&
-          !document.documentElement.getAttribute('data-auth-state')) {
-        document.documentElement.setAttribute('data-auth-state', 'error');
-      }
-    }, 10000);
-  </script>
+  <script src="./main-boot.js?v=csp-external-20260609"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主内容</a>
@@ -615,7 +574,7 @@
           <ul id="profileList" class="profile-list" aria-label="配置列表"></ul>
         </aside>
 
-        <form class="profile-form" id="profileForm" autocomplete="off" onsubmit="return false;">
+        <form class="profile-form" id="profileForm" autocomplete="off">
           <div class="form-grid">
             <label class="field"><span>名称</span>
               <input id="profileName" placeholder="例如：OpenAI 官方" />
@@ -832,7 +791,7 @@
 
           <div id="registrationSummary" class="management-summary" aria-live="polite"></div>
 
-          <form class="profile-form admin-registration-form" id="registrationForm" autocomplete="off" onsubmit="return false;">
+          <form class="profile-form admin-registration-form" id="registrationForm" autocomplete="off">
             <div class="form-grid">
               <div class="field span-2 switch-field">
                 <span>允许新用户注册</span>
@@ -874,7 +833,7 @@
             </div>
           </form>
 
-          <form class="profile-form admin-registration-cleanup-form" id="registrationCleanupForm" autocomplete="off" onsubmit="return false;">
+          <form class="profile-form admin-registration-cleanup-form" id="registrationCleanupForm" autocomplete="off">
             <div class="form-grid">
               <label class="field">
                 <span>清理此日期前的兑换记录</span>
@@ -994,7 +953,7 @@
 
           <div id="globalInterfaceSummary" class="management-summary" aria-live="polite"></div>
 
-          <form class="profile-form admin-interface-form" id="globalInterfaceForm" autocomplete="off" onsubmit="return false;">
+          <form class="profile-form admin-interface-form" id="globalInterfaceForm" autocomplete="off">
             <div class="form-grid">
               <div class="field span-2 switch-field">
                 <span>启用系统默认接口</span>

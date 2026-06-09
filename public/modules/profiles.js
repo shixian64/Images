@@ -641,6 +641,7 @@ async function testAllConnections() {
 
 export function mountProfilesPanel() {
   initProfilesIfNeeded();
+  $('profileForm')?.addEventListener('submit', (ev) => ev.preventDefault());
   $('saveProfile').addEventListener('click', save);
   $('newProfile').addEventListener('click', createDraft);
   $('deleteProfile').addEventListener('click', remove);

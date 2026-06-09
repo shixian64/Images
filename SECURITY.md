@@ -39,6 +39,7 @@
 - 上游默认要求 HTTPS。
 - 生产严格模式下拒绝 localhost、私网、link-local、metadata 类上游地址。
 - 上游请求使用已校验 DNS 结果发起连接，降低 DNS rebinding / TOCTOU 风险。
+- CSP 已移除 `unsafe-inline`，入口 HTML 只加载外部脚本和样式。
 - API Key、Authorization、Cookie 等敏感字段在 UI、前端日志和服务端日志中脱敏。
 - 客户端日志的服务端同步在日志面板中提供用户可见开关；关闭后新日志仅保留在当前浏览器，不再上报页面 URL、User-Agent、窗口尺寸和错误上下文，并清空待同步队列。
 - 头像和 Prompt Square 外部预览图只接受无凭据的 HTTPS URL；前端渲染外链图片时使用 `referrerpolicy="no-referrer"`，降低浏览器侧来源泄露。

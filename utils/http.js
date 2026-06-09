@@ -3,8 +3,8 @@ import { positiveIntFromEnv } from './config.js';
 export const SECURITY_HEADERS = Object.freeze({
   'content-security-policy': [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "style-src 'self'",
     "img-src 'self' data: blob: https:",
     "connect-src 'self'",
     "object-src 'none'",
