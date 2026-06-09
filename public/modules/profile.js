@@ -225,7 +225,7 @@ function progressBar(used, limit, label) {
       <span>${escapeHtml(label)}</span>
       <strong>${used} / ${limit} (${p}%)</strong>
     </div>
-    <div class="quota-progress ${cls}"><span style="width:${p}%"></span></div>
+    <progress class="quota-progress ${cls}" value="${p}" max="100" aria-label="${escapeHtml(label)}"></progress>
   `;
 }
 
@@ -242,7 +242,7 @@ function storageBar(usedBytes, limitMb) {
       <span>存储</span>
       <strong>${display} / ${limitMb} MB (${p}%)</strong>
     </div>
-    <div class="quota-progress ${cls}"><span style="width:${p}%"></span></div>
+    <progress class="quota-progress ${cls}" value="${p}" max="100" aria-label="存储"></progress>
   `;
 }
 

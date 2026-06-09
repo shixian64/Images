@@ -554,7 +554,7 @@ function miniBar(used, limit) {
   const p = pct(used, limit);
   if (p === null) return '<span class="quota-mini quota-mini-unlim" aria-hidden="true"></span>';
   const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
-  return `<span class="quota-mini ${cls}" aria-hidden="true"><i style="width:${p}%"></i></span>`;
+  return `<progress class="quota-mini ${cls}" value="${p}" max="100" aria-hidden="true"></progress>`;
 }
 
 function miniStorageBar(usedBytes, limitMb) {
@@ -562,7 +562,7 @@ function miniStorageBar(usedBytes, limitMb) {
   const usedMb = (Number(usedBytes) || 0) / (1024 * 1024);
   const p = Math.min(100, Math.round(usedMb / limitMb * 100));
   const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
-  return `<span class="quota-mini ${cls}" aria-hidden="true"><i style="width:${p}%"></i></span>`;
+  return `<progress class="quota-mini ${cls}" value="${p}" max="100" aria-hidden="true"></progress>`;
 }
 
 function renderDefaultsCard() {
