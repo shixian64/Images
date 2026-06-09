@@ -8,6 +8,7 @@ import { submitGenerationJob } from './jobs.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 import { readStringScoped, writeStringScoped } from './state.js';
+import { confirmVolatileCustomKeyUse } from './volatile-secrets.js';
 import {
   COMIC_PAGE_PANEL_LIMITS,
   COMIC_PAGE_COUNT_LIMITS,
@@ -648,6 +649,10 @@ async function analyzeStoryboard() {
   } catch (err) {
     return showComicError(err.message || String(err));
   }
+  if (!profileInfo.systemMode) {
+    const ok = await confirmVolatileCustomKeyUse({ taskLabel: '漫画页分镜任务' });
+    if (!ok) return;
+  }
 
   const styleId = $('comicStyle')?.value;
   const pageLimit = syncComicPageLimitInput();
@@ -903,6 +908,10 @@ async function generateComic({ onSavedImages } = {}) {
     imageInfo = resolveProfileConfig('image');
   } catch (err) {
     return showComicError(err.message || String(err));
+  }
+  if (!imageInfo.systemMode) {
+    const ok = await confirmVolatileCustomKeyUse({ taskLabel: '漫画生图任务' });
+    if (!ok) return;
   }
 
   const useContext = $('comicUseContext')?.checked !== false;

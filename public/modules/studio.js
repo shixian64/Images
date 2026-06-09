@@ -12,6 +12,7 @@ import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
 import { apiFetch } from './auth.js';
 import { submitGenerationJob } from './jobs.js';
+import { confirmVolatileCustomKeyUse } from './volatile-secrets.js';
 
 const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
 const PROMPT_SOURCE = Object.freeze({
@@ -747,6 +748,10 @@ async function generate({ onSavedImages } = {}) {
   if (!prompt) return showError(promptInfo.source === 'optimized'
     ? '当前选择的是优化后提示词，请先点击“优化提示词”生成内容，或切回“手动输入提示词”。'
     : '请填写手动输入提示词。');
+  if (!systemMode) {
+    const ok = await confirmVolatileCustomKeyUse({ taskLabel: '生图任务' });
+    if (!ok) return;
+  }
 
   const payload = {
     name: profile.name,
