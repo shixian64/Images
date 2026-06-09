@@ -489,6 +489,26 @@ test('queue stats aggregate all jobs beyond admin list limits', () => {
   assert.equal(after.byStatus.succeeded, baselineSucceeded + extraJobs);
 });
 
+test('max pending per user counts running jobs as pending work', async () => {
+  const u = user('pending_running_user');
+  const existing = await jobQueue.enqueueImageGeneration(payload(1), u);
+  db.generationJobs.updateStatus(existing.id, 'running', { startedAt: Date.now(), attempts: 1 });
+  jobQueue.setQueueSettings({ max_pending_per_user: 1, max_pending_global: 200, maintenance_mode: false });
+  try {
+    await assert.rejects(
+      () => jobQueue.enqueueImageGeneration(payload(1), u),
+      (err) => err.statusCode === 429 && err.code === 'user_queue_full'
+    );
+  } finally {
+    jobQueue.setQueueSettings({ max_pending_per_user: 20, max_pending_global: 200, maintenance_mode: false });
+    db.generationJobs.updateStatus(existing.id, 'cancelled', {
+      finishedAt: Date.now(),
+      errorMessage: 'test cleanup',
+      cancelRequested: true
+    });
+  }
+});
+
 test('queued batch can skip a saturated user and pick the next user', async () => {
   const a = user('fair_a');
   const b = user('fair_b');

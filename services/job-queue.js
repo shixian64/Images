@@ -314,13 +314,14 @@ function runtimeBodyForJob(job) {
 }
 
 function checkQueueCapacity(userInfo, settings) {
-  const userQueued = Number(generationJobs.countQueued({ userId: userInfo.id, statuses: ['queued'] })) || 0;
-  const globalQueued = Number(generationJobs.countQueued({ statuses: ['queued'] })) || 0;
-  if (settings.max_pending_per_user && userQueued >= settings.max_pending_per_user) {
-    throw httpError(429, `你的排队任务已达上限（${userQueued}/${settings.max_pending_per_user}）`, 'user_queue_full');
+  const pendingStatuses = ['queued', 'running'];
+  const userPending = Number(generationJobs.countQueued({ userId: userInfo.id, statuses: pendingStatuses })) || 0;
+  const globalPending = Number(generationJobs.countQueued({ statuses: pendingStatuses })) || 0;
+  if (settings.max_pending_per_user && userPending >= settings.max_pending_per_user) {
+    throw httpError(429, `你的待处理任务已达上限（${userPending}/${settings.max_pending_per_user}）`, 'user_queue_full');
   }
-  if (settings.max_pending_global && globalQueued >= settings.max_pending_global) {
-    throw httpError(429, `全局生成队列已满（${globalQueued}/${settings.max_pending_global}）`, 'global_queue_full');
+  if (settings.max_pending_global && globalPending >= settings.max_pending_global) {
+    throw httpError(429, `全局待处理生成任务已满（${globalPending}/${settings.max_pending_global}）`, 'global_queue_full');
   }
 }
 
