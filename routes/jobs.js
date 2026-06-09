@@ -3,6 +3,7 @@
 import { sendJson, readJsonBody, bodyErrorStatus } from '../utils/http.js';
 import { createSseSession, openSse, writeSse } from '../utils/sse.js';
 import { requireAdmin } from '../middleware/guard.js';
+import { record as auditRecord } from '../services/audit.js';
 import {
   cancelJob,
   getAdminJobs,
@@ -135,6 +136,10 @@ async function handleAdminJobs(req, res, pathname, url) {
       catch (err) { return sendJson(res, bodyErrorStatus(err), { error: err.message || 'invalid json' }); }
       try {
         const settings = setQueueSettings(body || {}, req.session.user.id);
+        auditRecord(req, 'queue.settings_update', { type: 'system', id: 'queue.settings' }, {
+          patch: body || {},
+          settings
+        });
         return sendJson(res, 200, { settings });
       } catch (err) {
         return sendJson(res, statusFromError(err), { error: err.message || String(err) });
