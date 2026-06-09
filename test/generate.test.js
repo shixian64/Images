@@ -395,6 +395,80 @@ test('handleGenerate sends saved gallery images to image edits as reference inpu
   });
 });
 
+test('runImageGeneration reuses staged reference file buffers across edit batches', async () => {
+  await withEnv({
+    ALLOW_INSECURE_UPSTREAMS: '1',
+    ALLOW_PRIVATE_UPSTREAMS: '1',
+    IMAGE_GENERATION_BATCH_CONCURRENCY: '1'
+  }, async () => {
+    const gallery = await import('../services/gallery-store.js');
+    const routeUser = auth.register({
+      username: 'gen_edit_ref_reuse_user',
+      email: 'gen_edit_ref_reuse_user@example.com',
+      password: 'longenough1'
+    });
+    const source = await gallery.saveGeneratedImages(
+      [{ b64_json: Buffer.from(PNG_BYTES).toString('base64') }],
+      { prompt: 'source image for reuse', outputFormat: 'png' },
+      { userId: routeUser.id }
+    );
+    const sourceId = source.saved[0].id;
+
+    let stagedFilePath = '';
+    let requestCount = 0;
+    const server = http.createServer((req, res) => {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/v1/images/edits');
+      req.on('end', () => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          rmSync(stagedFilePath, { force: true });
+        }
+        const image = {
+          b64_json: Buffer.from(PNG_BYTES).toString('base64'),
+          revised_prompt: `edited image ${requestCount}`
+        };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [image] }));
+      });
+      req.resume();
+    });
+    await listen(server);
+
+    try {
+      const { port } = server.address();
+      const imageBaseUrl = `http://127.0.0.1:${port}`;
+      const body = {
+        imageBaseUrl,
+        imageApiKey: skLike('edit-ref-reuse'),
+        prompt: 'reuse one staged reference for several edits',
+        model: 'test-image-model',
+        references: [{ type: 'gallery', id: sourceId }],
+        n: 3
+      };
+      const prepared = await imageGeneration.prepareImageGenerationJob(body, {
+        jobId: 'reuse-reference-buffer-test',
+        userInfo: routeUser
+      });
+      const relPath = prepared.payload.referenceImages[0].relPath;
+      stagedFilePath = join(workDir, 'generated', ...relPath.split('/'));
+
+      const result = await imageGeneration.runImageGeneration({
+        ...prepared.payload,
+        imageBaseUrl,
+        imageApiKey: skLike('edit-ref-reuse')
+      }, routeUser);
+
+      assert.equal(result.status, 200);
+      assert.equal(requestCount, 3);
+      assert.equal(result.body.data.length, 3);
+      assert.equal(result.body.saved.length, 3);
+    } finally {
+      await close(server);
+    }
+  });
+});
+
 test('custom interface image jobs still respect user concurrency quota', async () => {
   await withEnv({
     ALLOW_INSECURE_UPSTREAMS: '1',

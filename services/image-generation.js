@@ -295,11 +295,12 @@ async function callImageEditUpstream({
   onProgress,
   started
 }) {
+  const referenceFiles = await editFilesFromReferences(referenceImages);
   const callEdit = async (itemPayload) => callUpstreamMultipart({
     targetUrl,
     apiKey,
     fields: editFieldsFromPayload(itemPayload),
-    files: await editFilesFromReferences(referenceImages),
+    files: referenceFiles,
     signal,
     timeoutMs: timeoutMs || getImageGenerationTimeoutMs()
   });
