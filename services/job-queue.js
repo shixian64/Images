@@ -782,17 +782,8 @@ export function getAdminJob(jobId) {
 }
 
 export function queueStats() {
-  const all = generationJobs.listAll({ limit: 10000 });
-  const byStatus = {};
-  let totalDurationMs = 0;
-  let completedDurations = 0;
-  for (const job of all) {
-    byStatus[job.status] = (byStatus[job.status] || 0) + 1;
-    if (job.started_at && job.finished_at && job.status === 'succeeded') {
-      totalDurationMs += Number(job.finished_at) - Number(job.started_at);
-      completedDurations += 1;
-    }
-  }
+  const storedStats = generationJobs.stats();
+  const byStatus = storedStats.byStatus || {};
   const terminal = ['succeeded', 'failed', 'timeout', 'cancelled']
     .reduce((sum, status) => sum + (Number(byStatus[status]) || 0), 0);
   const succeeded = Number(byStatus.succeeded) || 0;
@@ -801,7 +792,7 @@ export function queueStats() {
     active: activeJobs.size,
     runtime: queueRuntimeInfo(),
     successRate: terminal ? Math.round((succeeded / terminal) * 1000) / 10 : null,
-    avgSuccessDurationMs: completedDurations ? Math.round(totalDurationMs / completedDurations) : null
+    avgSuccessDurationMs: storedStats.avgSuccessDurationMs ?? null
   };
 }
 

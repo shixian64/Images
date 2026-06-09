@@ -466,6 +466,29 @@ test('queue stats expose single-process runtime boundary', () => {
   assert.equal(stats.runtime.restartPolicy.running, 'mark_failed');
 });
 
+test('queue stats aggregate all jobs beyond admin list limits', () => {
+  const u = user('stats_all_jobs');
+  const before = jobQueue.queueStats();
+  const baselineSucceeded = Number(before.byStatus.succeeded) || 0;
+  const extraJobs = 10_005;
+
+  for (let i = 0; i < extraJobs; i += 1) {
+    db.generationJobs.create({
+      id: `stats-all-${i}`,
+      userId: u.id,
+      status: 'succeeded',
+      payload: payload(1),
+      promptPreview: 'stats all jobs',
+      profileName: 'test',
+      model: 'test-image-model',
+      n: 1
+    });
+  }
+
+  const after = jobQueue.queueStats();
+  assert.equal(after.byStatus.succeeded, baselineSucceeded + extraJobs);
+});
+
 test('queued batch can skip a saturated user and pick the next user', async () => {
   const a = user('fair_a');
   const b = user('fair_b');

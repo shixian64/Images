@@ -1604,6 +1604,31 @@ export const generationJobs = {
     `).all(...args, Math.max(1, Math.floor(limit)));
     return rows.map(parseJob);
   },
+  stats() {
+    const db = open();
+    const byStatus = {};
+    for (const row of db.prepare(`
+      SELECT status, COUNT(*) AS count
+      FROM generation_jobs
+      GROUP BY status
+    `).all()) {
+      if (!row?.status) continue;
+      byStatus[row.status] = Number(row.count) || 0;
+    }
+    const duration = db.prepare(`
+      SELECT COUNT(*) AS count, AVG(finished_at - started_at) AS avg_ms
+      FROM generation_jobs
+      WHERE status = 'succeeded'
+        AND started_at IS NOT NULL
+        AND finished_at IS NOT NULL
+    `).get();
+    const completedDurations = Number(duration?.count) || 0;
+    return {
+      byStatus,
+      completedDurations,
+      avgSuccessDurationMs: completedDurations ? Math.round(Number(duration?.avg_ms) || 0) : null
+    };
+  },
   queuedBatch(limit = 50, excludedUserIds = []) {
     const args = [];
     let excludedSql = '';
