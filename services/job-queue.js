@@ -554,6 +554,7 @@ async function executeJob(job, slot, userInfo) {
       });
 
     const latest = generationJobs.findById(job.id);
+    if (latest && latest.status !== 'running') return latest;
     if (latest?.cancel_requested) {
       const cancelled = generationJobs.updateStatus(job.id, 'cancelled', {
         finishedAt: Date.now(),
@@ -610,6 +611,7 @@ async function executeJob(job, slot, userInfo) {
     return updated;
   } catch (err) {
     const latest = generationJobs.findById(job.id);
+    if (latest && latest.status !== 'running') return latest;
     if (latest?.cancel_requested || err?.name === 'AbortError') {
       const status = wallTimedOut ? 'timeout' : 'cancelled';
       const message = wallTimedOut ? 'generation timeout' : 'cancelled';
@@ -758,6 +760,19 @@ export function stopJobQueue() {
   if (schedulerTimer) clearInterval(schedulerTimer);
   schedulerTimer = null;
   for (const [jobId, active] of activeJobs.entries()) {
+    const current = generationJobs.findById(jobId);
+    if (current?.status === 'running') {
+      const failed = generationJobs.updateStatus(jobId, 'failed', {
+        finishedAt: Date.now(),
+        errorMessage: 'server_shutdown',
+        progress: { stage: 'failed', message: '服务正在停止，运行中的任务已中止' }
+      });
+      transientJobSecrets.delete(jobId);
+      cleanupReferenceJobFiles(jobId).catch((err) => {
+        logger.warn('job.reference_cleanup_failed', { jobId, error: err?.message || String(err) });
+      });
+      emitJobStatus(failed, 'job');
+    }
     try { active.controller.abort(); } catch { /* noop */ }
     try { active.release?.(); } catch { /* noop */ }
     activeJobs.delete(jobId);

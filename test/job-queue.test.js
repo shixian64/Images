@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -456,6 +457,43 @@ test('startup recovery marks stale running jobs as failed', async () => {
   assert.equal(cleaned, true);
   jobQueue.stopJobQueue();
   jobQueue.setQueueSettings({ maintenance_mode: false });
+});
+
+test('stopJobQueue immediately marks active running jobs as failed', async () => {
+  const server = createServer((_req, _res) => {
+    // Keep the upstream request open so the queue has a deterministic running job to stop.
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const u = user('shutdown_running');
+    const job = await jobQueue.enqueueImageGeneration({
+      ...payload(1),
+      baseUrl: `http://127.0.0.1:${port}`
+    }, u);
+
+    jobQueue.setQueueSettings({ maintenance_mode: false });
+    jobQueue.startJobQueue();
+    const running = await waitFor(() => {
+      const current = jobQueue.getJobForUser(job.id, u);
+      return current.status === 'running' ? current : null;
+    }, { timeoutMs: 1000 });
+    assert.equal(running?.status, 'running');
+
+    jobQueue.stopJobQueue();
+    const stopped = jobQueue.getJobForUser(job.id, u);
+    assert.equal(stopped.status, 'failed');
+    assert.equal(stopped.error, 'server_shutdown');
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const stable = jobQueue.getJobForUser(job.id, u);
+    assert.equal(stable.status, 'failed');
+    assert.equal(stable.error, 'server_shutdown');
+  } finally {
+    jobQueue.stopJobQueue();
+    jobQueue.setQueueSettings({ maintenance_mode: false });
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('queue stats expose single-process runtime boundary', () => {
