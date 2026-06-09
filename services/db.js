@@ -2228,6 +2228,15 @@ export const promptSquare = {
   }
 };
 
+export function healthCheck() {
+  try {
+    const row = open().prepare('SELECT 1 AS ok').get();
+    return { ok: row?.ok === 1, path: DB_PATH };
+  } catch (err) {
+    return { ok: false, path: DB_PATH, error: err?.message || String(err) };
+  }
+}
+
 export const dbPaths = Object.freeze({
   dir: DB_DIR,
   file: DB_PATH,

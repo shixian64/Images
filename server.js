@@ -36,6 +36,7 @@ import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
 import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
 import { parseRequestUrl } from './utils/request-url.js';
 import { matchesRoutePrefix } from './utils/route-match.js';
+import { runtimeHealthSnapshot } from './services/health.js';
 
 validateEnvConfig({ logger });
 
@@ -96,7 +97,8 @@ async function handleRequest(req, res) {
   const pathname = url.pathname;
 
   if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/healthz') {
-    return sendJson(res, 200, { ok: true, uptimeSec: Math.round(process.uptime()) });
+    const health = await runtimeHealthSnapshot();
+    return sendJson(res, health.ok ? 200 : 503, health);
   }
 
   // ---- /api/* 路由 ----
