@@ -35,6 +35,7 @@ import { logger } from './utils/logger.js';
 import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
 import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
 import { parseRequestUrl } from './utils/request-url.js';
+import { matchesRoutePrefix } from './utils/route-match.js';
 
 validateEnvConfig({ logger });
 
@@ -42,21 +43,22 @@ const PORT = positiveIntFromEnv('PORT', 8787);
 const ROOT_DIR = process.cwd();
 const PUBLIC_DIR = join(ROOT_DIR, 'public');
 const serveStatic = createStaticHandler(PUBLIC_DIR, ROOT_DIR);
+const apiPrefix = (prefix) => (pathname) => matchesRoutePrefix(pathname, prefix);
 
 const API_ROUTES = [
-  { public: true, match: (pathname) => pathname.startsWith('/api/auth/'), handle: (req, res, pathname) => handleAuthRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/users'), handle: (req, res, pathname, url) => handleUsersRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/profile'), handle: (req, res, pathname) => handleProfileRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/admin/gallery'), handle: (req, res, pathname, url) => handleAdminGalleryRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/admin/registration'), handle: (req, res, pathname) => handleRegistrationRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/admin/quota') || pathname === '/api/quota/me', handle: (req, res, pathname) => handleQuotaRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/interfaces') || pathname.startsWith('/api/admin/interfaces'), handle: (req, res, pathname) => handleInterfacesRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/prompt-examples'), handle: (req, res, pathname) => handlePromptExamplesRoute(req, res, pathname) },
-  { match: (pathname) => pathname.startsWith('/api/prompt-square'), handle: (req, res, pathname, url) => handlePromptSquareRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/jobs') || pathname.startsWith('/api/admin/jobs'), handle: (req, res, pathname, url) => handleJobsRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/client-logs') || pathname.startsWith('/api/admin/client-logs'), handle: (req, res, pathname, url) => handleClientLogsRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/comic-projects'), handle: (req, res, pathname, url) => handleComicProjectsRoute(req, res, pathname, url) },
-  { match: (pathname) => pathname.startsWith('/api/comic-storyboards'), handle: (req, res, pathname, url) => handleComicStoryboardsRoute(req, res, pathname, url) },
+  { public: true, match: apiPrefix('/api/auth'), handle: (req, res, pathname) => handleAuthRoute(req, res, pathname) },
+  { match: apiPrefix('/api/users'), handle: (req, res, pathname, url) => handleUsersRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/profile'), handle: (req, res, pathname) => handleProfileRoute(req, res, pathname) },
+  { match: apiPrefix('/api/admin/gallery'), handle: (req, res, pathname, url) => handleAdminGalleryRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/admin/registration'), handle: (req, res, pathname) => handleRegistrationRoute(req, res, pathname) },
+  { match: (pathname) => matchesRoutePrefix(pathname, '/api/admin/quota') || pathname === '/api/quota/me', handle: (req, res, pathname) => handleQuotaRoute(req, res, pathname) },
+  { match: (pathname) => matchesRoutePrefix(pathname, '/api/interfaces') || matchesRoutePrefix(pathname, '/api/admin/interfaces'), handle: (req, res, pathname) => handleInterfacesRoute(req, res, pathname) },
+  { match: apiPrefix('/api/prompt-examples'), handle: (req, res, pathname) => handlePromptExamplesRoute(req, res, pathname) },
+  { match: apiPrefix('/api/prompt-square'), handle: (req, res, pathname, url) => handlePromptSquareRoute(req, res, pathname, url) },
+  { match: (pathname) => matchesRoutePrefix(pathname, '/api/jobs') || matchesRoutePrefix(pathname, '/api/admin/jobs'), handle: (req, res, pathname, url) => handleJobsRoute(req, res, pathname, url) },
+  { match: (pathname) => matchesRoutePrefix(pathname, '/api/client-logs') || matchesRoutePrefix(pathname, '/api/admin/client-logs'), handle: (req, res, pathname, url) => handleClientLogsRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/comic-projects'), handle: (req, res, pathname, url) => handleComicProjectsRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/comic-storyboards'), handle: (req, res, pathname, url) => handleComicStoryboardsRoute(req, res, pathname, url) },
   { match: (pathname, req) => req.method === 'GET' && pathname === '/api/generate/config', handle: (req, res) => handleGenerateConfig(req, res) },
   { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate/stream', handle: (req, res) => handleGenerateStream(req, res) },
   { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate', handle: (req, res) => handleGenerate(req, res) },
