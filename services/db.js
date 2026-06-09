@@ -322,6 +322,7 @@ export function migrate() {
   runSchemaMigration(db, 6, 'prompt_square_nullable_owner', () => migratePromptSquareNullableOwner(db), { transaction: false });
   runSchemaMigration(db, 7, 'registration_invite_code_hashes', () => migrateRegistrationInviteCodeHashes(db));
   runSchemaMigration(db, 8, 'registration_invite_expiry', () => migrateRegistrationInviteExpiry(db));
+  runSchemaMigration(db, 9, 'session_id_hashes', () => migrateSessionIdHashes(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -414,6 +415,16 @@ function migrateRegistrationInviteExpiry(db) {
     CREATE INDEX IF NOT EXISTS idx_registration_invites_expires
       ON registration_invites(expires_at);
   `);
+}
+
+function migrateSessionIdHashes(db) {
+  const rows = db.prepare('SELECT id FROM sessions').all();
+  const updateSession = db.prepare('UPDATE sessions SET id = ? WHERE id = ?');
+  for (const row of rows) {
+    const id = String(row?.id || '').trim();
+    if (!id || isSessionIdHash(id)) continue;
+    updateSession.run(hashSessionId(id), id);
+  }
 }
 
 function migrateImagePublicColumns(db) {
@@ -706,29 +717,73 @@ export const users = {
 // ---- sessions ----
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_ID_HASH_PREFIX = 'sid:v1:';
+
+function isSessionIdHash(value) {
+  return String(value || '').startsWith(SESSION_ID_HASH_PREFIX);
+}
+
+function hashSessionId(id) {
+  const text = String(id || '').trim();
+  return `${SESSION_ID_HASH_PREFIX}${createHash('sha256').update(text).digest('hex')}`;
+}
+
+function sessionLookupKeys(id) {
+  const text = String(id || '').trim();
+  if (!text) return [];
+  const keys = [hashSessionId(text)];
+  if (!isSessionIdHash(text)) keys.push(text);
+  return [...new Set(keys)];
+}
 
 export const sessions = {
   TTL_MS: SESSION_TTL_MS,
   create({ id, userId, userAgent, ip }) {
+    const text = String(id || '').trim();
+    if (!text) throw new Error('session id is required');
+    const storedId = hashSessionId(text);
     const db = open();
     const now = new Date();
     const expires = new Date(now.getTime() + SESSION_TTL_MS);
     db.prepare(`
       INSERT INTO sessions (id, user_id, created_at, expires_at, user_agent, ip)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, userId, now.toISOString(), expires.toISOString(), userAgent || null, ip || null);
-    return { id, userId, createdAt: now.toISOString(), expiresAt: expires.toISOString() };
+    `).run(storedId, userId, now.toISOString(), expires.toISOString(), userAgent || null, ip || null);
+    return {
+      id: text,
+      sessionIdHash: storedId,
+      userId,
+      createdAt: now.toISOString(),
+      expiresAt: expires.toISOString()
+    };
   },
   get(id) {
-    return open().prepare('SELECT * FROM sessions WHERE id = ?').get(id) || null;
+    const keys = sessionLookupKeys(id);
+    if (!keys.length) return null;
+    return open().prepare(`
+      SELECT * FROM sessions
+      WHERE id IN (${keys.map(() => '?').join(',')})
+      LIMIT 1
+    `).get(...keys) || null;
   },
   extend(id) {
+    const keys = sessionLookupKeys(id);
+    if (!keys.length) return null;
     const expires = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-    open().prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(expires, id);
+    open().prepare(`
+      UPDATE sessions
+      SET expires_at = ?
+      WHERE id IN (${keys.map(() => '?').join(',')})
+    `).run(expires, ...keys);
     return expires;
   },
   destroy(id) {
-    open().prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    const keys = sessionLookupKeys(id);
+    if (!keys.length) return;
+    open().prepare(`
+      DELETE FROM sessions
+      WHERE id IN (${keys.map(() => '?').join(',')})
+    `).run(...keys);
   },
   destroyByUser(userId) {
     open().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);

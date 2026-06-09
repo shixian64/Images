@@ -3,6 +3,7 @@
 
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,12 @@ let prevCwd;
 let db;
 let auth;
 let prevBootstrapToken;
+
+const SESSION_ID_HASH_PREFIX = 'sid:v1:';
+
+function hashSessionIdForTest(id) {
+  return `${SESSION_ID_HASH_PREFIX}${createHash('sha256').update(String(id || '').trim()).digest('hex')}`;
+}
 
 before(async () => {
   prevCwd = process.cwd();
@@ -82,6 +89,43 @@ test('migrate creates lifecycle and hot-query indexes idempotently', () => {
   } finally {
     sqlite.close();
   }
+});
+
+test('session id migration hashes legacy bearer tokens', () => {
+  db.migrate();
+  const user = db.users.create({
+    username: 'session_migration_user',
+    email: 'session-migration@example.com',
+    passwordHash: 'hash',
+    passwordSalt: 'salt'
+  });
+  const legacyId = 'legacy-session-token';
+  const legacyHash = hashSessionIdForTest(legacyId);
+  const now = new Date().toISOString();
+  const expires = new Date(Date.now() + db.sessions.TTL_MS).toISOString();
+
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    sqlite.prepare('DELETE FROM schema_migrations WHERE version = 9').run();
+    sqlite.prepare(`
+      INSERT INTO sessions (id, user_id, created_at, expires_at, user_agent, ip)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(legacyId, user.id, now, expires, 'legacy-test', '127.0.0.1');
+  } finally {
+    sqlite.close();
+  }
+
+  db.migrate();
+
+  const migrated = new DatabaseSync(db.dbPaths.file);
+  try {
+    assert.equal(migrated.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(legacyId).n, 0);
+    assert.equal(migrated.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(legacyHash).n, 1);
+  } finally {
+    migrated.close();
+  }
+  assert.ok(auth.getSessionUser(legacyId), 'plain cookie value should still resolve after migration');
+  assert.equal(auth.getSessionUser(legacyHash), null, 'stored hash must not be reusable as a cookie');
 });
 
 test('admin stats counts today with an index-friendly day range', () => {

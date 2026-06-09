@@ -3,6 +3,7 @@
 
 import { test, before, after } from 'node:test';
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,12 @@ let db;
 let sessionMiddleware;
 let prevBootstrapToken;
 let registrationGuard;
+
+const SESSION_ID_HASH_PREFIX = 'sid:v1:';
+
+function hashSessionIdForTest(id) {
+  return `${SESSION_ID_HASH_PREFIX}${createHash('sha256').update(String(id || '').trim()).digest('hex')}`;
+}
 
 before(async () => {
   prevCwd = process.cwd();
@@ -460,6 +467,20 @@ test('login + getSessionUser + destroySession round-trip', () => {
   const { user, sessionId } = auth.login({ login: 'alice', password: 'longenough1', ua: 'jest', ip: '127.0.0.1' });
   assert.equal(user.username, 'alice');
   assert.ok(sessionId && sessionId.length === 64);
+  const storedSessionId = hashSessionIdForTest(sessionId);
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(sessionId).n,
+      0
+    );
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(storedSessionId).n,
+      1
+    );
+  } finally {
+    sqlite.close();
+  }
 
   const got = auth.getSessionUser(sessionId);
   assert.ok(got, 'session should resolve');
@@ -477,9 +498,10 @@ test('attachSession refreshes browser cookie when sliding session is extended', 
     ip: '127.0.0.1'
   });
   const nearExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const storedSessionId = hashSessionIdForTest(sessionId);
   const sqlite = new DatabaseSync(db.dbPaths.file);
   try {
-    sqlite.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(nearExpiry, sessionId);
+    sqlite.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(nearExpiry, storedSessionId);
   } finally {
     sqlite.close();
   }
