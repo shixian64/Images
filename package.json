@@ -9,7 +9,9 @@
     "start": "node --experimental-sqlite server.js",
     "test": "node --experimental-sqlite --test \"test/**/*.test.js\"",
     "backup:generated": "node scripts/generated-backup.js backup",
-    "restore:generated": "node scripts/generated-backup.js restore"
+    "restore:generated": "node scripts/generated-backup.js restore",
+    "config:export": "node --experimental-sqlite scripts/system-config.js export",
+    "config:import": "node --experimental-sqlite scripts/system-config.js import"
   },
   "engines": {
     "node": ">=22.5.0"

@@ -266,6 +266,19 @@ npm run restore:generated -- /path/to/backups/image-studio-generated-2026-06-09T
 
 恢复已加密的系统默认 API Key 时，必须同时恢复原来的 `IMAGE_STUDIO_SECRET_KEY`；备份目录也应按敏感数据保护，并保持在 Git 仓库外（默认 `backups/` 已被忽略）。
 
+系统配置（`system_settings`，例如系统默认接口、额度默认值、队列设置、注册策略）也可以单独导出/导入，便于审计、迁移或回滚：
+
+```bash
+# 默认导出脱敏版本，适合审计和变更评审，不可直接导入
+npm run config:export
+
+# 生成可导入的完整配置导出；文件包含系统默认 API Key/密文等敏感配置，必须按备份保护
+npm run config:export -- --include-secrets --output backups/system-config/prod-config.json
+
+# 导入完整配置；--replace 会先清空现有 system_settings，省略则按 key 覆盖/合并
+npm run config:import -- backups/system-config/prod-config.json --yes --replace
+```
+
 ## 环境变量
 
 常用变量见 `.env.example`，下表按用途归类。留空或非法值通常会回退到代码默认值；部分限额变量支持 `0` / `disabled` 表示关闭。
