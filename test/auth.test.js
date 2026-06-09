@@ -463,6 +463,30 @@ test('updateProfile rejects unsafe avatar URL schemes and credentials', () => {
   assert.equal(cleared.avatar_url, '');
 });
 
+test('admin password reset requires the user to change password after login', () => {
+  const root = db.users.findByLogin('root');
+  const target = auth.register({
+    username: 'resetrequired',
+    email: 'resetrequired@example.com',
+    password: 'longenough1'
+  });
+
+  const reset = users.resetPasswordByAdmin(root.id, target.id, {});
+  assert.equal(reset.generated, true);
+  assert.ok(reset.password);
+  assert.equal(db.users.findById(target.id).password_reset_required, 1);
+
+  const loggedIn = auth.login({ login: target.username, password: reset.password });
+  assert.equal(loggedIn.user.passwordResetRequired, true);
+  assert.equal(loggedIn.user.password_reset_required, true);
+
+  users.changePassword(target.id, reset.password, 'newpass12345');
+  assert.equal(db.users.findById(target.id).password_reset_required, 0);
+  const afterChange = auth.login({ login: target.username, password: 'newpass12345' });
+  assert.equal(afterChange.user.passwordResetRequired, false);
+  assert.equal(afterChange.user.password_reset_required, false);
+});
+
 test('login + getSessionUser + destroySession round-trip', () => {
   const { user, sessionId } = auth.login({ login: 'alice', password: 'longenough1', ua: 'jest', ip: '127.0.0.1' });
   assert.equal(user.username, 'alice');

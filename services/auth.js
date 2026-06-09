@@ -69,6 +69,9 @@ export function canInitializeAdminRegistration({ adminBootstrapToken } = {}) {
 export function sanitizeUser(row, { includeSecurity = false } = {}) {
   if (!row) return null;
   const { password_hash, password_salt, ...rest } = row;
+  const passwordResetRequired = Boolean(rest.password_reset_required);
+  rest.password_reset_required = passwordResetRequired;
+  rest.passwordResetRequired = passwordResetRequired;
   if (!includeSecurity) {
     delete rest.signup_ip;
     delete rest.signup_user_agent;

@@ -160,7 +160,7 @@ export function resetPasswordByAdmin(actorId, targetId, { password } = {}) {
   }
   if (String(plain).length < 8) throw new Error('password must be at least 8 characters');
   const { hash, salt } = hashPassword(plain);
-  users.updatePassword(targetId, hash, salt);
+  users.updatePassword(targetId, hash, salt, { resetRequired: true });
   // 重置后强制其他会话下线，避免遗留登录
   sessions.destroyByUser(targetId);
   return { generated, password: generated ? plain : null };
@@ -217,5 +217,5 @@ export function changePassword(userId, oldPassword, newPassword) {
     throw new Error('invalid credentials');
   }
   const { hash, salt } = hashPassword(newPassword);
-  users.updatePassword(userId, hash, salt);
+  users.updatePassword(userId, hash, salt, { resetRequired: false });
 }

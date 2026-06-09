@@ -19,6 +19,29 @@ export function requireAdmin(req, res) {
   return false;
 }
 
+function passwordResetRequired(user = {}) {
+  return Boolean(user.passwordResetRequired || user.password_reset_required);
+}
+
+function isPasswordResetAllowed(req, pathname) {
+  if (pathname === '/api/profile/password') return true;
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/api/profile' || pathname === '/api/profile/')) {
+    return true;
+  }
+  if (pathname === '/api/auth/me' || pathname === '/api/auth/logout') return true;
+  return false;
+}
+
+export function requireFreshPassword(req, res, pathname = '') {
+  if (!passwordResetRequired(req.session?.user)) return true;
+  if (isPasswordResetAllowed(req, pathname)) return true;
+  sendJson(res, 403, {
+    error: 'password reset required',
+    code: 'password_reset_required'
+  });
+  return false;
+}
+
 // Compare the full origin (scheme + host) for CSRF checks.
 function firstHeader(value) {
   if (Array.isArray(value)) return value[0] || '';

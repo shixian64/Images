@@ -25,7 +25,7 @@ import { handleRegistrationRoute } from './routes/registration.js';
 import { createStaticHandler } from './routes/static.js';
 
 import attachSession from './middleware/session.js';
-import { requireAuth, requireCsrf } from './middleware/guard.js';
+import { requireAuth, requireCsrf, requireFreshPassword } from './middleware/guard.js';
 
 import { migrate } from './services/db.js';
 import { startJobQueue, stopJobQueue } from './services/job-queue.js';
@@ -78,6 +78,7 @@ function dispatchApiRoute(req, res, pathname, url) {
 
   // 除 /api/auth/* 外，其他业务接口必须登录。
   if (!route.public && !requireAuth(req, res)) return;
+  if (!route.public && !requireFreshPassword(req, res, pathname)) return;
   return route.handle(req, res, pathname, url);
 }
 

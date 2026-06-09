@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt   TEXT NOT NULL,
   role            TEXT NOT NULL DEFAULT 'user',
   status          TEXT NOT NULL DEFAULT 'active',
+  password_reset_required INTEGER NOT NULL DEFAULT 0,
   avatar_url      TEXT,
   signup_ip       TEXT,
   signup_user_agent TEXT,
@@ -323,6 +324,7 @@ export function migrate() {
   runSchemaMigration(db, 7, 'registration_invite_code_hashes', () => migrateRegistrationInviteCodeHashes(db));
   runSchemaMigration(db, 8, 'registration_invite_expiry', () => migrateRegistrationInviteExpiry(db));
   runSchemaMigration(db, 9, 'session_id_hashes', () => migrateSessionIdHashes(db));
+  runSchemaMigration(db, 10, 'user_password_reset_required', () => migrateUserPasswordResetRequired(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -425,6 +427,10 @@ function migrateSessionIdHashes(db) {
     if (!id || isSessionIdHash(id)) continue;
     updateSession.run(hashSessionId(id), id);
   }
+}
+
+function migrateUserPasswordResetRequired(db) {
+  addColumnIfMissing(db, 'users', 'password_reset_required', 'password_reset_required INTEGER NOT NULL DEFAULT 0');
 }
 
 function migrateImagePublicColumns(db) {
@@ -669,7 +675,9 @@ export const users = {
   },
   list() {
     return open().prepare(`
-      SELECT id, username, email, role, status, avatar_url, signup_ip, signup_user_agent, created_at, updated_at, last_login_at
+      SELECT
+        id, username, email, role, status, password_reset_required, avatar_url,
+        signup_ip, signup_user_agent, created_at, updated_at, last_login_at
       FROM users
       ORDER BY created_at ASC
     `).all();
@@ -687,10 +695,10 @@ export const users = {
     open().prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run(status, nowIso(), id);
     return this.findById(id);
   },
-  updatePassword(id, passwordHash, passwordSalt) {
+  updatePassword(id, passwordHash, passwordSalt, { resetRequired = false } = {}) {
     open().prepare(
-      'UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?'
-    ).run(passwordHash, passwordSalt, nowIso(), id);
+      'UPDATE users SET password_hash = ?, password_salt = ?, password_reset_required = ?, updated_at = ? WHERE id = ?'
+    ).run(passwordHash, passwordSalt, resetRequired ? 1 : 0, nowIso(), id);
   },
   updateProfile(id, { username, email, avatarUrl }) {
     const cur = this.findById(id);

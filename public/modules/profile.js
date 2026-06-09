@@ -10,6 +10,7 @@ let menuMounted = false;
 let profileDialog = null;
 let passwordDialog = null;
 let currentUser = null;
+let passwordResetNoticeShown = false;
 
 function avatarInitial(user) {
   const s = (user?.username || user?.email || '?').trim();
@@ -133,6 +134,7 @@ function ensurePasswordDialog() {
   dlg.innerHTML = `
     <form method="dialog" class="app-dialog-form" data-password-form>
       <h3>修改密码</h3>
+      <p class="hint" data-reset-required hidden>管理员已重置你的密码。继续使用前，请先设置一个新的个人密码。</p>
       <div class="error-banner" data-err hidden></div>
       <label class="field"><span>当前密码</span>
         <input name="oldPassword" type="password" required />
@@ -144,7 +146,7 @@ function ensurePasswordDialog() {
         <input name="confirmPassword" type="password" required minlength="8" />
       </label>
       <div class="app-dialog-actions">
-        <button value="cancel" class="ghost" type="submit">取消</button>
+        <button value="cancel" class="ghost" type="submit" data-cancel>取消</button>
         <button value="confirm" class="primary" type="submit" data-confirm>提交</button>
       </div>
     </form>
@@ -153,6 +155,9 @@ function ensurePasswordDialog() {
   passwordDialog = dlg;
 
   const form = dlg.querySelector('[data-password-form]');
+  dlg.addEventListener('cancel', (ev) => {
+    if (dlg.dataset.forced === 'true') ev.preventDefault();
+  });
   form.addEventListener('submit', async (ev) => {
     const submitter = ev.submitter;
     if (!submitter || submitter.value !== 'confirm') return;
@@ -195,10 +200,18 @@ function ensurePasswordDialog() {
   return dlg;
 }
 
-function openPasswordDialog() {
+function openPasswordDialog({ forced = false } = {}) {
   const dlg = ensurePasswordDialog();
   const form = dlg.querySelector('[data-password-form]');
   form.reset();
+  dlg.dataset.forced = forced ? 'true' : 'false';
+  const resetHint = dlg.querySelector('[data-reset-required]');
+  if (resetHint) resetHint.hidden = !forced;
+  const cancelBtn = dlg.querySelector('[data-cancel]');
+  if (cancelBtn) {
+    cancelBtn.hidden = forced;
+    cancelBtn.disabled = forced;
+  }
   dlg.querySelector('[data-err]').hidden = true;
   if (typeof dlg.showModal === 'function') dlg.showModal();
   else dlg.setAttribute('open', '');
@@ -289,10 +302,19 @@ async function openUsageDrawer() {
   }
 }
 
+function needsPasswordReset(user = currentUser) {
+  return Boolean(user?.passwordResetRequired || user?.password_reset_required);
+}
+
 export function mountProfileMenu(user) {
   currentUser = user || null;
   setCurrentUser(currentUser);
   renderMenu();
+  if (needsPasswordReset(currentUser) && !passwordResetNoticeShown) {
+    passwordResetNoticeShown = true;
+    setStatus('管理员已重置你的密码，请先修改密码后继续使用。', 'warn', 6000);
+    setTimeout(() => openPasswordDialog({ forced: true }), 0);
+  }
   if (menuMounted) return;
   menuMounted = true;
 

@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { requireCsrf } from '../middleware/guard.js';
+import { requireCsrf, requireFreshPassword } from '../middleware/guard.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -98,5 +98,31 @@ test('requireCsrf falls back to Referer origin with scheme comparison', () => {
       referer: 'http://studio.example.test/app?page=1'
     }
   }), res), true);
+  assert.equal(res.statusCode, null);
+});
+
+test('requireFreshPassword blocks business APIs while reset is required', () => {
+  const res = captureRes();
+  const request = {
+    method: 'POST',
+    session: { user: { id: 'u1', passwordResetRequired: true } }
+  };
+
+  assert.equal(requireFreshPassword(request, res, '/api/generate'), false);
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(JSON.parse(res.body), {
+    error: 'password reset required',
+    code: 'password_reset_required'
+  });
+});
+
+test('requireFreshPassword allows profile password change during reset flow', () => {
+  const res = captureRes();
+  const request = {
+    method: 'POST',
+    session: { user: { id: 'u1', password_reset_required: true } }
+  };
+
+  assert.equal(requireFreshPassword(request, res, '/api/profile/password'), true);
   assert.equal(res.statusCode, null);
 });
