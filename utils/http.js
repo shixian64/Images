@@ -88,6 +88,15 @@ export function bodyErrorStatus(error) {
   return errorStatus(error, 400);
 }
 
+function assertContentLengthWithinLimit(req, limitBytes) {
+  const raw = req.headers?.['content-length'] || req.headers?.['Content-Length'];
+  if (raw === undefined) return;
+  const length = Number(raw);
+  if (Number.isFinite(length) && length > limitBytes) {
+    throw createHttpError(413, `request body too large (max ${limitBytes} bytes)`, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
+  }
+}
+
 const COMMON_ROUTE_ERROR_STATUSES = Object.freeze({
   unauthorized: 401,
   forbidden: 403,
@@ -154,19 +163,6 @@ export async function readJsonBody(req, { limitBytes = getJsonBodyLimitBytes() }
   } catch {
     throw createHttpError(400, 'invalid json', HTTP_ERROR_CODES.INVALID_JSON);
   }
-}
-
-async function readBodyBuffer(req, { limitBytes }) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > limitBytes) {
-      throw createHttpError(413, `request body too large (max ${limitBytes} bytes)`, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
-    }
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks, total);
 }
 
 function multipartBoundary(contentType) {
@@ -247,65 +243,150 @@ function findFirstDelimiter(buffer, delimiter) {
   return null;
 }
 
-function findNextDelimiter(buffer, marker, delimiter, from) {
-  let markerPos = buffer.indexOf(marker, from);
-  while (markerPos !== -1) {
-    const delimiterPos = markerPos + 2; // skip the CRLF that belongs to part content framing
-    const delimiterInfo = parseDelimiterAt(buffer, delimiterPos, delimiter);
-    if (delimiterInfo) {
-      return {
-        contentEnd: markerPos,
-        delimiterPos,
-        ...delimiterInfo
-      };
-    }
-    markerPos = buffer.indexOf(marker, markerPos + 1);
-  }
-  return null;
-}
+const MULTIPART_STREAM_CHUNK_BYTES = 64 * 1024;
+const MULTIPART_HEADER_LIMIT_BYTES = 64 * 1024;
 
 export async function readMultipartFormData(req, {
   limitBytes = getMultipartBodyLimitBytes()
 } = {}) {
+  assertContentLengthWithinLimit(req, limitBytes);
   const boundary = multipartBoundary(req.headers?.['content-type'] || req.headers?.['Content-Type']);
-  const buffer = await readBodyBuffer(req, { limitBytes });
   const delimiter = Buffer.from(`--${boundary}`);
   const nextDelimiterMarker = Buffer.from(`\r\n--${boundary}`);
   const headerEndMarker = Buffer.from('\r\n\r\n');
+  const contentTailBytes = nextDelimiterMarker.length + 4;
 
   const fields = Object.create(null);
   const files = [];
-  let current = findFirstDelimiter(buffer, delimiter);
-  if (!current) throw createHttpError(400, 'invalid multipart body', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
 
-  while (current && !current.closing) {
-    const pos = current.nextPos;
+  let pending = Buffer.alloc(0);
+  let total = 0;
+  let state = 'start';
+  let part = null;
+  let closed = false;
 
-    const headerEnd = buffer.indexOf(headerEndMarker, pos);
-    if (headerEnd === -1) throw createHttpError(400, 'invalid multipart part', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
-    const headers = parsePartHeaders(buffer.slice(pos, headerEnd).toString('utf8'));
-    const disposition = parseHeaderParams(headers['content-disposition'] || '');
-    const name = disposition.name;
-    if (!name) throw createHttpError(400, 'multipart field name is required', HTTP_ERROR_CODES.MULTIPART_FIELD_NAME_REQUIRED);
+  function invalidMultipart(message = 'invalid multipart body') {
+    throw createHttpError(400, message, HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
+  }
 
-    const contentStart = headerEnd + headerEndMarker.length;
-    const next = findNextDelimiter(buffer, nextDelimiterMarker, delimiter, contentStart);
-    if (!next) throw createHttpError(400, 'invalid multipart boundary', HTTP_ERROR_CODES.INVALID_MULTIPART_BODY);
-    const content = buffer.slice(contentStart, next.contentEnd);
+  function appendPending(chunk) {
+    if (!chunk.length) return;
+    pending = pending.length ? Buffer.concat([pending, chunk], pending.length + chunk.length) : Buffer.from(chunk);
+  }
 
-    if (disposition.filename !== undefined) {
+  function appendPartContent(buffer) {
+    if (!buffer.length) return;
+    part.chunks.push(buffer);
+    part.size += buffer.length;
+  }
+
+  function finishPart() {
+    const content = Buffer.concat(part.chunks, part.size);
+    if (part.disposition.filename !== undefined) {
       files.push({
-        fieldName: name,
-        filename: disposition.filename || 'upload',
-        contentType: headers['content-type'] || 'application/octet-stream',
+        fieldName: part.name,
+        filename: part.disposition.filename || 'upload',
+        contentType: part.headers['content-type'] || 'application/octet-stream',
         buffer: content
       });
     } else {
-      assignField(fields, name, content.toString('utf8'));
+      assignField(fields, part.name, content.toString('utf8'));
     }
-
-    current = next;
+    part = null;
   }
+
+  function processPending(atEnd = false) {
+    while (!closed) {
+      if (state === 'start') {
+        const current = findFirstDelimiter(pending, delimiter);
+        if (!current) {
+          if (atEnd) invalidMultipart();
+          const keep = Math.min(pending.length, delimiter.length + 4);
+          if (pending.length > keep) pending = pending.subarray(pending.length - keep);
+          return;
+        }
+        if (!atEnd && current.nextPos === current.delimiterPos + delimiter.length) {
+          pending = pending.subarray(current.delimiterPos);
+          return;
+        }
+        pending = pending.subarray(current.nextPos);
+        if (current.closing) {
+          closed = true;
+          return;
+        }
+        state = 'headers';
+        continue;
+      }
+
+      if (state === 'headers') {
+        const headerEnd = pending.indexOf(headerEndMarker);
+        if (headerEnd === -1) {
+          if (atEnd) invalidMultipart('invalid multipart part');
+          if (pending.length > MULTIPART_HEADER_LIMIT_BYTES) invalidMultipart('invalid multipart headers');
+          return;
+        }
+        const headers = parsePartHeaders(pending.slice(0, headerEnd).toString('utf8'));
+        const disposition = parseHeaderParams(headers['content-disposition'] || '');
+        const name = disposition.name;
+        if (!name) throw createHttpError(400, 'multipart field name is required', HTTP_ERROR_CODES.MULTIPART_FIELD_NAME_REQUIRED);
+        part = { headers, disposition, name, chunks: [], size: 0 };
+        pending = pending.subarray(headerEnd + headerEndMarker.length);
+        state = 'content';
+        continue;
+      }
+
+      let searchFrom = 0;
+      let markerPos = pending.indexOf(nextDelimiterMarker, searchFrom);
+      while (markerPos !== -1) {
+        const afterMarker = markerPos + nextDelimiterMarker.length;
+        if (!atEnd && afterMarker + 2 > pending.length) {
+          appendPartContent(pending.subarray(0, markerPos));
+          pending = pending.subarray(markerPos);
+          return;
+        }
+        const next = parseDelimiterAt(pending, markerPos + 2, delimiter);
+        if (next) {
+          appendPartContent(pending.subarray(0, markerPos));
+          finishPart();
+          pending = pending.subarray(next.nextPos);
+          if (next.closing) {
+            closed = true;
+            return;
+          }
+          state = 'headers';
+          break;
+        }
+        searchFrom = markerPos + 1;
+        markerPos = pending.indexOf(nextDelimiterMarker, searchFrom);
+      }
+      if (state === 'headers') continue;
+      if (markerPos === -1) {
+        if (atEnd) invalidMultipart('invalid multipart boundary');
+        const keep = Math.min(pending.length, contentTailBytes);
+        const flushEnd = pending.length - keep;
+        if (flushEnd > 0) {
+          appendPartContent(pending.subarray(0, flushEnd));
+          pending = pending.subarray(flushEnd);
+        }
+        return;
+      }
+    }
+  }
+
+  for await (const rawChunk of req) {
+    const chunk = Buffer.from(rawChunk);
+    for (let offset = 0; offset < chunk.length; offset += MULTIPART_STREAM_CHUNK_BYTES) {
+      const piece = chunk.subarray(offset, Math.min(chunk.length, offset + MULTIPART_STREAM_CHUNK_BYTES));
+      total += piece.length;
+      if (total > limitBytes) {
+        throw createHttpError(413, `request body too large (max ${limitBytes} bytes)`, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
+      }
+      appendPending(piece);
+      processPending(false);
+    }
+  }
+  processPending(true);
+  if (!closed) invalidMultipart();
 
   return { fields, files };
 }

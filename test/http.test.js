@@ -108,6 +108,17 @@ function multipartReq(boundary, body) {
   return req;
 }
 
+function multipartReqChunks(boundary, body, chunkSize = 5) {
+  const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
+  const chunks = [];
+  for (let offset = 0; offset < buffer.length; offset += chunkSize) {
+    chunks.push(buffer.subarray(offset, Math.min(buffer.length, offset + chunkSize)));
+  }
+  const req = Readable.from(chunks);
+  req.headers = { 'content-type': `multipart/form-data; boundary=${boundary}` };
+  return req;
+}
+
 test('readMultipartFormData preserves boundary-like bytes inside file content', async () => {
   const boundary = 'abc';
   const fileBytes = Buffer.from('prefix\r\n--abc suffix\r\nreal end', 'utf8');
@@ -173,4 +184,40 @@ test('readMultipartFormData treats prototype-looking field names as data', async
   assert.equal(form.fields.__proto__, 'polluted');
   assert.equal(form.fields.constructor, 'plain');
   assert.equal({}.polluted, undefined);
+});
+
+test('readMultipartFormData parses chunked multipart bodies without buffering the full request', async () => {
+  const boundary = 'chunked-boundary';
+  const fileBytes = Buffer.from('prefix\r\n--chunked-boundary suffix\r\nreal end', 'utf8');
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nhello\r\n`, 'utf8'),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="chunked.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`, 'utf8'),
+    fileBytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')
+  ]);
+
+  const form = await readMultipartFormData(multipartReqChunks(boundary, body, 3));
+
+  assert.equal(form.fields.prompt, 'hello');
+  assert.equal(form.files.length, 1);
+  assert.equal(form.files[0].filename, 'chunked.bin');
+  assert.deepEqual(form.files[0].buffer, fileBytes);
+});
+
+test('readMultipartFormData rejects oversized content-length before reading chunks', async () => {
+  const boundary = 'too-large';
+  const req = Readable.from([Buffer.from('this should not be parsed')]);
+  req.headers = {
+    'content-type': `multipart/form-data; boundary=${boundary}`,
+    'content-length': '20'
+  };
+
+  await assert.rejects(
+    readMultipartFormData(req, { limitBytes: 10 }),
+    (err) => {
+      assert.equal(err.statusCode, 413);
+      assert.equal(err.code, HTTP_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
+      return true;
+    }
+  );
 });
