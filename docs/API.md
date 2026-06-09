@@ -44,8 +44,8 @@
 | GET | `/api/interfaces/default` | 登录 | 读取系统默认接口公开摘要，只返回 `hasApiKey`，不返回明文 Key。 |
 | GET | `/api/admin/interfaces/default` | 管理员 | 读取管理端系统默认接口配置摘要。 |
 | PUT | `/api/admin/interfaces/default` | 管理员 | 保存系统默认生图/对话接口配置。设置 `IMAGE_STUDIO_SECRET_KEY` 后 API Key 会加密落库。 |
-| POST | `/api/admin/interfaces/default/test` | 管理员 | 对已保存的默认接口执行 `/v1/models` 探活。 |
-| POST | `/api/test-profile` | 登录 | 测试用户提交的个人覆盖接口配置，不持久化个人 Key。 |
+| POST | `/api/admin/interfaces/default/test` | 管理员 | 对已保存的默认接口执行 `/v1/models` 探活；上游非 2xx 统一返回 502，避免透传上游状态和错误体。 |
+| POST | `/api/test-profile` | 登录 | 测试用户提交的个人覆盖接口配置，不持久化个人 Key；上游非 2xx 统一返回 502。 |
 
 ## 生图、对话与队列
 
@@ -134,4 +134,5 @@
 | 409 | 状态冲突，例如队列维护、最后管理员保护、任务不可取消。 |
 | 413 | 请求体或上传文件超过限制。 |
 | 429 | 登录、注册、对话、额度或队列限流。 |
+| 502 | 上游响应过大、格式异常或探活上游返回非 2xx。 |
 | 500 | 未预期的服务端错误。 |

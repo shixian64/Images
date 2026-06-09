@@ -57,7 +57,10 @@ test('handleTestProfile disables automatic fetch redirects', async (t) => {
   await handleTestProfile(req, res);
 
   assert.equal(redirected, false);
-  assert.equal(res.statusCode, 302);
+  assert.equal(res.statusCode, 502);
+  const body = JSON.parse(res.body);
+  assert.equal(body.error, 'Upstream profile test failed.');
+  assert.equal(JSON.stringify(body).includes('302'), false);
 });
 
 test('handleTestProfile times out stalled probes', async (t) => {

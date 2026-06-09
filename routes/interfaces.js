@@ -18,6 +18,7 @@ import { maskApiKey, redactSecrets } from '../utils/mask.js';
 
 const VALID_KINDS = new Set(['image', 'chat']);
 const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
+const UPSTREAM_PROBE_FAILURE_STATUS = 502;
 
 function envPositiveInt(name, fallback) {
   const raw = process.env[name];
@@ -34,6 +35,12 @@ function httpError(statusCode, message) {
   const err = new Error(message);
   err.statusCode = statusCode;
   return err;
+}
+
+function safeProbeError(status) {
+  if (status === 401 || status === 403) return 'Upstream rejected the API key or access.';
+  if (status >= 500) return 'Upstream service returned an error.';
+  return 'Upstream profile test failed.';
 }
 
 function kindLabel(kind) {
@@ -155,7 +162,8 @@ async function handleAdminTest(req, res) {
     const durationMs = Date.now() - started;
 
     if (!response.ok) {
-      const error = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [probeApiKey]);
+      const upstreamError = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [probeApiKey]);
+      const error = safeProbeError(response.status);
       const next = setGlobalInterfaceConfig({
         [kind]: {
           testStatus: 'err',
@@ -164,13 +172,13 @@ async function handleAdminTest(req, res) {
           testError: error
         }
       }, req.session.user.id);
-      logger.warn('interface.default.test.failed', { kind, status: response.status, durationMs, error });
+      logger.warn('interface.default.test.failed', { kind, status: response.status, durationMs, error: upstreamError });
       auditRecord(req, 'interface.default_test_failed', { type: 'system', id: 'interfaces.default' }, {
         kind,
         status: response.status,
         error
       });
-      sendJson(res, response.status, {
+      sendJson(res, UPSTREAM_PROBE_FAILURE_STATUS, {
         ok: false,
         error,
         default: adminInterfaceConfig(next)

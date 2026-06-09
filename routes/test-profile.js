@@ -7,6 +7,7 @@ import { maskApiKey, redactSecrets } from '../utils/mask.js';
 import { guardedFetch, readResponseTextLimited, resolveModelsUrl } from '../services/upstream.js';
 
 const DEFAULT_TEST_PROFILE_TIMEOUT_MS = 30_000;
+const UPSTREAM_PROBE_FAILURE_STATUS = 502;
 
 function envPositiveInt(name, fallback) {
   const raw = process.env[name];
@@ -23,6 +24,12 @@ function httpError(statusCode, message) {
   const err = new Error(message);
   err.statusCode = statusCode;
   return err;
+}
+
+function safeProbeError(status) {
+  if (status === 401 || status === 403) return 'Upstream rejected the API key or access.';
+  if (status >= 500) return 'Upstream service returned an error.';
+  return 'Upstream profile test failed.';
 }
 
 export async function handleTestProfile(req, res) {
@@ -66,9 +73,10 @@ export async function handleTestProfile(req, res) {
     const durationMs = Date.now() - started;
 
     if (!response.ok) {
-      const error = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [apiKey]);
-      logger.warn('profile.test.failed', { status: response.status, durationMs, kind, error });
-      return sendJson(res, response.status, { ok: false, error });
+      const upstreamError = redactSecrets(data?.error?.message || data?.message || `Request failed with ${response.status}`, [apiKey]);
+      const error = safeProbeError(response.status);
+      logger.warn('profile.test.failed', { status: response.status, durationMs, kind, error: upstreamError });
+      return sendJson(res, UPSTREAM_PROBE_FAILURE_STATUS, { ok: false, error });
     }
 
     const models = Array.isArray(data?.data) ? data.data.map((item) => item.id).filter(Boolean) : [];
