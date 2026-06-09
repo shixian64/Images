@@ -37,6 +37,7 @@ test('positive int parser can explicitly allow zero', () => {
 test('validateEnvConfig reports invalid configured numeric env values', () => {
   process.env.MAX_JSON_BODY_BYTES = 'abc';
   process.env.SIGNUP_IP_DAILY_LIMIT = '0';
+  process.env.CHAT_MAX_COMPLETION_TOKENS = 'abc';
 
   const events = [];
   const warnings = validateEnvConfig({
@@ -45,6 +46,7 @@ test('validateEnvConfig reports invalid configured numeric env values', () => {
 
   assert.ok(warnings.some((warning) => warning.name === 'MAX_JSON_BODY_BYTES'));
   assert.equal(warnings.some((warning) => warning.name === 'SIGNUP_IP_DAILY_LIMIT'), false);
+  assert.ok(warnings.some((warning) => warning.name === 'CHAT_MAX_COMPLETION_TOKENS' && warning.fallback === 6000));
   assert.ok(events.some((event) => event.message === 'config.env.invalid_positive_int'));
 });
 

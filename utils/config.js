@@ -40,7 +40,7 @@ const POSITIVE_INT_ENV_SPECS = new Map([
   ['CHAT_MAX_MESSAGES', { fallback: 12 }],
   ['CHAT_MAX_INPUT_CHARS', { fallback: 12_000 }],
   ['CHAT_DEFAULT_MAX_COMPLETION_TOKENS', { fallback: 1200 }],
-  ['CHAT_MAX_COMPLETION_TOKENS', { fallback: 2000 }],
+  ['CHAT_MAX_COMPLETION_TOKENS', { fallback: 6000 }],
   ['CHAT_COMPLETION_TIMEOUT_MS', { fallback: 180_000 }],
   ['TEST_PROFILE_TIMEOUT_MS', { fallback: 30_000 }],
   ['PORT', { fallback: 8787 }]
