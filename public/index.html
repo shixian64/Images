@@ -636,6 +636,7 @@
             </label>
             <label class="field span-2"><span>生图 API Key</span>
               <input id="imageApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+              <small class="secret-runtime-note">API Key 不会写入本地存储；刷新或关闭页面后需要重新填写。</small>
             </label>
             <label class="field"><span>生图默认模型</span>
               <input id="imageDefaultModel" placeholder="gpt-image-2" />
@@ -653,6 +654,7 @@
             </label>
             <label class="field span-2"><span>对话 API Key</span>
               <input id="chatApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+              <small class="secret-runtime-note">API Key 仅保留在当前页面内存；保存配置不会持久化密钥。</small>
             </label>
             <label class="field"><span>对话默认模型</span>
               <input id="chatDefaultModel" placeholder="gpt-5.5" />

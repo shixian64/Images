@@ -483,6 +483,7 @@ function renderAll() {
 
 function save() {
   const next = readFormProfile();
+  const hasRuntimeSecrets = Boolean(next.image?.apiKey || next.chat?.apiKey);
   const index = profiles.findIndex((p) => p.id === next.id);
   if (index >= 0) profiles[index] = next;
   else profiles.push(next);
@@ -497,7 +498,13 @@ function save() {
     chatModel: next.chat.defaultModel,
     status: next.status
   });
-  setStatus('配置已保存', 'ok', 1600);
+  setStatus(
+    hasRuntimeSecrets
+      ? '非密钥配置已保存；API Key 仅保留在当前页面，刷新后需重新填写。'
+      : '配置已保存',
+    'ok',
+    hasRuntimeSecrets ? 3200 : 1600
+  );
 }
 
 function createDraft() {
