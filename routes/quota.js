@@ -7,7 +7,7 @@
 // TAG: hmt---
 
 import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus } from '../utils/http.js';
-import { requireAuth, requireAdmin } from '../middleware/guard.js';
+import { requireAdmin } from '../middleware/guard.js';
 import { users as usersTable } from '../services/db.js';
 import {
   summary,
@@ -29,7 +29,6 @@ function statusFromError(msg) {
 }
 
 async function handleMe(req, res) {
-  if (!requireAuth(req, res)) return;
   const data = summary(req.session.user.id);
   sendJson(res, 200, data);
 }

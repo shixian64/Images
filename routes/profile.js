@@ -2,7 +2,6 @@
 // TAG: hmt---
 
 import { sendJson, sendMethodNotAllowed, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils/http.js';
-import { requireAuth } from '../middleware/guard.js';
 import { users, sessions } from '../services/db.js';
 import { updateProfile, changePassword } from '../services/users.js';
 import { createSession, sanitizeUser } from '../services/auth.js';
@@ -67,8 +66,6 @@ async function handlePassword(req, res) {
 }
 
 export async function handleProfileRoute(req, res, pathname) {
-  if (!requireAuth(req, res)) return;
-
   const method = req.method;
   if (pathname === '/api/profile' || pathname === '/api/profile/') {
     if (method === 'GET') return handleGet(req, res);
