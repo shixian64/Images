@@ -3,12 +3,15 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 let workDir;
 let prevCwd;
 let db;
 let auth;
 let clientLogService;
+let clientLogRoute;
+let rateLimit;
 
 before(async () => {
   prevCwd = process.cwd();
@@ -17,6 +20,8 @@ before(async () => {
   db = await import('../services/db.js');
   auth = await import('../services/auth.js');
   clientLogService = await import('../services/client-logs.js');
+  clientLogRoute = await import('../routes/client-logs.js');
+  rateLimit = await import('../services/rate-limit.js');
   db.migrate();
 });
 
@@ -30,6 +35,35 @@ function reqFor(user) {
     session: { user },
     headers: { 'user-agent': 'node-test-agent' },
     socket: { remoteAddress: '127.0.0.1' }
+  };
+}
+
+function routeReqFor(user, body, { ip = '127.0.0.1' } = {}) {
+  const req = Readable.from([Buffer.from(JSON.stringify(body || {}))]);
+  req.method = 'POST';
+  req.session = { user };
+  req.headers = { 'user-agent': 'node-test-agent' };
+  req.socket = { remoteAddress: ip };
+  return req;
+}
+
+function mockRes() {
+  return {
+    statusCode: null,
+    headers: {},
+    body: '',
+    setHeader(name, value) {
+      this.headers[String(name).toLowerCase()] = String(value);
+    },
+    writeHead(status, headers = {}) {
+      this.statusCode = status;
+      for (const [key, value] of Object.entries(headers || {})) {
+        this.headers[String(key).toLowerCase()] = String(value);
+      }
+    },
+    end(chunk = '') {
+      if (chunk) this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    }
   };
 }
 
@@ -162,4 +196,52 @@ test('client logs treat prototype-looking metadata keys as data', () => {
   assert.deepEqual(row.meta.__proto__, { polluted: true });
   assert.equal(row.meta.constructor, 'plain');
   assert.equal({}.polluted, undefined);
+});
+
+test('client log route rate limits ingestion before accepting another batch', async (t) => {
+  const prevMax = process.env.CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE;
+  const prevWindow = process.env.CLIENT_LOG_RATE_LIMIT_WINDOW_MS;
+  process.env.CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE = '1';
+  process.env.CLIENT_LOG_RATE_LIMIT_WINDOW_MS = '60000';
+  rateLimit.clear();
+  t.after(() => {
+    if (prevMax === undefined) delete process.env.CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE;
+    else process.env.CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE = prevMax;
+    if (prevWindow === undefined) delete process.env.CLIENT_LOG_RATE_LIMIT_WINDOW_MS;
+    else process.env.CLIENT_LOG_RATE_LIMIT_WINDOW_MS = prevWindow;
+    rateLimit.clear();
+  });
+
+  const user = auth.register({
+    username: 'log_rate_user',
+    email: 'log_rate_user@example.com',
+    password: 'longenough1'
+  });
+
+  const firstRes = mockRes();
+  await clientLogRoute.handleClientLogsRoute(
+    routeReqFor(user, {
+      items: [{ id: 'rate-log-1', level: 'info', message: 'first batch' }]
+    }, { ip: '192.0.2.64' }),
+    firstRes,
+    '/api/client-logs',
+    new URL('http://localhost/api/client-logs')
+  );
+  assert.equal(firstRes.statusCode, 200);
+
+  const secondRes = mockRes();
+  await clientLogRoute.handleClientLogsRoute(
+    routeReqFor(user, {
+      items: [{ id: 'rate-log-2', level: 'info', message: 'second batch' }]
+    }, { ip: '192.0.2.64' }),
+    secondRes,
+    '/api/client-logs',
+    new URL('http://localhost/api/client-logs')
+  );
+  assert.equal(secondRes.statusCode, 429);
+  assert.equal(secondRes.headers['retry-after'], '60');
+  assert.equal(JSON.parse(secondRes.body).code, 'client_log_rate_limited');
+
+  const rows = clientLogService.listClientLogsForUser(user.id, { limit: 10 });
+  assert.equal(rows.some((row) => row.clientId === 'rate-log-2'), false);
 });

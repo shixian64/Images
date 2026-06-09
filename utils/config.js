@@ -35,6 +35,8 @@ const POSITIVE_INT_ENV_SPECS = new Map([
   ['LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE', { fallback: 20 }],
   ['LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE', { fallback: 8 }],
   ['LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE', { fallback: 5 }],
+  ['CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE', { fallback: 60, allowZero: true }],
+  ['CLIENT_LOG_RATE_LIMIT_WINDOW_MS', { fallback: 60_000, allowZero: true }],
   ['CHAT_RATE_LIMIT_MAX_PER_MINUTE', { fallback: 20 }],
   ['CHAT_GLOBAL_CONCURRENT_REQUESTS', { fallback: 4 }],
   ['CHAT_MAX_MESSAGES', { fallback: 12 }],
