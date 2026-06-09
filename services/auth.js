@@ -3,6 +3,7 @@
 
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { users, sessions } from './db.js';
+import { assertPasswordAllowed } from './password-policy.js';
 
 // scrypt 参数按 plan §安全要点
 const SCRYPT_OPTS = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
@@ -44,9 +45,7 @@ function assertValidCredentials({ username, email, password }) {
   if (!EMAIL_RE.test(email)) {
     throw new Error('invalid email');
   }
-  if (String(password).length < 8) {
-    throw new Error('password must be at least 8 characters');
-  }
+  assertPasswordAllowed(password, { username, email });
 }
 
 export function isValidAdminBootstrapToken(token) {

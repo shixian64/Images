@@ -7,6 +7,7 @@ import { rm } from 'node:fs/promises';
 
 import { users, sessions, images } from './db.js';
 import { hashPassword, verifyPassword, sanitizeUser } from './auth.js';
+import { assertPasswordAllowed } from './password-policy.js';
 import { userImageDir } from './path-guard.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
@@ -130,7 +131,7 @@ export function createUserByAdmin({ username, email, password, role = 'user' } =
   }
   if (!USERNAME_RE.test(username)) throw new Error('invalid username');
   if (!EMAIL_RE.test(email)) throw new Error('invalid email');
-  if (String(password).length < 8) throw new Error('password must be at least 8 characters');
+  assertPasswordAllowed(password, { username, email });
   if (!VALID_ROLES.has(role)) throw new Error('invalid role');
 
   if (users.findByLogin(username)) throw new Error('username already taken');
@@ -155,10 +156,20 @@ export function resetPasswordByAdmin(actorId, targetId, { password } = {}) {
   let plain = password;
   let generated = false;
   if (!plain) {
-    plain = generateTempPassword();
     generated = true;
+    for (let i = 0; i < 10; i += 1) {
+      plain = generateTempPassword();
+      try {
+        assertPasswordAllowed(plain, { username: target.username, email: target.email });
+        break;
+      } catch {
+        plain = '';
+      }
+    }
+    if (!plain) throw new Error('failed to generate a valid temporary password');
+  } else {
+    assertPasswordAllowed(plain, { username: target.username, email: target.email });
   }
-  if (String(plain).length < 8) throw new Error('password must be at least 8 characters');
   const { hash, salt } = hashPassword(plain);
   users.updatePassword(targetId, hash, salt, { resetRequired: true });
   // 重置后强制其他会话下线，避免遗留登录
@@ -210,12 +221,16 @@ function generateTempPassword() {
 
 export function changePassword(userId, oldPassword, newPassword) {
   if (!oldPassword || !newPassword) throw new Error('old and new password are required');
-  if (String(newPassword).length < 8) throw new Error('password must be at least 8 characters');
   const cur = users.findById(userId);
   if (!cur) throw new Error('user not found');
   if (!verifyPassword(oldPassword, cur.password_hash, cur.password_salt)) {
     throw new Error('invalid credentials');
   }
+  assertPasswordAllowed(newPassword, {
+    username: cur.username,
+    email: cur.email,
+    oldPassword
+  });
   const { hash, salt } = hashPassword(newPassword);
   users.updatePassword(userId, hash, salt, { resetRequired: false });
 }

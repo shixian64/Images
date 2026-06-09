@@ -441,6 +441,8 @@ test('register validates username/email/password', () => {
   assert.throws(() => auth.register({ username: 'a', email: 'x@y.com', password: 'longenough1' }), /invalid username/);
   assert.throws(() => auth.register({ username: 'okok', email: 'no-at-sign', password: 'longenough1' }), /invalid email/);
   assert.throws(() => auth.register({ username: 'okok', email: 'ok@x.com', password: 'short' }), /at least 8/);
+  assert.throws(() => auth.register({ username: 'commonpass', email: 'commonpass@x.com', password: 'password123' }), /too common/);
+  assert.throws(() => auth.register({ username: 'identitypass', email: 'identitypass@x.com', password: 'identitypass2026' }), /must not contain/);
   assert.throws(() => auth.register({ username: 'alice', email: 'aa@x.com', password: 'longenough1' }), /username already taken/);
 });
 
@@ -594,6 +596,10 @@ test('changePassword fails on wrong old password, invalidates after change', () 
   assert.throws(
     () => users.changePassword(alice.id, 'wrong', 'newpass1234'),
     /invalid credentials/
+  );
+  assert.throws(
+    () => users.changePassword(alice.id, 'longenough1', 'longenough1'),
+    /different from old password/
   );
   users.changePassword(alice.id, 'longenough1', 'newpass1234');
   // 旧密码登录失败

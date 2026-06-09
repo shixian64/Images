@@ -62,6 +62,7 @@
 - `ADMIN_BOOTSTRAP_TOKEN` 也作为旧部署兼容路径，在已有普通用户但没有活跃管理员时使用。
 - 注册支持邀请码、IP 限频、邮箱域名 allowlist / blocklist 和蜜罐字段。
 - 登录同时按 IP、账号、IP+账号限流，降低暴力破解和枚举风险。
+- 密码策略统一要求最小长度、拒绝常见弱密码、拒绝包含用户名 / 邮箱本地部分，并禁止改密时复用原密码。
 - `TRUST_PROXY=1` 只应在可信反向代理会清洗 `X-Forwarded-For` / `X-Real-IP` 时启用，并通过 `TRUST_PROXY_ALLOWED_IPS` 限定直连代理来源。
 
 ## API Key 存储说明
