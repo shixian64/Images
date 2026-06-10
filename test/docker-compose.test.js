@@ -24,3 +24,10 @@ test('docker compose references every documented .env.example variable', () => {
 
   assert.deepEqual(missing, []);
 });
+
+test('Dockerfile pins the Node base image by digest', () => {
+  const text = readFileSync('Dockerfile', 'utf8');
+  const from = text.match(/^FROM\s+(.+)$/m)?.[1] || '';
+
+  assert.match(from, /^node:22-bookworm-slim@sha256:[a-f0-9]{64}$/);
+});
