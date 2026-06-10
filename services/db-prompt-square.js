@@ -4,6 +4,7 @@
 // connection setup, schema migrations, and repository wiring.
 
 import { randomUUID } from 'node:crypto';
+import { escapeSqlLike } from './db-sql.js';
 
 function normalizePromptSquareListOptions(input = {}) {
   const options = typeof input === 'number' ? { limit: input } : (input || {});
@@ -17,10 +18,6 @@ function normalizePromptSquareListOptions(input = {}) {
     mine: options.mine === true,
     userId: String(options.userId || '').trim()
   };
-}
-
-function escapeSqlLike(value) {
-  return String(value || '').replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 function quoteFtsPhrase(value) {
