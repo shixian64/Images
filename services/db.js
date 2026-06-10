@@ -20,8 +20,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
 import { positiveIntFromEnv } from '../utils/config.js';
 import {
+  getPromptSquareSeeds,
+  PROMPT_SQUARE_SEED_DIGEST,
   PROMPT_SQUARE_SEED_KEY,
-  PROMPT_SQUARE_SEEDS,
+  PROMPT_SQUARE_SEED_TOTAL,
   PROMPTSREF_SREF_SOURCE_URL
 } from './prompt-square-seeds.js';
 
@@ -685,19 +687,7 @@ function promptSquareSeedSourceId(seed) {
 }
 
 function promptSquareSeedDigest() {
-  const payload = {
-    sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
-    seeds: PROMPT_SQUARE_SEEDS.map((seed) => ({
-      rank: seed.rank,
-      sref: seed.sref,
-      title: seed.title,
-      prompt: seed.prompt,
-      tags: seed.tags,
-      sourceHot: seed.sourceHot,
-      previewImages: Array.isArray(seed.previewImages) ? seed.previewImages : []
-    }))
-  };
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  return PROMPT_SQUARE_SEED_DIGEST;
 }
 
 function parsePromptSquareSeedState(value) {
@@ -710,14 +700,12 @@ function parsePromptSquareSeedState(value) {
 }
 
 function countExistingPromptSquareSeeds(db) {
-  if (!PROMPT_SQUARE_SEEDS.length) return 0;
-  const sourceIds = [...new Set(PROMPT_SQUARE_SEEDS.map(promptSquareSeedSourceId))];
-  const placeholders = sourceIds.map(() => '?').join(', ');
+  if (!PROMPT_SQUARE_SEED_TOTAL) return 0;
   const row = db.prepare(`
     SELECT COUNT(DISTINCT source_prompt_id) AS count
     FROM prompt_square
-    WHERE source_prompt_id IN (${placeholders})
-  `).get(...sourceIds);
+    WHERE source_prompt_id LIKE 'promptsref:sref:%'
+  `).get();
   return Number(row?.count) || 0;
 }
 
@@ -730,12 +718,13 @@ function seedPromptSquareDefaults(db) {
   const existingSeedCount = countExistingPromptSquareSeeds(db);
   if (
     seedState?.digest === seedDigest
-    && Number(seedState?.total) === PROMPT_SQUARE_SEEDS.length
-    && existingSeedCount >= PROMPT_SQUARE_SEEDS.length
+    && Number(seedState?.total) === PROMPT_SQUARE_SEED_TOTAL
+    && existingSeedCount >= PROMPT_SQUARE_SEED_TOTAL
   ) {
     return;
   }
 
+  const seeds = getPromptSquareSeeds();
   const exists = db.prepare('SELECT id, published_at FROM prompt_square WHERE source_prompt_id = ? LIMIT 1');
   const insert = db.prepare(`
     INSERT INTO prompt_square
@@ -750,7 +739,7 @@ function seedPromptSquareDefaults(db) {
   const startedAt = Date.now();
   let inserted = 0;
   let updated = 0;
-  for (const seed of PROMPT_SQUARE_SEEDS) {
+  for (const seed of seeds) {
     const sourcePromptId = promptSquareSeedSourceId(seed);
     const existing = exists.get(sourcePromptId);
     const publishedAt = new Date(startedAt - (seed.rank - 1) * 1000).toISOString();
@@ -795,7 +784,7 @@ function seedPromptSquareDefaults(db) {
   `).run(seedKey, JSON.stringify({
     sourceUrl: PROMPTSREF_SREF_SOURCE_URL,
     digest: seedDigest,
-    total: PROMPT_SQUARE_SEEDS.length,
+    total: seeds.length,
     inserted,
     updated,
     previousDigest: seedState?.digest || null,
