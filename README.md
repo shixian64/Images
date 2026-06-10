@@ -32,6 +32,8 @@ npm test        # Node 原生 test runner，零外部依赖
 - 启动需带 `--experimental-sqlite`（`npm start` 已配置）
 - 项目无第三方运行依赖，主要使用内置 `fetch` / `http` / `node:test` / `node:sqlite`
 
+启动脚本会先做运行时预检：确认 Node 版本达到 `node:sqlite` 的最低要求，并在导入服务前验证 `node:sqlite` 可用；CI 持续覆盖 Node 22.x，使用其他 Node 主版本部署前请先运行 `npm test` 验证兼容性。
+
 > 本仓库没有独立构建步骤。除非任务明确要求，不需要运行构建/编译命令。
 
 ## 首次管理员与注册策略
