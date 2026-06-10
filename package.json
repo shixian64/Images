@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node --experimental-sqlite server.js",
     "check:js": "node scripts/check-js-syntax.js",
+    "coverage": "node --experimental-sqlite --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=60 --test-coverage-functions=70 --test \"test/**/*.test.js\"",
     "test": "node --experimental-sqlite --test \"test/**/*.test.js\"",
     "backup:generated": "node scripts/generated-backup.js backup",
     "restore:generated": "node scripts/generated-backup.js restore",

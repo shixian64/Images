@@ -26,5 +26,9 @@ jobs:
       - name: Check JavaScript syntax
         run: npm run check:js
 
+      - name: Run coverage gate
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run coverage
+
       - name: Run tests
         run: npm test
