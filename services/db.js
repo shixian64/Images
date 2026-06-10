@@ -17,6 +17,7 @@ import { createUserRepository } from './db-users.js';
 import { createRateLimitRepository } from './db-rate-limits.js';
 import { createSessionRepository, hashSessionId, isSessionIdHash } from './db-sessions.js';
 import { createPromptSquareRepository } from './db-prompt-square.js';
+import { createSchemaMigrationRepository, createSystemSettingsRepository } from './db-system.js';
 import { createSqliteMigrationBackup } from './sqlite-migration-backup.js';
 import {
   getPromptSquareSeeds,
@@ -2229,42 +2230,11 @@ export const registrationInviteRedemptions = {
 
 // ---- system_settings ----
 
-export const systemSettings = {
-  get(key) {
-    const row = open().prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
-    if (!row) return null;
-    try { return JSON.parse(row.value); } catch { return row.value; }
-  },
-  set(key, value, updatedBy) {
-    const db = open();
-    const json = JSON.stringify(value);
-    const cur = db.prepare('SELECT key FROM system_settings WHERE key = ?').get(key);
-    if (cur) {
-      db.prepare(
-        'UPDATE system_settings SET value = ?, updated_at = ?, updated_by = ? WHERE key = ?'
-      ).run(json, nowIso(), updatedBy || null, key);
-    } else {
-      db.prepare(
-        'INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)'
-      ).run(key, json, nowIso(), updatedBy || null);
-    }
-  },
-  delete(key) {
-    return open().prepare('DELETE FROM system_settings WHERE key = ?').run(key).changes || 0;
-  }
-};
+export const systemSettings = createSystemSettingsRepository({ open, nowIso });
 
 // ---- schema_migrations ----
 
-export const schemaMigrations = {
-  list() {
-    return open().prepare(`
-      SELECT version, name, applied_at
-      FROM schema_migrations
-      ORDER BY version ASC
-    `).all();
-  }
-};
+export const schemaMigrations = createSchemaMigrationRepository({ open });
 
 // ---- prompt_square ----
 
