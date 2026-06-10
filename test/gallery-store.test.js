@@ -415,3 +415,37 @@ test('scanOrphans reads image rows in bounded maintenance pages', async () => {
   assert.ok(calls.every((call) => call.limit === 1));
   assert.deepEqual(calls.slice(0, 3).map((call) => call.offset), [0, 1, 2]);
 });
+
+test('scanOrphans reports truncation when database scan reaches row cap', async () => {
+  await withEnv({
+    GALLERY_MAINTENANCE_SCAN_PAGE_SIZE: '1',
+    GALLERY_ORPHAN_SCAN_MAX_DB_ROWS: '1'
+  }, async () => {
+    const result = await gallery.scanOrphans();
+    assert.equal(result.truncated, true);
+    assert.equal(result.truncationReason, 'max_db_rows');
+    assert.equal(result.skippedDanglingScan, true);
+    assert.equal(result.scan.dbRows, 1);
+  });
+});
+
+test('scanOrphans caps recursive filesystem traversal', async () => {
+  const danglingDir = join(workDir, 'generated', 'users', user.id, 'images', 'scan-limit');
+  mkdirSync(danglingDir, { recursive: true });
+  writeFileSync(join(danglingDir, 'dangling-a.png'), Buffer.from(PNG_BYTES));
+  writeFileSync(join(danglingDir, 'dangling-b.png'), Buffer.from(PNG_BYTES));
+
+  await withEnv({
+    GALLERY_ORPHAN_SCAN_MAX_DB_ROWS: '100000',
+    GALLERY_ORPHAN_SCAN_MAX_FILES: '1',
+    GALLERY_ORPHAN_SCAN_MAX_DIRS: '1000',
+    GALLERY_ORPHAN_SCAN_TIMEOUT_MS: '10000'
+  }, async () => {
+    const result = await gallery.scanOrphans();
+    assert.equal(result.truncated, true);
+    assert.equal(result.truncationReason, 'max_files');
+    assert.equal(result.skippedDanglingScan, false);
+    assert.equal(result.scan.files, 1);
+    assert.ok(result.danglingFiles.length <= 1);
+  });
+});

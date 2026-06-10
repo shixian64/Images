@@ -341,6 +341,10 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | `PUBLIC_GALLERY_DAILY_LIKE_LIMIT` | `10` | 每用户每日公开图库点赞次数。 |
 | `GALLERY_STAT_CONCURRENCY` | `16` | 图库文件统计并发。 |
 | `GALLERY_MAINTENANCE_SCAN_PAGE_SIZE` | `500` | 图库维护扫描分页大小。 |
+| `GALLERY_ORPHAN_SCAN_MAX_DB_ROWS` | `50000` | 孤儿扫描最多检查的图片元数据行数；截断时跳过 dangling 扫描以避免误报。 |
+| `GALLERY_ORPHAN_SCAN_MAX_FILES` | `20000` | 孤儿扫描最多遍历的图库文件数。 |
+| `GALLERY_ORPHAN_SCAN_MAX_DIRS` | `5000` | 孤儿扫描最多遍历的图库目录数。 |
+| `GALLERY_ORPHAN_SCAN_TIMEOUT_MS` | `15000` | 孤儿扫描最长运行时间；超限返回截断结果。 |
 
 ### 注册、登录与限流
 

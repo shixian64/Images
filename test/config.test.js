@@ -82,4 +82,6 @@ test('config center knows common positive integer env names', () => {
   assert.ok(names.includes('CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE'));
   assert.ok(names.includes('CLIENT_LOG_RATE_LIMIT_WINDOW_MS'));
   assert.ok(names.includes('GALLERY_STAT_CONCURRENCY'));
+  assert.ok(names.includes('GALLERY_ORPHAN_SCAN_MAX_FILES'));
+  assert.ok(names.includes('GALLERY_ORPHAN_SCAN_TIMEOUT_MS'));
 });
