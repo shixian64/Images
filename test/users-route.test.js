@@ -102,6 +102,14 @@ async function listUsers(query) {
   return JSON.parse(res.body);
 }
 
+async function getUserDetail(userId, query = '') {
+  const url = new URL(`http://localhost/api/users/${encodeURIComponent(userId)}${query}`);
+  const res = captureRes();
+  await usersRoute.handleUsersRoute(getReq(admin), res, `/api/users/${encodeURIComponent(userId)}`, url);
+  assert.equal(res.statusCode, 200);
+  return JSON.parse(res.body);
+}
+
 test('admin users list filters in SQL before pagination', async () => {
   setUserCreatedAt(admin.id, '2026-01-01T00:00:00.000Z');
   const match = createUser('needle_oldest', {
@@ -130,4 +138,29 @@ test('admin users list filters in SQL before pagination', async () => {
   const disabledUsers = await listUsers('?page=1&size=10&role=user&status=disabled');
   assert.equal(disabledUsers.filtered, 1);
   assert.deepEqual(disabledUsers.items.map((item) => item.id), [match.id]);
+});
+
+test('admin user detail loads expensive sections only when requested', async () => {
+  const target = createUser('detail_lazy_user', {
+    createdAt: '2026-02-01T00:00:00.000Z'
+  });
+
+  const base = await getUserDetail(target.id);
+  assert.ok(base.user);
+  assert.equal(Object.hasOwn(base, 'audits'), false);
+  assert.equal(Object.hasOwn(base, 'activityLogs'), false);
+  assert.equal(Object.hasOwn(base, 'jobs'), false);
+  assert.equal(Object.hasOwn(base, 'clientLogs'), false);
+
+  const partial = await getUserDetail(target.id, '?include=jobs,clientLogs');
+  assert.ok(Array.isArray(partial.jobs));
+  assert.ok(Array.isArray(partial.clientLogs));
+  assert.equal(Object.hasOwn(partial, 'audits'), false);
+  assert.equal(Object.hasOwn(partial, 'activityLogs'), false);
+
+  const all = await getUserDetail(target.id, '?include=all');
+  assert.ok(Array.isArray(all.audits));
+  assert.ok(Array.isArray(all.activityLogs));
+  assert.ok(Array.isArray(all.jobs));
+  assert.ok(Array.isArray(all.clientLogs));
 });

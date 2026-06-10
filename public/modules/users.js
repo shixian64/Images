@@ -2091,6 +2091,13 @@ function renderDetailBody(detail) {
   const activityLogs = Array.isArray(detail?.activityLogs) ? detail.activityLogs : [];
   const jobs = Array.isArray(detail?.jobs) ? detail.jobs : [];
   const clientLogs = Array.isArray(detail?.clientLogs) ? detail.clientLogs : [];
+  const loadingSections = new Set(Array.isArray(detail?.loadingSections) ? detail.loadingSections : []);
+  const sectionErrors = detail?.sectionErrors && typeof detail.sectionErrors === 'object' ? detail.sectionErrors : {};
+  const fallback = (key, emptyText, loadingText) => {
+    if (sectionErrors[key]) return `<p class="hint err">加载失败：${escapeHtml(sectionErrors[key])}</p>`;
+    if (loadingSections.has(key)) return `<p class="hint">${escapeHtml(loadingText)}</p>`;
+    return `<p class="hint">${escapeHtml(emptyText)}</p>`;
+  };
   const isSelf = u.id === getCurrentUserId();
 
   return `
@@ -2163,7 +2170,7 @@ function renderDetailBody(detail) {
               `;
             }).join('')}
           </ul>
-        ` : '<p class="hint">暂无生成记录</p>'}
+        ` : fallback('jobs', '暂无生成记录', '正在加载生成记录…')}
       </section>
 
       <section class="user-detail-block">
@@ -2185,7 +2192,7 @@ function renderDetailBody(detail) {
               `;
             }).join('')}
           </ul>
-        ` : '<p class="hint">暂无客户端日志；用户刷新页面后，新日志会自动同步到服务端。</p>'}
+        ` : fallback('clientLogs', '暂无客户端日志；用户刷新页面后，新日志会自动同步到服务端。', '正在加载客户端日志…')}
       </section>
 
       <section class="user-detail-block">
@@ -2201,7 +2208,7 @@ function renderDetailBody(detail) {
               </li>
             `).join('')}
           </ul>
-        ` : '<p class="hint">暂无账户审计记录</p>'}
+        ` : fallback('audits', '暂无账户审计记录', '正在加载账户审计…')}
       </section>
 
       <section class="user-detail-block">
@@ -2217,14 +2224,15 @@ function renderDetailBody(detail) {
               </li>
             `).join('')}
           </ul>
-        ` : '<p class="hint">暂无用户侧操作日志</p>'}
+        ` : fallback('activityLogs', '暂无用户侧操作日志', '正在加载用户操作日志…')}
       </section>
     </div>
   `;
 }
 
-async function fetchUserDetail(userId) {
-  const resp = await apiFetch(`/api/users/${encodeURIComponent(userId)}`);
+async function fetchUserDetail(userId, include = '') {
+  const qs = include ? `?include=${encodeURIComponent(include)}` : '';
+  const resp = await apiFetch(`/api/users/${encodeURIComponent(userId)}${qs}`);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
   return data;
@@ -2232,9 +2240,36 @@ async function fetchUserDetail(userId) {
 
 async function refreshOpenDetail() {
   if (!openDetailUserId) return;
+  const userId = openDetailUserId;
+  const sections = ['jobs', 'clientLogs', 'audits', 'activityLogs'];
   try {
-    const detail = await fetchUserDetail(openDetailUserId);
-    drawer.update({ body: renderDetailBody(detail), unsafeHtml: true });
+    const detail = await fetchUserDetail(userId);
+    if (openDetailUserId !== userId) return;
+    const loadingDetail = { ...detail, loadingSections: sections };
+    drawer.update({ body: renderDetailBody(loadingDetail), unsafeHtml: true });
+
+    const results = await Promise.allSettled(
+      sections.map(async (section) => {
+        try {
+          return { section, data: await fetchUserDetail(userId, section) };
+        } catch (err) {
+          err.section = section;
+          throw err;
+        }
+      })
+    );
+    if (openDetailUserId !== userId) return;
+    const sectionErrors = {};
+    const fullDetail = { ...detail };
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        Object.assign(fullDetail, result.value.data);
+      } else {
+        const section = result.reason?.section || 'unknown';
+        sectionErrors[section] = result.reason?.message || String(result.reason || '加载失败');
+      }
+    });
+    drawer.update({ body: renderDetailBody({ ...fullDetail, sectionErrors }), unsafeHtml: true });
   } catch (err) {
     drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`, unsafeHtml: true });
   }

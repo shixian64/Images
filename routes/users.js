@@ -19,6 +19,7 @@ import { listClientLogsForUser } from '../services/client-logs.js';
 
 const VALID_ROLES = new Set(['all', 'admin', 'user']);
 const VALID_STATUSES = new Set(['all', 'active', 'disabled']);
+const DETAIL_INCLUDES = new Set(['audits', 'activityLogs', 'jobs', 'clientLogs']);
 
 function listOptionsFromQuery(urlObj) {
   const sp = urlObj.searchParams;
@@ -36,6 +37,22 @@ function listOptionsFromQuery(urlObj) {
     role: validRole === 'all' ? '' : validRole,
     status: validStatus === 'all' ? '' : validStatus
   };
+}
+
+function detailIncludesFromQuery(urlObj) {
+  const raw = String(urlObj?.searchParams?.get('include') || '').trim();
+  if (!raw) return new Set();
+  const parts = raw.split(',').map((item) => item.trim()).filter(Boolean);
+  if (parts.includes('all')) return new Set(DETAIL_INCLUDES);
+  return new Set(parts.filter((item) => DETAIL_INCLUDES.has(item)));
+}
+
+function appendUserDetailIncludes(id, payload, includes) {
+  if (includes.has('audits')) payload.audits = listAuditForTarget('user', id, 50);
+  if (includes.has('activityLogs')) payload.activityLogs = listAuditForActor(id, 50);
+  if (includes.has('jobs')) payload.jobs = getAdminJobs({ userId: id, limit: 50 });
+  if (includes.has('clientLogs')) payload.clientLogs = listClientLogsForUser(id, { limit: 100 });
+  return payload;
 }
 
 async function handleCollection(req, res, urlObj) {
@@ -73,17 +90,14 @@ async function handleCollection(req, res, urlObj) {
   sendMethodNotAllowed(res, ['GET', 'POST']);
 }
 
-async function handleDetail(req, res, id) {
+async function handleDetail(req, res, id, urlObj) {
   const method = req.method;
 
   if (method === 'GET') {
     try {
       const detail = getUserDetail(id);
-      const audits = listAuditForTarget('user', id, 50);
-      const activityLogs = listAuditForActor(id, 50);
-      const jobs = getAdminJobs({ userId: id, limit: 50 });
-      const clientLogs = listClientLogsForUser(id, { limit: 100 });
-      sendJson(res, 200, { ...detail, audits, activityLogs, jobs, clientLogs });
+      const includes = detailIncludesFromQuery(urlObj);
+      sendJson(res, 200, appendUserDetailIncludes(id, { ...detail }, includes));
     } catch (err) {
       sendJson(res, routeErrorStatus(err), { error: err.message });
     }
@@ -190,7 +204,7 @@ export async function handleUsersRoute(req, res, pathname, urlObj) {
   const detail = pathname.match(/^\/api\/users\/([^/]+)\/?$/);
   if (detail) {
     const id = decodeURIComponent(detail[1]);
-    return handleDetail(req, res, id);
+    return handleDetail(req, res, id, urlObj);
   }
 
   sendJson(res, 404, { error: 'not found' });

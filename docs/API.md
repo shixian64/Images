@@ -112,7 +112,7 @@ Prompt Square `meta.previewImages` 仅保留本地提示词示例图路径或无
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET/POST | `/api/users` | 管理员 | 用户列表 / 创建用户。列表支持 `page`、`size`、`search`、`role`、`status` 服务端筛选分页，返回 `{ items, total, filtered, page, pageSize }`。 |
-| GET/PATCH/DELETE | `/api/users/:id` | 管理员 | 用户详情、角色/状态修改、删除用户。 |
+| GET/PATCH/DELETE | `/api/users/:id` | 管理员 | 用户详情、角色/状态修改、删除用户。详情默认只返回基础资料、统计和 session；可用 `include=audits,activityLogs,jobs,clientLogs` 或 `include=all` 按需加载重数据区块。 |
 | POST | `/api/users/:id/reset-password` | 管理员 | 重置用户密码。 |
 | POST | `/api/users/:id/logout` | 管理员 | 强制用户所有 session 下线。 |
 | GET/PUT | `/api/admin/quota/defaults` | 管理员 | 读取/保存默认额度。 |
