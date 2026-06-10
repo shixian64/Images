@@ -5,8 +5,8 @@ import { sendJson, sendNoContent, readJsonBody, bodyErrorStatus } from '../utils
 import { parseCookies, setSessionCookie, clearSessionCookie, COOKIE_KEY } from '../utils/cookies.js';
 import { hit as rateLimitHit } from '../services/rate-limit.js';
 import {
-  register as authRegister,
-  login as authLogin,
+  registerAsync as authRegisterAsync,
+  loginAsync as authLoginAsync,
   createSession,
   destroySession,
   ensureSessionCsrfToken,
@@ -159,7 +159,7 @@ async function handleRegister(req, res) {
     if (!canInitializeAdmin && !shouldPreLimitRegistration) {
       if (!checkRegisterRateLimitResponse(res, ip)) return;
     }
-    const user = authRegister({
+    const user = await authRegisterAsync({
       username,
       email,
       password,
@@ -212,7 +212,7 @@ async function handleLogin(req, res) {
   // 同时按 IP、账号和 IP+账号限流，避免攻击者变换 login 绕过单一组合 key。
   if (!checkLoginRateLimit(res, ip, login)) return;
   try {
-    const { user, sessionId, csrfToken } = authLogin({
+    const { user, sessionId, csrfToken } = await authLoginAsync({
       login,
       password,
       ua: userAgent(req),
