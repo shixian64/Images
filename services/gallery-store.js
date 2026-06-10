@@ -659,16 +659,18 @@ export async function listComicProjectImages({ projectId, userId, isAdmin = fals
 export async function listAdminGallery(options = {}) {
   const page = Math.max(1, Math.floor(Number(options.page) || 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(Number(options.pageSize ?? options.size) || 50)));
-  const filtered = await collectExistingAdminGalleryPage(options, { page, pageSize });
+  const rows = imagesTable.listAdmin({ ...options, page, pageSize });
+  const total = imagesTable.countAdmin(options);
   const totalAll = hasAdminGalleryFilters(options)
-    ? (await collectExistingAdminGalleryPage({}, { page: 1, pageSize: 1 })).total
-    : filtered.total;
+    ? imagesTable.countAdmin({})
+    : total;
+  const items = await adminItemsFromRows(rows);
 
   return {
-    items: filtered.items,
+    items,
     page,
     pageSize,
-    total: filtered.total,
+    total,
     totalAll,
     storage: 'generated/users/* + legacy'
   };
@@ -687,30 +689,55 @@ function hasAdminGalleryFilters(options = {}) {
   );
 }
 
-async function collectExistingAdminGalleryPage(options = {}, { page, pageSize }) {
-  const scanPageSize = 200;
-  const start = (page - 1) * pageSize;
-  let dbPage = 1;
-  let existingSeen = 0;
-  const items = [];
-
-  while (true) {
-    const rows = imagesTable.listAdmin({ ...options, page: dbPage, pageSize: scanPageSize });
-    if (!rows.length) break;
-
-    const existingItems = await itemsFromRows(rows, { viewerId: null });
-    for (const item of existingItems) {
-      if (existingSeen >= start && items.length < pageSize) {
-        items.push(item);
-      }
-      existingSeen += 1;
+async function adminItemsFromRows(rows = []) {
+  return mapWithConcurrency(rows, galleryStatConcurrency(), async (row) => {
+    const item = rowToItem(row);
+    const filePath = resolveStoredAbs(item.path, { userId: item.userId });
+    if (!filePath) {
+      return {
+        ...item,
+        url: '',
+        downloadUrl: '',
+        fileExists: false,
+        fileMissing: true,
+        missingReason: 'invalid_path'
+      };
     }
 
-    if (rows.length < scanPageSize) break;
-    dbPage += 1;
-  }
-
-  return { items, total: existingSeen };
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        return {
+          ...item,
+          url: '',
+          downloadUrl: '',
+          fileExists: false,
+          fileMissing: true,
+          missingReason: 'not_file'
+        };
+      }
+      const publicUrl = toPublicUrl(item.path);
+      return {
+        ...item,
+        url: publicUrl,
+        downloadUrl: publicUrl,
+        bytes: item.bytes || fileStat.size,
+        fileExists: true,
+        fileMissing: false,
+        missingReason: ''
+      };
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      return {
+        ...item,
+        url: '',
+        downloadUrl: '',
+        fileExists: false,
+        fileMissing: true,
+        missingReason: 'missing_file'
+      };
+    }
+  });
 }
 
 export async function setImagePublic(id, { userId, isAdmin = false, isPublic = false } = {}) {

@@ -149,7 +149,29 @@ test('admin gallery list applies filters and pagination in the data layer', asyn
   rmSync(join(gallery.galleryPaths.root, ...missingItem.path.split('/')), { force: true });
 
   const searchedWithMissingFirst = await getAdminGallery(admin, '?size=1&search=needle');
-  assert.equal(searchedWithMissingFirst.totalAll, 4);
-  assert.equal(searchedWithMissingFirst.total, 1);
-  assert.deepEqual(searchedWithMissingFirst.items.map((item) => item.id), [matchId]);
+  assert.equal(searchedWithMissingFirst.totalAll, 5);
+  assert.equal(searchedWithMissingFirst.total, 2);
+  assert.deepEqual(searchedWithMissingFirst.items.map((item) => item.id), [missingItem.id]);
+  assert.equal(searchedWithMissingFirst.items[0].fileMissing, true);
+  assert.equal(searchedWithMissingFirst.items[0].missingReason, 'missing_file');
+  assert.equal(searchedWithMissingFirst.items[0].url, '');
+
+  const listAdminCalls = [];
+  const originalListAdmin = db.images.listAdmin;
+  db.images.listAdmin = function patchedListAdmin(options = {}) {
+    listAdminCalls.push({ ...options });
+    return originalListAdmin.call(this, options);
+  };
+
+  try {
+    const secondPage = await getAdminGallery(admin, '?page=2&size=1');
+    assert.equal(secondPage.total, 5);
+    assert.equal(secondPage.items.length, 1);
+  } finally {
+    db.images.listAdmin = originalListAdmin;
+  }
+
+  assert.equal(listAdminCalls.length, 1);
+  assert.equal(listAdminCalls[0].page, 2);
+  assert.equal(listAdminCalls[0].pageSize, 1);
 });

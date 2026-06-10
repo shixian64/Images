@@ -651,6 +651,12 @@ body.drawer-open { overflow: hidden; }
 .admin-gallery-table tr.selected td {
   background: var(--brand-soft);
 }
+.admin-gallery-table tr.is-missing-file td {
+  background: color-mix(in srgb, var(--danger-soft) 45%, transparent);
+}
+.admin-gallery-table .muted-text {
+  color: var(--text-muted);
+}
 
 .admin-gallery-pager {
   display: flex;

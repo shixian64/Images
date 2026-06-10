@@ -1606,11 +1606,12 @@ function renderAdminGallery() {
       </thead>
       <tbody>
         ${items.map((item) => {
-          const src = item.url || item.downloadUrl || '';
+          const missing = item.fileMissing === true;
+          const src = missing ? '' : (item.url || item.downloadUrl || '');
           const prompt = item.revisedPrompt || item.prompt || item.filename || '图库图片';
           const isChecked = gallerySelected.has(item.id);
           return `
-            <tr data-image-id="${escapeHtml(item.id || '')}" class="${isChecked ? 'selected' : ''}">
+            <tr data-image-id="${escapeHtml(item.id || '')}" class="${[isChecked ? 'selected' : '', missing ? 'is-missing-file' : ''].filter(Boolean).join(' ')}">
               <td class="admin-gallery-check">
                 <input type="checkbox" data-row-check ${isChecked ? 'checked' : ''} />
               </td>
@@ -1627,6 +1628,7 @@ function renderAdminGallery() {
                 <div class="management-file-cell">
                   <strong>${escapeHtml(item.filename || '-')}</strong>
                   <small>${escapeHtml(item.path || '')}</small>
+                  ${missing ? `<small class="muted-text">missing: ${escapeHtml(item.missingReason || 'missing_file')}</small>` : ''}
                 </div>
               </td>
               <td>
@@ -1826,7 +1828,7 @@ async function bulkDeleteImages() {
 }
 
 function openImageDetail(item) {
-  const src = item.url || item.downloadUrl || '';
+  const src = item.fileMissing === true ? '' : (item.url || item.downloadUrl || '');
   const html = `
     <div class="image-detail">
       ${src ? `<a href="${escapeHtml(src)}" target="_blank" rel="noreferrer"><img class="image-detail-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.filename || '')}" /></a>` : ''}
