@@ -193,6 +193,12 @@ dialog.app-dialog {
 dialog.app-dialog::backdrop {
   background: rgba(0, 0, 0, 0.35);
 }
+dialog.app-dialog.app-dialog-fallback[open] {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1300;
+}
 .app-dialog-form {
   display: flex;
   flex-direction: column;

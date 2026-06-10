@@ -1,9 +1,35 @@
-// 通用对话框：confirm / prompt / info / form。
-// 替代浏览器内置 alert/confirm/prompt，统一视觉与可访问性。
+// Shared dialog helpers: confirm / info / one-time secret / controlled form.
+// Keep a usable fallback for browsers without native dialog.showModal().
 // TAG: hmt---
 
 import { escapeHtml } from './dom.js';
 import { copyText } from './clipboard.js';
+
+const TEXT = Object.freeze({
+  confirmTitle: '\u786e\u8ba4\u64cd\u4f5c',
+  confirm: '\u786e\u8ba4',
+  cancel: '\u53d6\u6d88',
+  infoTitle: '\u63d0\u793a',
+  infoOk: '\u6211\u77e5\u9053\u4e86',
+  secretTitle: '\u8bf7\u590d\u5236\u5e76\u59a5\u5584\u4fdd\u5b58',
+  secretMessage: '\u6b64\u5185\u5bb9\u53ea\u663e\u793a\u4e00\u6b21\uff0c\u5173\u95ed\u540e\u65e0\u6cd5\u518d\u6b21\u67e5\u770b\u3002',
+  copy: '\u590d\u5236',
+  copied: '\u5df2\u590d\u5236',
+  copyManual: '\u8bf7\u624b\u52a8\u590d\u5236',
+  copyFailed: '\u590d\u5236\u5931\u8d25',
+  close: '\u5173\u95ed',
+  formTitle: '\u586b\u5199\u4fe1\u606f',
+  save: '\u4fdd\u5b58'
+});
+
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',');
 
 function buildDialog(innerHtml) {
   const dlg = document.createElement('dialog');
@@ -13,10 +39,92 @@ function buildDialog(innerHtml) {
   return dlg;
 }
 
+export function closeDialog(dlg, value = '') {
+  if (!dlg) return;
+  dlg.returnValue = value;
+  if (typeof dlg.close === 'function') {
+    dlg.close(value);
+    return;
+  }
+  dlg.removeAttribute?.('open');
+  const CloseEventCtor = globalThis.CloseEvent || globalThis.Event;
+  if (typeof CloseEventCtor === 'function') {
+    dlg.dispatchEvent?.(new CloseEventCtor('close'));
+  }
+}
+
+export function focusableDialogElements(dlg) {
+  if (!dlg?.querySelectorAll) return [];
+  return Array.from(dlg.querySelectorAll(FOCUSABLE_SELECTOR))
+    .filter((el) => !el.hidden && el.getAttribute?.('aria-hidden') !== 'true');
+}
+
+export function presentDialog(dlg, { handleDialogForms = true } = {}) {
+  const previousActive = document.activeElement;
+  if (typeof dlg.showModal === 'function') {
+    dlg.showModal();
+    return () => previousActive?.focus?.();
+  }
+
+  dlg.setAttribute('open', '');
+  if (!dlg.getAttribute?.('role')) dlg.setAttribute('role', 'dialog');
+  if (!dlg.getAttribute?.('aria-modal')) dlg.setAttribute('aria-modal', 'true');
+  dlg.classList?.add?.('app-dialog-fallback');
+
+  const focusFirst = () => {
+    const focusable = focusableDialogElements(dlg);
+    (focusable[0] || dlg).focus?.();
+  };
+
+  const onKeyDown = (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault?.();
+      closeDialog(dlg, 'cancel');
+      return;
+    }
+    if (ev.key !== 'Tab') return;
+    const focusable = focusableDialogElements(dlg);
+    if (!focusable.length) {
+      ev.preventDefault?.();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    const active = document.activeElement;
+    if (ev.shiftKey && active === first) {
+      ev.preventDefault?.();
+      last.focus?.();
+    } else if (!ev.shiftKey && active === last) {
+      ev.preventDefault?.();
+      first.focus?.();
+    }
+  };
+
+  const onSubmit = (ev) => {
+    if (!handleDialogForms) return;
+    const form = ev.target;
+    if (String(form?.getAttribute?.('method') || '').toLowerCase() !== 'dialog') return;
+    ev.preventDefault?.();
+    closeDialog(dlg, ev.submitter?.value || '');
+  };
+
+  dlg.addEventListener?.('keydown', onKeyDown);
+  dlg.addEventListener?.('submit', onSubmit);
+  queueMicrotask(focusFirst);
+
+  return () => {
+    dlg.removeEventListener?.('keydown', onKeyDown);
+    dlg.removeEventListener?.('submit', onSubmit);
+    previousActive?.focus?.();
+  };
+}
+
 function showAndAwait(dlg, parseResult) {
   return new Promise((resolve) => {
+    const cleanup = presentDialog(dlg);
     const handler = () => {
       dlg.removeEventListener('close', handler);
+      cleanup();
       let value;
       try { value = parseResult ? parseResult(dlg.returnValue, dlg) : dlg.returnValue; }
       catch { value = null; }
@@ -24,16 +132,14 @@ function showAndAwait(dlg, parseResult) {
       resolve(value);
     };
     dlg.addEventListener('close', handler);
-    if (typeof dlg.showModal === 'function') dlg.showModal();
-    else dlg.setAttribute('open', '');
   });
 }
 
 export function confirm({
-  title = '确认操作',
+  title = TEXT.confirmTitle,
   message = '',
-  confirmText = '确认',
-  cancelText = '取消',
+  confirmText = TEXT.confirm,
+  cancelText = TEXT.cancel,
   danger = false
 } = {}) {
   const dlg = buildDialog(`
@@ -49,7 +155,7 @@ export function confirm({
   return showAndAwait(dlg, (val) => val === 'confirm');
 }
 
-export function info({ title = '提示', message = '', okText = '我知道了' } = {}) {
+export function info({ title = TEXT.infoTitle, message = '', okText = TEXT.infoOk } = {}) {
   const dlg = buildDialog(`
     <form method="dialog" class="app-dialog-form">
       <h3>${escapeHtml(title)}</h3>
@@ -62,10 +168,9 @@ export function info({ title = '提示', message = '', okText = '我知道了' }
   return showAndAwait(dlg, () => true);
 }
 
-// 显示一条已生成的明文（密码 / 临时口令），允许复制
 export function showSecret({
-  title = '请复制并妥善保存',
-  message = '此内容只显示一次，关闭后无法再次查看。',
+  title = TEXT.secretTitle,
+  message = TEXT.secretMessage,
   secret = ''
 } = {}) {
   const dlg = buildDialog(`
@@ -74,10 +179,10 @@ export function showSecret({
       <p class="app-dialog-message">${escapeHtml(message)}</p>
       <div class="app-dialog-secret">
         <code>${escapeHtml(secret)}</code>
-        <button type="button" class="ghost small" data-copy>复制</button>
+        <button type="button" class="ghost small" data-copy>${TEXT.copy}</button>
       </div>
       <div class="app-dialog-actions">
-        <button value="ok" class="primary" type="submit">关闭</button>
+        <button value="ok" class="primary" type="submit">${TEXT.close}</button>
       </div>
     </form>
   `);
@@ -85,22 +190,20 @@ export function showSecret({
   copyBtn?.addEventListener('click', async () => {
     try {
       const result = await copyText(secret);
-      copyBtn.textContent = result.manual ? '请手动复制' : '已复制';
-      if (!result.manual) setTimeout(() => { copyBtn.textContent = '复制'; }, 1400);
+      copyBtn.textContent = result.manual ? TEXT.copyManual : TEXT.copied;
+      if (!result.manual) setTimeout(() => { copyBtn.textContent = TEXT.copy; }, 1400);
     } catch (err) {
-      copyBtn.textContent = err?.message || '复制失败';
+      copyBtn.textContent = err?.message || TEXT.copyFailed;
     }
   });
   return showAndAwait(dlg, () => true);
 }
 
-// 受控输入对话框：fields = [{ name, label, type, required, value, placeholder, options }]
-// 返回 { ok: true, values: {} } 或 { ok: false }
 export function form({
-  title = '填写信息',
+  title = TEXT.formTitle,
   fields = [],
-  confirmText = '保存',
-  cancelText = '取消',
+  confirmText = TEXT.save,
+  cancelText = TEXT.cancel,
   validate
 } = {}) {
   const fieldHtml = fields.map((f) => {
@@ -145,13 +248,15 @@ export function form({
   const errEl = dlg.querySelector('[data-err]');
 
   return new Promise((resolve) => {
+    const cleanup = presentDialog(dlg, { handleDialogForms: false });
+    let pendingValues = null;
     formEl.addEventListener('submit', (ev) => {
       const submitter = ev.submitter;
+      ev.preventDefault();
       if (submitter && submitter.value === 'cancel') {
-        // 走默认 dialog 关闭流程
+        closeDialog(dlg, 'cancel');
         return;
       }
-      ev.preventDefault();
       errEl.hidden = true; errEl.textContent = '';
       const fd = new FormData(formEl);
       const values = {};
@@ -162,19 +267,14 @@ export function form({
         errEl.hidden = false;
         return;
       }
-      dlg.returnValue = 'confirm';
-      dlg.close('confirm');
+      pendingValues = values;
+      closeDialog(dlg, 'confirm');
+    });
+    dlg.addEventListener('close', () => {
+      cleanup();
       try { dlg.remove(); } catch { /* ignore */ }
-      resolve({ ok: true, values });
+      if (dlg.returnValue === 'confirm') resolve({ ok: true, values: pendingValues || {} });
+      else resolve({ ok: false });
     });
-    dlg.addEventListener('close', (ev) => {
-      // close 由表单 submit 触发时已 resolve；这里处理 ESC / 取消
-      if (dlg.returnValue !== 'confirm') {
-        try { dlg.remove(); } catch { /* ignore */ }
-        resolve({ ok: false });
-      }
-    });
-    if (typeof dlg.showModal === 'function') dlg.showModal();
-    else dlg.setAttribute('open', '');
   });
 }
