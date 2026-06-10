@@ -165,6 +165,60 @@ test('prompt square search/tag/mine filters run before the result limit', async 
   assert.equal(taggedMine.items[0].isMine, true);
 });
 
+test('prompt square search uses the fts index and keeps it in sync', async () => {
+  const owner = auth.register({
+    username: 'square_fts_owner',
+    email: 'square_fts_owner@example.com',
+    password: 'longenough1'
+  });
+
+  const item = db.promptSquare.upsert({
+    userId: owner.id,
+    sourcePromptId: 'fts-sync-prompt',
+    title: 'FTS sync prompt',
+    prompt: 'A long prompt with hiddeneedlevalue buried in the middle',
+    tagsJson: JSON.stringify(['search-index']),
+    source: 'manual',
+    metaJson: '{}'
+  });
+
+  const substring = await getSquare(owner, '?limit=10&search=deneed');
+  assert.equal(substring.filtered, 1);
+  assert.deepEqual(substring.items.map((entry) => entry.id), [item.id]);
+
+  const sqlite = new DatabaseSync(db.dbPaths.file);
+  try {
+    const ftsRows = sqlite
+      .prepare('SELECT id FROM prompt_square_fts WHERE prompt_square_fts MATCH ?')
+      .all('"deneed"');
+    assert.deepEqual(ftsRows.map((row) => row.id), [item.id]);
+  } finally {
+    sqlite.close();
+  }
+
+  const updated = db.promptSquare.upsert({
+    userId: owner.id,
+    sourcePromptId: 'fts-sync-prompt',
+    title: 'FTS sync prompt updated',
+    prompt: 'A replacement prompt with uniquefreshvalue instead',
+    tagsJson: JSON.stringify(['search-index']),
+    source: 'manual',
+    metaJson: '{}'
+  });
+  assert.equal(updated.id, item.id);
+
+  const stale = await getSquare(owner, '?limit=10&search=deneed');
+  assert.equal(stale.filtered, 0);
+
+  const fresh = await getSquare(owner, '?limit=10&search=quefresh');
+  assert.equal(fresh.filtered, 1);
+  assert.deepEqual(fresh.items.map((entry) => entry.id), [item.id]);
+
+  assert.equal(db.promptSquare.deleteById(item.id), 1);
+  const deleted = await getSquare(owner, '?limit=10&search=quefresh');
+  assert.equal(deleted.filtered, 0);
+});
+
 test('prompt square tag filter matches JSON array elements, not tag substrings', async () => {
   const owner = auth.register({
     username: 'square_tag_owner',

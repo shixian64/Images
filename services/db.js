@@ -154,6 +154,43 @@ CREATE INDEX IF NOT EXISTS idx_prompt_square_source    ON prompt_square(user_id,
 CREATE INDEX IF NOT EXISTS idx_prompt_square_source_id ON prompt_square(source_prompt_id);
 `;
 
+const PROMPT_SQUARE_FTS_DROP = `
+DROP TRIGGER IF EXISTS prompt_square_fts_ai;
+DROP TRIGGER IF EXISTS prompt_square_fts_au;
+DROP TRIGGER IF EXISTS prompt_square_fts_ad;
+DROP TABLE IF EXISTS prompt_square_fts;
+`;
+
+const PROMPT_SQUARE_FTS_SCHEMA = `
+CREATE VIRTUAL TABLE IF NOT EXISTS prompt_square_fts
+USING fts5(
+  id UNINDEXED,
+  title,
+  prompt,
+  tags,
+  source,
+  tokenize = 'trigram'
+);
+CREATE TRIGGER IF NOT EXISTS prompt_square_fts_ai
+AFTER INSERT ON prompt_square
+BEGIN
+  INSERT INTO prompt_square_fts(id, title, prompt, tags, source)
+  VALUES (new.id, new.title, new.prompt, new.tags, new.source);
+END;
+CREATE TRIGGER IF NOT EXISTS prompt_square_fts_au
+AFTER UPDATE OF id, title, prompt, tags, source ON prompt_square
+BEGIN
+  DELETE FROM prompt_square_fts WHERE id = old.id;
+  INSERT INTO prompt_square_fts(id, title, prompt, tags, source)
+  VALUES (new.id, new.title, new.prompt, new.tags, new.source);
+END;
+CREATE TRIGGER IF NOT EXISTS prompt_square_fts_ad
+AFTER DELETE ON prompt_square
+BEGIN
+  DELETE FROM prompt_square_fts WHERE id = old.id;
+END;
+`;
+
 const DATA_LIFECYCLE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_images_public_published
   ON images(is_public, published_at DESC, created_at DESC);
@@ -408,6 +445,7 @@ CREATE TABLE IF NOT EXISTS prompt_square (
   published_at      TEXT NOT NULL
 );
 ${PROMPT_SQUARE_INDEXES}
+${PROMPT_SQUARE_FTS_SCHEMA}
 `;
 
 export function migrate() {
@@ -425,6 +463,7 @@ export function migrate() {
   runSchemaMigration(db, 9, 'session_id_hashes', () => migrateSessionIdHashes(db));
   runSchemaMigration(db, 10, 'user_password_reset_required', () => migrateUserPasswordResetRequired(db));
   runSchemaMigration(db, 11, 'session_csrf_tokens', () => migrateSessionCsrfTokens(db));
+  runSchemaMigration(db, 12, 'prompt_square_fts_index', () => migratePromptSquareFtsIndex(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -535,6 +574,21 @@ function migrateUserPasswordResetRequired(db) {
 
 function migrateSessionCsrfTokens(db) {
   addColumnIfMissing(db, 'sessions', 'csrf_token', 'csrf_token TEXT');
+}
+
+function rebuildPromptSquareFts(db) {
+  db.prepare('DELETE FROM prompt_square_fts').run();
+  db.prepare(`
+    INSERT INTO prompt_square_fts(id, title, prompt, tags, source)
+    SELECT id, title, prompt, tags, source
+    FROM prompt_square
+  `).run();
+}
+
+function migratePromptSquareFtsIndex(db) {
+  db.exec(PROMPT_SQUARE_FTS_DROP);
+  db.exec(PROMPT_SQUARE_FTS_SCHEMA);
+  rebuildPromptSquareFts(db);
 }
 
 function migrateImagePublicColumns(db) {
@@ -2452,6 +2506,44 @@ function escapeSqlLike(value) {
   return String(value || '').replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+function quoteFtsPhrase(value) {
+  const phrase = String(value || '').trim().replace(/\s+/g, ' ');
+  if (phrase.length < 3) return '';
+  return `"${phrase.replace(/"/g, '""')}"`;
+}
+
+function promptSquareSearchClause(search) {
+  const like = `%${escapeSqlLike(search)}%`;
+  const phrase = quoteFtsPhrase(search);
+  if (phrase) {
+    return {
+      clause: `(
+        p.id IN (
+          SELECT id
+          FROM prompt_square_fts
+          WHERE prompt_square_fts MATCH ?
+        ) OR
+        lower(COALESCE(u.username, '')) LIKE ? ESCAPE '\\'
+      )`,
+      params: [phrase, like]
+    };
+  }
+  return {
+    clause: `(
+      p.id IN (
+        SELECT id
+        FROM prompt_square_fts
+        WHERE title LIKE ? ESCAPE '\\' OR
+              prompt LIKE ? ESCAPE '\\' OR
+              tags LIKE ? ESCAPE '\\' OR
+              source LIKE ? ESCAPE '\\'
+      ) OR
+      lower(COALESCE(u.username, '')) LIKE ? ESCAPE '\\'
+    )`,
+    params: [like, like, like, like, like]
+  };
+}
+
 function promptSquareFilterSql(options = {}) {
   const filters = normalizePromptSquareListOptions(options);
   const clauses = [];
@@ -2470,15 +2562,9 @@ function promptSquareFilterSql(options = {}) {
     params.push(filters.tag);
   }
   if (filters.search) {
-    const like = `%${escapeSqlLike(filters.search)}%`;
-    clauses.push(`(
-      lower(p.title) LIKE ? ESCAPE '\\' OR
-      lower(p.prompt) LIKE ? ESCAPE '\\' OR
-      lower(p.tags) LIKE ? ESCAPE '\\' OR
-      lower(COALESCE(u.username, '')) LIKE ? ESCAPE '\\' OR
-      lower(COALESCE(p.source, '')) LIKE ? ESCAPE '\\'
-    )`);
-    params.push(like, like, like, like, like);
+    const search = promptSquareSearchClause(filters.search);
+    clauses.push(search.clause);
+    params.push(...search.params);
   }
 
   return {
