@@ -349,6 +349,47 @@ pre,
 }
 .menu-badge[hidden] { display: none; }
 
+.clipboard-hidden-copy {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.clipboard-manual-copy {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 36px));
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.clipboard-manual-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clipboard-manual-copy p {
+  margin: 8px 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.clipboard-manual-copy textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+}
+
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 
 .status-chip {

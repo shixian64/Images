@@ -1,8 +1,9 @@
 // 日志面板：分级 / 搜索 / 导出 / 清空 / 复制 / 错误徽章。
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
-import { $, escapeHtml, maskKey } from './dom.js';
+import { $, escapeHtml, maskKey, setStatus } from './dom.js';
 import { apiFetch, getLastRequestTraceId } from './auth.js';
+import { copyText } from './clipboard.js';
 import { redactSecrets } from '../../shared/redaction.js';
 import {
   KEYS,
@@ -414,14 +415,19 @@ function renderList(filtered) {
       </article>`;
   }).join('');
 
-  list.onclick = (ev) => {
+  list.onclick = async (ev) => {
     const btn = ev.target.closest('button[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
     const entry = logs.find((l) => l.id === id);
     if (!entry) return;
     if (btn.dataset.action === 'copy') {
-      navigator.clipboard?.writeText(JSON.stringify(entry, null, 2));
+      try {
+        const result = await copyText(JSON.stringify(entry, null, 2));
+        setStatus(result.manual ? '请在弹出的文本框中手动复制日志' : '日志已复制', result.manual ? 'ready' : 'ok', 1400);
+      } catch (err) {
+        setStatus(`复制失败：${err?.message || err}`, 'err', 1800);
+      }
     }
   };
 }

@@ -8,6 +8,7 @@ import {
   readStringScoped, writeStringScoped
 } from './state.js';
 import { apiFetch, getCurrentUserId } from './auth.js';
+import { copyText } from './clipboard.js';
 
 const MAX_PROMPT_HISTORY = 160;
 const MAX_PROMPT_EXAMPLE_IMAGES = 4;
@@ -648,8 +649,8 @@ function renderHistoryList(filtered, { onUsePrompt } = {}) {
         onUsePrompt?.(entry.prompt);
         setStatus('已送到生成页', 'ok', 1400);
       } else if (action === 'copy') {
-        navigator.clipboard?.writeText(entry.prompt);
-        setStatus('已复制提示词', 'ok', 1400);
+        const result = await copyText(entry.prompt);
+        setStatus(result.manual ? '请在弹出的文本框中手动复制提示词' : '已复制提示词', result.manual ? 'ready' : 'ok', 1400);
       } else if (action === 'load') {
         loadEntryToBuilder(entry);
         switchPromptSubpanel('builder');
@@ -957,8 +958,8 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
         onUsePrompt?.(item.prompt);
         setStatus('已从广场送到生成页', 'ok', 1400);
       } else if (action === 'copy-square') {
-        navigator.clipboard?.writeText(item.prompt);
-        setStatus('已复制广场提示词', 'ok', 1400);
+        const result = await copyText(item.prompt);
+        setStatus(result.manual ? '请在弹出的文本框中手动复制广场提示词' : '已复制广场提示词', result.manual ? 'ready' : 'ok', 1400);
       } else if (action === 'save-square') {
         addPromptHistory(item.prompt, {
           source: 'square',
@@ -1134,11 +1135,15 @@ export function mountPromptPanel({ onUsePrompt } = {}) {
     addPromptHistory(prompt, meta);
     setStatus('已保存到历史提示词', 'ok', 1400);
   });
-  $('promptCopyOutput')?.addEventListener('click', () => {
+  $('promptCopyOutput')?.addEventListener('click', async () => {
     const prompt = ($('promptComposedOutput')?.value || '').trim();
     if (!prompt) return setStatus('提示词为空', 'err', 1400);
-    navigator.clipboard?.writeText(prompt);
-    setStatus('已复制提示词', 'ok', 1400);
+    try {
+      const result = await copyText(prompt);
+      setStatus(result.manual ? '请在弹出的文本框中手动复制提示词' : '已复制提示词', result.manual ? 'ready' : 'ok', 1400);
+    } catch (err) {
+      setStatus(`复制失败：${err?.message || err}`, 'err', 1800);
+    }
   });
 
   for (const id of ['promptHistorySearch', 'promptTagFilter', 'promptSourceFilter']) {

@@ -3,6 +3,7 @@
 // TAG: hmt---
 
 import { escapeHtml } from './dom.js';
+import { copyText } from './clipboard.js';
 
 function buildDialog(innerHtml) {
   const dlg = document.createElement('dialog');
@@ -83,11 +84,11 @@ export function showSecret({
   const copyBtn = dlg.querySelector('[data-copy]');
   copyBtn?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(secret);
-      copyBtn.textContent = '已复制';
-      setTimeout(() => { copyBtn.textContent = '复制'; }, 1400);
-    } catch {
-      copyBtn.textContent = '复制失败';
+      const result = await copyText(secret);
+      copyBtn.textContent = result.manual ? '请手动复制' : '已复制';
+      if (!result.manual) setTimeout(() => { copyBtn.textContent = '复制'; }, 1400);
+    } catch (err) {
+      copyBtn.textContent = err?.message || '复制失败';
     }
   });
   return showAndAwait(dlg, () => true);

@@ -4,6 +4,7 @@ import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import { switchTab } from './nav.js';
+import { copyText } from './clipboard.js';
 
 let galleryItems = [];
 let galleryScope = 'mine';
@@ -499,37 +500,12 @@ async function handleLikeFromCard(card) {
   }
 }
 
-async function copyText(text) {
-  if (!text) throw new Error('没有可复制的提示词');
-
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // localhost / 非安全上下文下可能拒绝，继续走传统复制兜底。
-    }
-  }
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  textarea.style.top = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  const ok = document.execCommand('copy');
-  textarea.remove();
-  if (!ok) throw new Error('浏览器拒绝复制');
-}
-
 async function handleCopyPromptFromCard(card) {
   const index = Number(card?.dataset?.galleryIndex);
   const prompt = Number.isInteger(index) ? getImagePrompt(galleryItems[index]) : '';
   try {
-    await copyText(prompt);
-    setStatus('提示词已复制', 'ok', 1400);
+    const result = await copyText(prompt);
+    setStatus(result.manual ? '请在弹出的文本框中手动复制提示词' : '提示词已复制', result.manual ? 'ready' : 'ok', 1800);
   } catch (err) {
     setStatus(`复制失败：${err?.message || err}`, 'err', 1800);
   }
