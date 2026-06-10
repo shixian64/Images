@@ -14,4 +14,4 @@ USER node
 
 EXPOSE 8787
 
-CMD ["node", "--experimental-sqlite", "server.js"]
+CMD ["node", "--experimental-sqlite", "scripts/start.js"]
