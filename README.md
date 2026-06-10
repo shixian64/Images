@@ -348,8 +348,8 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 | `LOGIN_IP_RATE_LIMIT_MAX_PER_MINUTE` | `20` | 登录 IP 每分钟限额。 |
 | `LOGIN_ACCOUNT_RATE_LIMIT_MAX_PER_MINUTE` | `8` | 登录账号每分钟限额。 |
 | `LOGIN_PAIR_RATE_LIMIT_MAX_PER_MINUTE` | `5` | 登录 IP+账号每分钟限额。 |
-| `RATE_LIMIT_MAX_KEYS` | `10000` | 内存限流 key 上限。 |
-| `RATE_LIMIT_CLEANUP_INTERVAL_MS` | `60000` | 限流清理间隔。 |
+| `RATE_LIMIT_MAX_KEYS` | `10000` | SQLite 持久化限流 key 上限，超过后按最近访问时间淘汰。 |
+| `RATE_LIMIT_CLEANUP_INTERVAL_MS` | `60000` | 限流窗口清理间隔。 |
 
 ### 对话 / Prompt Assist
 
