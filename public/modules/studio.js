@@ -13,6 +13,7 @@ import { addPromptHistory } from './prompts.js';
 import { apiFetch } from './auth.js';
 import { submitGenerationJob } from './jobs.js';
 import { confirmVolatileCustomKeyUse } from './volatile-secrets.js';
+import { createImagePreviewController } from './image-preview.js';
 
 const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
 const PROMPT_SOURCE = Object.freeze({
@@ -22,8 +23,11 @@ const PROMPT_SOURCE = Object.freeze({
 
 let studioPreviewItems = [];
 let studioPreviewPrompt = '';
-let previewModal = null;
-let lastPreviewTrigger = null;
+const previewController = createImagePreviewController({
+  ariaLabel: '原图预览',
+  closeLabel: '关闭原图预览',
+  closeAttribute: 'data-preview-close'
+});
 let selectedPromptSource = PROMPT_SOURCE.manual;
 const renderedQueueJobIds = new Set();
 const loggedQueueFinalJobIds = new Set();
@@ -332,55 +336,20 @@ function imageSrcFromItem(item) {
   return '';
 }
 
-function ensurePreviewModal() {
-  if (previewModal) return previewModal;
-
-  const modal = document.createElement('div');
-  modal.className = 'image-preview-modal';
-  modal.hidden = true;
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', '原图预览');
-  modal.innerHTML = `
-    <div class="image-preview-backdrop" data-preview-close></div>
-    <div class="image-preview-frame">
-      <button class="image-preview-close" type="button" aria-label="关闭原图预览" data-preview-close>×</button>
-      <img class="image-preview-image" alt="" />
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  modal.addEventListener('click', (ev) => {
-    if (ev.target?.hasAttribute?.('data-preview-close')) closePreviewModal();
-  });
-
-  previewModal = modal;
-  return previewModal;
-}
-
 function openPreviewModal(item, trigger) {
   const src = imageSrcFromItem(item || {});
-  if (!src) return;
+  if (!src) return false;
 
   const prompt = item?.revised_prompt || item?.revisedPrompt || studioPreviewPrompt || '';
-  lastPreviewTrigger = trigger || null;
-  const modal = ensurePreviewModal();
-  const img = modal.querySelector('.image-preview-image');
-  img.src = src;
-  img.alt = (prompt || '生成图片原图').slice(0, 120);
-  modal.hidden = false;
-  document.body.classList.add('preview-open');
-  modal.querySelector('.image-preview-close')?.focus();
+  return previewController.open({
+    src,
+    alt: prompt || '生成图片原图',
+    trigger
+  });
 }
 
 function closePreviewModal() {
-  if (!previewModal || previewModal.hidden) return;
-  const img = previewModal.querySelector('.image-preview-image');
-  previewModal.hidden = true;
-  if (img) img.removeAttribute('src');
-  document.body.classList.remove('preview-open');
-  lastPreviewTrigger?.focus?.();
-  lastPreviewTrigger = null;
+  return previewController.close();
 }
 
 function renderImages(items, prompt) {

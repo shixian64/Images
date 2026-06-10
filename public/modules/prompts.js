@@ -9,6 +9,7 @@ import {
 } from './state.js';
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { copyText } from './clipboard.js';
+import { createImagePreviewController } from './image-preview.js';
 
 const MAX_PROMPT_HISTORY = 160;
 const MAX_PROMPT_EXAMPLE_IMAGES = 4;
@@ -50,8 +51,6 @@ let squareItems = [];
 let squareLoaded = false;
 let squareLoading = false;
 let squareUsePromptHandler = null;
-let squarePreviewModal = null;
-let lastSquarePreviewTrigger = null;
 let squarePreviewKeyBound = false;
 
 function emitHistoryChanged() {
@@ -132,53 +131,25 @@ function buildLargeSquarePreviewUrl(url) {
     .replace(/(quality(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}92`);
 }
 
-function ensureSquarePreviewModal() {
-  if (squarePreviewModal) return squarePreviewModal;
-
-  const modal = document.createElement('div');
-  modal.className = 'image-preview-modal prompt-square-image-preview-modal';
-  modal.hidden = true;
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', '提示词示例图预览');
-  modal.innerHTML = `
-    <div class="image-preview-backdrop" data-square-preview-close></div>
-    <div class="image-preview-frame">
-      <button class="image-preview-close" type="button" aria-label="关闭示例图预览" data-square-preview-close>×</button>
-      <img class="image-preview-image" alt="" referrerpolicy="no-referrer" />
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  modal.addEventListener('click', (ev) => {
-    if (ev.target?.hasAttribute?.('data-square-preview-close')) closeSquarePreviewModal();
-  });
-
-  squarePreviewModal = modal;
-  return squarePreviewModal;
-}
+const squarePreviewController = createImagePreviewController({
+  modalClass: 'prompt-square-image-preview-modal',
+  ariaLabel: '提示词示例图预览',
+  closeLabel: '关闭示例图预览',
+  closeAttribute: 'data-square-preview-close',
+  referrerPolicy: 'no-referrer',
+  transformUrl: buildLargeSquarePreviewUrl
+});
 
 function openSquarePreviewModal({ url, alt }, trigger) {
-  if (!url) return;
-  lastSquarePreviewTrigger = trigger || null;
-  const modal = ensureSquarePreviewModal();
-  const img = modal.querySelector('.image-preview-image');
-  img.src = buildLargeSquarePreviewUrl(url);
-  img.alt = (alt || '提示词广场示例图').slice(0, 120);
-  img.referrerPolicy = 'no-referrer';
-  modal.hidden = false;
-  document.body.classList.add('preview-open');
-  modal.querySelector('.image-preview-close')?.focus();
+  return squarePreviewController.open({
+    src: url,
+    alt: alt || '提示词广场示例图',
+    trigger
+  });
 }
 
 function closeSquarePreviewModal() {
-  if (!squarePreviewModal || squarePreviewModal.hidden) return;
-  const img = squarePreviewModal.querySelector('.image-preview-image');
-  squarePreviewModal.hidden = true;
-  if (img) img.removeAttribute('src');
-  document.body.classList.remove('preview-open');
-  lastSquarePreviewTrigger?.focus?.();
-  lastSquarePreviewTrigger = null;
+  return squarePreviewController.close();
 }
 
 function builderSnapshot() {

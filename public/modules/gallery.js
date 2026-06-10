@@ -5,6 +5,7 @@ import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import { switchTab } from './nav.js';
 import { copyText } from './clipboard.js';
+import { createImagePreviewController } from './image-preview.js';
 
 let galleryItems = [];
 let galleryScope = 'mine';
@@ -14,9 +15,13 @@ let comicProjects = [];
 let activeComicProject = null;
 let mounted = false;
 
-let previewModal = null;
-let lastPreviewTrigger = null;
 let previewIndex = -1;
+const previewController = createImagePreviewController({
+  ariaLabel: '原图预览',
+  closeLabel: '关闭原图预览',
+  closeAttribute: 'data-preview-close',
+  onClose: () => { previewIndex = -1; }
+});
 
 function imageSrcFromGalleryItem(item = {}) {
   return item?.url || item?.local_url || item?.localUrl || '';
@@ -34,65 +39,29 @@ function downloadSrcFromGalleryItem(item = {}) {
   return item?.downloadUrl || imageSrcFromGalleryItem(item);
 }
 
-function ensurePreviewModal() {
-  if (previewModal) return previewModal;
-
-  const modal = document.createElement('div');
-  modal.className = 'image-preview-modal';
-  modal.hidden = true;
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', '原图预览');
-  modal.innerHTML = `
-    <div class="image-preview-backdrop" data-preview-close></div>
-    <div class="image-preview-frame">
-      <button class="image-preview-close" type="button" aria-label="关闭原图预览" data-preview-close>×</button>
-      <img class="image-preview-image" alt="" />
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  modal.addEventListener('click', (ev) => {
-    if (ev.target?.hasAttribute?.('data-preview-close')) closePreviewModal();
-  });
-
-  previewModal = modal;
-  return previewModal;
-}
-
 function openPreviewModal(item, trigger, index = -1) {
   const src = previewSrcFromGalleryItem(item);
-  if (!src) return;
+  if (!src) return false;
 
   const prompt = item.prompt || item.revisedPrompt || '';
   const nextIndex = Number(index);
-  previewIndex = Number.isInteger(nextIndex) && nextIndex >= 0 ? nextIndex : galleryItems.findIndex((galleryItem) => galleryItem === item);
-  lastPreviewTrigger = trigger || null;
-  const modal = ensurePreviewModal();
-  const img = modal.querySelector('.image-preview-image');
-  img.src = src;
-  img.alt = (prompt || '本地图库原图').slice(0, 120);
-  modal.hidden = false;
-  document.body.classList.add('preview-open');
-  modal.querySelector('.image-preview-close')?.focus();
+  previewIndex = Number.isInteger(nextIndex) && nextIndex >= 0
+    ? nextIndex
+    : galleryItems.findIndex((galleryItem) => galleryItem === item);
+  return previewController.open({
+    src,
+    alt: prompt || '本地图库原图',
+    trigger
+  });
 }
 
 function closePreviewModal() {
-  if (!previewModal || previewModal.hidden) return;
-  const img = previewModal.querySelector('.image-preview-image');
-  previewModal.hidden = true;
-  if (img) img.removeAttribute('src');
-  document.body.classList.remove('preview-open');
-  lastPreviewTrigger?.focus?.();
-  lastPreviewTrigger = null;
-  previewIndex = -1;
+  return previewController.close();
 }
 
 function findAdjacentPreviewIndex(direction) {
   if (!direction || !galleryItems.length) return -1;
-  const currentIndex = Number.isInteger(previewIndex)
-    ? previewIndex
-    : Number(lastPreviewTrigger?.dataset?.galleryIndex);
+  const currentIndex = previewIndex;
   if (!Number.isInteger(currentIndex) || currentIndex < 0) return -1;
 
   for (let index = currentIndex + direction; index >= 0 && index < galleryItems.length; index += direction) {
@@ -102,7 +71,7 @@ function findAdjacentPreviewIndex(direction) {
 }
 
 function switchPreviewByKeyboard(direction) {
-  if (!previewModal || previewModal.hidden) return false;
+  if (!previewController.isOpen()) return false;
   const nextIndex = findAdjacentPreviewIndex(direction);
   if (nextIndex < 0) return false;
 
@@ -689,7 +658,7 @@ export function mountGalleryPanel() {
       return;
     }
     if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
-    if (!previewModal || previewModal.hidden) return;
+    if (!previewController.isOpen()) return;
     ev.preventDefault();
     ev.stopPropagation();
     switchPreviewByKeyboard(ev.key === 'ArrowRight' ? 1 : -1);
