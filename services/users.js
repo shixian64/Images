@@ -16,8 +16,12 @@ const VALID_ROLES = new Set(['admin', 'user']);
 const VALID_STATUSES = new Set(['active', 'disabled']);
 const MAX_AVATAR_URL_LEN = 500;
 
-export function listUsers() {
-  return users.list();
+export function listUsers(options = {}) {
+  return users.list(options);
+}
+
+export function countUsers(options = {}) {
+  return users.count(options);
 }
 
 export function getUserDetail(userId) {

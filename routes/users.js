@@ -5,6 +5,7 @@ import { sendJson, sendMethodNotAllowed, readJsonBody, bodyErrorStatus, routeErr
 import { requireAdmin } from '../middleware/guard.js';
 import {
   listUsers,
+  countUsers,
   patchUser,
   createUserByAdmin,
   resetPasswordByAdmin,
@@ -19,31 +20,37 @@ import { listClientLogsForUser } from '../services/client-logs.js';
 const VALID_ROLES = new Set(['all', 'admin', 'user']);
 const VALID_STATUSES = new Set(['all', 'active', 'disabled']);
 
-function applyFilters(items, urlObj) {
-  if (!urlObj) return items;
+function listOptionsFromQuery(urlObj) {
   const sp = urlObj.searchParams;
   const search = String(sp.get('search') || '').trim().toLowerCase();
   const role = String(sp.get('role') || 'all');
   const status = String(sp.get('status') || 'all');
   const validRole = VALID_ROLES.has(role) ? role : 'all';
   const validStatus = VALID_STATUSES.has(status) ? status : 'all';
-
-  return items.filter((u) => {
-    if (validRole !== 'all' && u.role !== validRole) return false;
-    if (validStatus !== 'all' && u.status !== validStatus) return false;
-    if (search) {
-      const blob = `${u.username || ''}\n${u.email || ''}\n${u.id || ''}`.toLowerCase();
-      if (!blob.includes(search)) return false;
-    }
-    return true;
-  });
+  const page = Math.max(1, Math.floor(Number(sp.get('page') || 1)));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(Number(sp.get('size') || sp.get('pageSize') || 50))));
+  return {
+    page,
+    pageSize,
+    search,
+    role: validRole === 'all' ? '' : validRole,
+    status: validStatus === 'all' ? '' : validStatus
+  };
 }
 
 async function handleCollection(req, res, urlObj) {
   if (req.method === 'GET') {
-    const all = listUsers();
-    const items = applyFilters(all, urlObj);
-    sendJson(res, 200, { items, total: all.length, filtered: items.length });
+    const options = listOptionsFromQuery(urlObj);
+    const items = listUsers(options);
+    const total = countUsers();
+    const filtered = countUsers(options);
+    sendJson(res, 200, {
+      items,
+      total,
+      filtered,
+      page: options.page,
+      pageSize: options.pageSize
+    });
     return;
   }
   if (req.method === 'POST') {

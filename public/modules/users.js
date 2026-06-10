@@ -17,6 +17,8 @@ let registrationLoaded = false;
 let lastGeneratedRegistrationCodes = [];
 
 let filterState = { search: '', role: 'all', status: 'all' };
+let userView = { total: 0, filtered: 0, page: 1, pageSize: 50 };
+const userDirectory = new Map();
 let openDetailUserId = null;
 
 let galleryFilter = {
@@ -77,9 +79,23 @@ function statusLabel(status) {
 }
 
 function userLabel(userId) {
-  const user = users.find((item) => item.id === userId);
+  const user = userDirectory.get(userId) || users.find((item) => item.id === userId);
   if (!user) return shortId(userId);
   return user.username || user.email || shortId(userId);
+}
+
+function rememberUsers(items = []) {
+  items.forEach((item) => {
+    if (item?.id) userDirectory.set(item.id, item);
+  });
+}
+
+function knownUsers() {
+  return Array.from(userDirectory.values()).sort((a, b) => {
+    const left = String(a?.username || a?.email || a?.id || '');
+    const right = String(b?.username || b?.email || b?.id || '');
+    return left.localeCompare(right, 'zh-CN');
+  });
 }
 
 // ---------- 注册管理 ----------
@@ -450,19 +466,6 @@ function bindRegistrationPanel() {
   });
 }
 
-function applyFilters(list) {
-  const search = filterState.search.trim().toLowerCase();
-  return list.filter((u) => {
-    if (filterState.role !== 'all' && u.role !== filterState.role) return false;
-    if (filterState.status !== 'all' && u.status !== filterState.status) return false;
-    if (search) {
-      const blob = `${u.username || ''}\n${u.email || ''}\n${u.id || ''}`.toLowerCase();
-      if (!blob.includes(search)) return false;
-    }
-    return true;
-  });
-}
-
 function renderRow(user) {
   const isSelf = user.id === getCurrentUserId();
   const selfTip = isSelf ? ' title="不能修改自己" disabled' : '';
@@ -496,22 +499,18 @@ function renderTable() {
   const summary = $('usersSummary');
   if (!wrap) return;
 
-  const filtered = applyFilters(users);
-
   if (summary) {
-    if (users.length === filtered.length) {
-      summary.textContent = `共 ${users.length} 人`;
+    if (userView.total === userView.filtered) {
+      summary.textContent = `共 ${userView.total} 人 · 第 ${userView.page} 页`;
     } else {
-      summary.textContent = `${filtered.length} / ${users.length} 人`;
+      summary.textContent = `命中 ${userView.filtered} / ${userView.total} 人 · 第 ${userView.page} 页`;
     }
   }
 
+  renderUsersPager();
+
   if (!users.length) {
     wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无用户数据</p></div>`;
-    return;
-  }
-  if (!filtered.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>没有匹配的用户。换个搜索条件试试。</p></div>`;
     return;
   }
 
@@ -527,8 +526,27 @@ function renderTable() {
           <th>操作</th>
         </tr>
       </thead>
-      <tbody>${filtered.map(renderRow).join('')}</tbody>
+      <tbody>${users.map(renderRow).join('')}</tbody>
     </table>
+  `;
+}
+
+function renderUsersPager() {
+  const pager = $('usersPager');
+  if (!pager) return;
+  const total = Number(userView.filtered) || 0;
+  const pageSize = Number(userView.pageSize) || 50;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize) {
+    pager.hidden = true;
+    pager.innerHTML = '';
+    return;
+  }
+  pager.hidden = false;
+  pager.innerHTML = `
+    <button class="ghost small" data-users-pager="prev" ${userView.page <= 1 ? 'disabled' : ''}>上一页</button>
+    <span>第 ${userView.page} / ${totalPages} 页 · 每页 ${pageSize}</span>
+    <button class="ghost small" data-users-pager="next" ${userView.page >= totalPages ? 'disabled' : ''}>下一页</button>
   `;
 }
 
@@ -1413,7 +1431,7 @@ function syncClientLogUserFilter() {
   const userSel = $('adminClientLogUserFilter');
   if (!userSel) return;
   const current = adminClientLogFilter.userId;
-  userSel.innerHTML = `<option value="">全部用户</option>` + users.map((u) => {
+  userSel.innerHTML = `<option value="">全部用户</option>` + knownUsers().map((u) => {
     const label = `${u.username || u.email || '-'} (${shortId(u.id)})`;
     return `<option value="${escapeHtml(u.id)}" ${current === u.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
   }).join('');
@@ -1681,7 +1699,7 @@ function syncFilterOptions() {
   const modelSel = $('adminGalleryModelFilter');
   if (userSel) {
     const current = galleryFilter.userId;
-    userSel.innerHTML = `<option value="">全部用户</option>` + users.map((u) => {
+    userSel.innerHTML = `<option value="">全部用户</option>` + knownUsers().map((u) => {
       const label = `${u.username || '-'} (${shortId(u.id)})`;
       return `<option value="${escapeHtml(u.id)}" ${current === u.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
@@ -1697,18 +1715,35 @@ function syncFilterOptions() {
   }
 }
 
+function buildUsersQuery() {
+  const params = new URLSearchParams();
+  params.set('page', String(userView.page || 1));
+  params.set('size', String(userView.pageSize || 50));
+  if (filterState.search) params.set('search', filterState.search);
+  if (filterState.role && filterState.role !== 'all') params.set('role', filterState.role);
+  if (filterState.status && filterState.status !== 'all') params.set('status', filterState.status);
+  return params.toString();
+}
+
 async function refresh({ silent = false } = {}) {
   try {
-    const resp = await apiFetch('/api/users');
+    const resp = await apiFetch(`/api/users?${buildUsersQuery()}`);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
     users = Array.isArray(data.items) ? data.items : [];
+    rememberUsers(users);
+    userView = {
+      total: Number(data.total) || 0,
+      filtered: Number(data.filtered) || 0,
+      page: Number(data.page) || userView.page || 1,
+      pageSize: Number(data.pageSize) || userView.pageSize || 50
+    };
     renderTable();
     syncClientLogUserFilter();
     if (galleryLoaded) renderAdminGallery();
     if (adminClientLogsLoaded) renderAdminClientLogs();
     if (openDetailUserId) refreshOpenDetail();
-    if (!silent) setStatus(`用户列表已刷新 · ${users.length} 人`, 'ok', 1400);
+    if (!silent) setStatus(`用户列表已刷新 · ${userView.filtered} 人命中`, 'ok', 1400);
   } catch (err) {
     const message = err?.message || String(err);
     const wrap = $('usersTableWrap');
@@ -1973,11 +2008,13 @@ async function patchUser(userId, patch) {
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
     const updated = data?.user;
     if (updated) {
+      rememberUsers([updated]);
       const index = users.findIndex((u) => u.id === userId);
       if (index >= 0) users[index] = { ...users[index], ...updated };
       renderTable();
       if (quotaLoaded) refreshQuota({ silent: true });
       if (galleryLoaded) renderAdminGallery();
+      refresh({ silent: true });
     }
     setStatus('用户已更新', 'ok', 1400);
   } catch (err) {
@@ -2343,20 +2380,35 @@ function bindToolbar() {
   const roleSel = $('usersRoleFilter');
   const statusSel = $('usersStatusFilter');
   const createBtn = $('usersCreate');
+  const pager = $('usersPager');
+  let searchTimer = null;
+  const queueRefresh = () => {
+    userView.page = 1;
+    refresh({ silent: true });
+  };
 
   search?.addEventListener('input', () => {
     filterState.search = search.value || '';
-    renderTable();
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(queueRefresh, 240);
   });
   roleSel?.addEventListener('change', () => {
     filterState.role = roleSel.value || 'all';
-    renderTable();
+    queueRefresh();
   });
   statusSel?.addEventListener('change', () => {
     filterState.status = statusSel.value || 'all';
-    renderTable();
+    queueRefresh();
   });
   createBtn?.addEventListener('click', () => openCreateDialog());
+  pager?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-users-pager]');
+    if (!btn || btn.disabled) return;
+    const totalPages = Math.max(1, Math.ceil((Number(userView.filtered) || 0) / (Number(userView.pageSize) || 50)));
+    if (btn.dataset.usersPager === 'prev') userView.page = Math.max(1, userView.page - 1);
+    else if (btn.dataset.usersPager === 'next') userView.page = Math.min(totalPages, userView.page + 1);
+    refresh({ silent: true });
+  });
 
   // 详情抽屉中的操作（用户 + 孤儿）
   document.addEventListener('click', (ev) => {

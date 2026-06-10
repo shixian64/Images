@@ -872,9 +872,65 @@ function migrateLegacyGallery(db) {
 
 // ---- users ----
 
+function normalizeUserListOptions(input = {}) {
+  const options = input || {};
+  const hasPaging = options.page !== undefined
+    || options.pageSize !== undefined
+    || options.size !== undefined
+    || options.limit !== undefined
+    || options.offset !== undefined;
+  const page = Math.max(1, Math.floor(Number(options.page) || 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(Number(options.pageSize ?? options.size ?? options.limit) || 50)));
+  const offset = options.offset === undefined
+    ? (page - 1) * pageSize
+    : Math.max(0, Math.floor(Number(options.offset) || 0));
+  const role = String(options.role || '').trim();
+  const status = String(options.status || '').trim();
+  return {
+    search: String(options.search || '').trim().toLowerCase().slice(0, 200),
+    role: role === 'admin' || role === 'user' ? role : '',
+    status: status === 'active' || status === 'disabled' ? status : '',
+    page,
+    pageSize,
+    offset,
+    hasPaging
+  };
+}
+
+function userListFilterSql(options = {}) {
+  const filters = normalizeUserListOptions(options);
+  const clauses = [];
+  const params = [];
+
+  if (filters.role) {
+    clauses.push('role = ?');
+    params.push(filters.role);
+  }
+  if (filters.status) {
+    clauses.push('status = ?');
+    params.push(filters.status);
+  }
+  if (filters.search) {
+    const like = `%${escapeSqlLike(filters.search)}%`;
+    clauses.push(`(
+      lower(username) LIKE ? ESCAPE '\\' OR
+      lower(email) LIKE ? ESCAPE '\\' OR
+      lower(id) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(like, like, like);
+  }
+
+  return {
+    filters,
+    where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+    params
+  };
+}
+
 export const users = {
-  count() {
-    return open().prepare('SELECT COUNT(*) AS n FROM users').get().n;
+  count(options = {}) {
+    const { where, params } = userListFilterSql(options);
+    return open().prepare(`SELECT COUNT(*) AS n FROM users ${where}`).get(...params).n;
   },
   create({ username, email, passwordHash, passwordSalt, role = 'user', signupIp = null, signupUserAgent = null }) {
     const db = open();
@@ -895,14 +951,19 @@ export const users = {
       'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1'
     ).get(login, login) || null;
   },
-  list() {
+  list(options = {}) {
+    const { filters, where, params } = userListFilterSql(options);
+    const pagingSql = filters.hasPaging ? 'LIMIT ? OFFSET ?' : '';
+    const pagingParams = filters.hasPaging ? [filters.pageSize, filters.offset] : [];
     return open().prepare(`
       SELECT
         id, username, email, role, status, password_reset_required, avatar_url,
         signup_ip, signup_user_agent, created_at, updated_at, last_login_at
       FROM users
+      ${where}
       ORDER BY created_at ASC
-    `).all();
+      ${pagingSql}
+    `).all(...params, ...pagingParams);
   },
   countAdmins() {
     return open().prepare(
