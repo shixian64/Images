@@ -361,6 +361,8 @@ body.preview-open { overflow: hidden; }
   object-fit: contain;
 }
 @media (max-width: 720px) {
+  .gallery-scope-tabs { width: 100%; overflow-x: auto; border-radius: var(--radius-btn); }
+  .gallery-scope-tab { white-space: nowrap; }
   .image-preview-modal { padding: 56px 12px 12px; }
   .image-preview-frame { max-width: 100%; }
   .image-preview-close { top: -44px; right: 0; }

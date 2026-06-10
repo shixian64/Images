@@ -192,3 +192,8 @@
 .summary-grid span { color: var(--text-faint); font-size: 12px; }
 .summary-grid strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
 .summary-note { margin: 14px 0 0; }
+
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .form-grid .span-2 { grid-column: span 1; }
+}

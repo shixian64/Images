@@ -716,9 +716,4 @@ body.job-queue-visible .shell.app-layout,
   .panel { padding: 18px; }
   .top-menu { gap: 2px; overflow-x: auto; }
   .tab-button { padding: 6px 10px; font-size: 13px; }
-  .config-grid { grid-template-columns: 1fr; }
-  .form-grid { grid-template-columns: 1fr; }
-  .form-grid .span-2 { grid-column: span 1; }
-  .gallery-scope-tabs { width: 100%; overflow-x: auto; border-radius: var(--radius-btn); }
-  .gallery-scope-tab { white-space: nowrap; }
 }
