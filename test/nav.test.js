@@ -80,6 +80,6 @@ test('switchTab activates comic tab discovered from DOM panels', async (t) => {
   assert.equal(studioPanel.classList.contains('active'), false);
   assert.equal(comicButton.classList.contains('active'), true);
   assert.equal(studioButton.classList.contains('active'), false);
-  assert.equal(storage.get('image-key-manager.activeTab'), 'comicPanel');
+  assert.equal(storage.get('image-studio.activeTab'), 'comicPanel');
   assert.deepEqual(events.at(-1)?.detail, { tabId: 'comicPanel' });
 });

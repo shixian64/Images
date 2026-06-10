@@ -1,17 +1,24 @@
 import { confirm } from './dialog.js';
 
-const SESSION_KEY = 'image-key-manager.customKeyVolatileConfirm.v1';
+const SESSION_KEY = 'image-studio.customKeyVolatileConfirm.v1';
+const LEGACY_SESSION_KEY = 'image-key-manager.customKeyVolatileConfirm.v1';
 
 function confirmedThisSession() {
   try {
-    return sessionStorage.getItem(SESSION_KEY) === '1';
+    if (sessionStorage.getItem(SESSION_KEY) === '1') return true;
+    if (sessionStorage.getItem(LEGACY_SESSION_KEY) !== '1') return false;
+    sessionStorage.setItem(SESSION_KEY, '1');
+    return true;
   } catch {
     return false;
   }
 }
 
 function rememberConfirmation() {
-  try { sessionStorage.setItem(SESSION_KEY, '1'); } catch {}
+  try {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    sessionStorage.removeItem(LEGACY_SESSION_KEY);
+  } catch {}
 }
 
 export async function confirmVolatileCustomKeyUse({

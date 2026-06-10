@@ -22,7 +22,7 @@ import {
   normalizeComicPageStoryboard
 } from '../../shared/comic-workflow.js';
 
-const COMIC_STORY_DRAFT_KEY = 'image-key-manager.comicStoryDraft.v1';
+const COMIC_STORY_DRAFT_KEY = 'image-studio.comicStoryDraft.v1';
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
 const FINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 const ACTIVE_JOB_STATUSES = new Set(['queued', 'running']);

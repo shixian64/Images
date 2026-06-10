@@ -1,7 +1,7 @@
 // 前端认证客户端：统一 fetch 包装（带 CSRF 头 + cookie）、当前用户缓存。
 // 其他 modules 的所有 fetch 都应该通过 apiFetch，避免漏挂 X-Requested-With。
 
-const CURRENT_USER_KEY = Symbol.for('image-key-manager.currentUser');
+const CURRENT_USER_KEY = Symbol.for('image-studio.currentUser');
 let lastRequestTraceId = '';
 let csrfToken = '';
 
