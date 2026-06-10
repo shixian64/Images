@@ -434,6 +434,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   applied_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key        TEXT PRIMARY KEY,
+  hits_json  TEXT NOT NULL,
+  window_ms  INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_last_seen
+  ON rate_limits(last_seen);
+
 CREATE TABLE IF NOT EXISTS prompt_square (
   id                TEXT PRIMARY KEY,
   user_id           TEXT REFERENCES users(id) ON DELETE CASCADE,
@@ -1004,6 +1014,107 @@ export const users = {
   },
   delete(id) {
     open().prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+};
+
+// ---- persistent rate limits ----
+
+function parseRateLimitRow(row) {
+  if (!row) return null;
+  let hits = [];
+  try {
+    const parsed = JSON.parse(row.hits_json || '[]');
+    if (Array.isArray(parsed)) {
+      hits = parsed
+        .map((ts) => Number(ts))
+        .filter((ts) => Number.isFinite(ts));
+    }
+  } catch {
+    hits = [];
+  }
+  return {
+    key: row.key,
+    hits,
+    windowMs: Number(row.window_ms) || 0,
+    lastSeen: Number(row.last_seen) || 0
+  };
+}
+
+function bindRateLimitStore(db) {
+  return {
+    get(key) {
+      return parseRateLimitRow(
+        db.prepare('SELECT key, hits_json, window_ms, last_seen FROM rate_limits WHERE key = ?').get(key)
+      );
+    },
+    has(key) {
+      return Boolean(db.prepare('SELECT 1 AS ok FROM rate_limits WHERE key = ?').get(key));
+    },
+    list() {
+      return db.prepare('SELECT key, hits_json, window_ms, last_seen FROM rate_limits').all()
+        .map(parseRateLimitRow)
+        .filter(Boolean);
+    },
+    count() {
+      return Number(db.prepare('SELECT COUNT(*) AS n FROM rate_limits').get().n) || 0;
+    },
+    upsert(key, entry) {
+      db.prepare(`
+        INSERT INTO rate_limits (key, hits_json, window_ms, last_seen, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          hits_json = excluded.hits_json,
+          window_ms = excluded.window_ms,
+          last_seen = excluded.last_seen,
+          updated_at = excluded.updated_at
+      `).run(
+        key,
+        JSON.stringify(Array.isArray(entry?.hits) ? entry.hits : []),
+        Math.max(0, Math.floor(Number(entry?.windowMs) || 0)),
+        Math.max(0, Math.floor(Number(entry?.lastSeen) || 0)),
+        nowIso()
+      );
+    },
+    delete(key) {
+      db.prepare('DELETE FROM rate_limits WHERE key = ?').run(key);
+    },
+    clear() {
+      db.prepare('DELETE FROM rate_limits').run();
+    },
+    stats() {
+      const rows = this.list();
+      return {
+        keys: rows.length,
+        hits: rows.reduce((sum, row) => sum + row.hits.length, 0)
+      };
+    }
+  };
+}
+
+export const rateLimits = {
+  withWriteLock(fn) {
+    const db = open();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn(bindRateLimitStore(db));
+      db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* noop */ }
+      throw err;
+    }
+  },
+  get(key) {
+    return bindRateLimitStore(open()).get(key);
+  },
+  list() {
+    return bindRateLimitStore(open()).list();
+  },
+  clear() {
+    return bindRateLimitStore(open()).clear();
+  },
+  stats() {
+    return bindRateLimitStore(open()).stats();
   }
 };
 
