@@ -2,6 +2,7 @@ import { access, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
 import { dbPaths, healthCheck as dbHealthCheck } from './db.js';
 import { getQueueSettings, queueRuntimeInfo } from './job-queue.js';
@@ -33,22 +34,36 @@ function queueHealthCheck() {
   }
 }
 
+async function eventLoopHealthCheck({ thresholdMs = 250 } = {}) {
+  const started = performance.now();
+  await new Promise((resolve) => setImmediate(resolve));
+  const lagMs = Math.max(0, performance.now() - started);
+  return {
+    ok: lagMs <= thresholdMs,
+    lagMs: Number(lagMs.toFixed(1)),
+    thresholdMs
+  };
+}
+
 export async function runtimeHealthSnapshot({
   uptimeSec = Math.round(process.uptime()),
   dbCheck = dbHealthCheck,
   diskCheck = diskHealthCheck,
-  queueCheck = queueHealthCheck
+  queueCheck = queueHealthCheck,
+  eventLoopCheck = eventLoopHealthCheck
 } = {}) {
   const db = dbCheck();
   const disk = await diskCheck();
   const queue = queueCheck();
-  const ok = Boolean(db?.ok && disk?.ok && queue?.ok);
+  const eventLoop = await eventLoopCheck();
+  const ok = Boolean(db?.ok && disk?.ok && queue?.ok && eventLoop?.ok);
   return {
     ok,
     uptimeSec,
     db,
     disk,
-    queue
+    queue,
+    eventLoop
   };
 }
 

@@ -34,6 +34,8 @@ test('runtime health reports database, disk, and queue status', async () => {
   assert.equal(snapshot.disk.writable, true);
   assert.equal(snapshot.queue.ok, true);
   assert.equal(snapshot.queue.runtime.backend, 'sqlite-single-process');
+  assert.equal(snapshot.eventLoop.ok, true);
+  assert.equal(typeof snapshot.eventLoop.lagMs, 'number');
 });
 
 test('runtime health becomes unhealthy when a required dependency fails', async () => {
@@ -41,9 +43,23 @@ test('runtime health becomes unhealthy when a required dependency fails', async 
     uptimeSec: 1,
     dbCheck: () => ({ ok: false, error: 'db unavailable' }),
     diskCheck: async () => ({ ok: true }),
-    queueCheck: () => ({ ok: true })
+    queueCheck: () => ({ ok: true }),
+    eventLoopCheck: async () => ({ ok: true })
   });
 
   assert.equal(snapshot.ok, false);
   assert.equal(snapshot.db.error, 'db unavailable');
+});
+
+test('runtime health reports event-loop lag as unhealthy', async () => {
+  const snapshot = await health.runtimeHealthSnapshot({
+    uptimeSec: 1,
+    dbCheck: () => ({ ok: true }),
+    diskCheck: async () => ({ ok: true }),
+    queueCheck: () => ({ ok: true }),
+    eventLoopCheck: async () => ({ ok: false, lagMs: 999, thresholdMs: 250 })
+  });
+
+  assert.equal(snapshot.ok, false);
+  assert.deepEqual(snapshot.eventLoop, { ok: false, lagMs: 999, thresholdMs: 250 });
 });
