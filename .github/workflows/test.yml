@@ -23,5 +23,8 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      - name: Check JavaScript syntax
+        run: npm run check:js
+
       - name: Run tests
         run: npm test
