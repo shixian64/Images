@@ -86,6 +86,9 @@ before(async () => {
   });
 
   writeFileSync(join(imgDir, 'public.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const publicVariantDir = join(imgDir, '.variants', 'img-A-public');
+  mkdirSync(publicVariantDir, { recursive: true });
+  writeFileSync(join(publicVariantDir, 'thumb.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x54]));
   db.images.insert({
     id: 'img-A-public',
     userId: userA.id,
@@ -96,6 +99,7 @@ before(async () => {
     bytes: 4,
     isPublic: true,
     publishedAt: '2026-04-25T00:01:00.000Z',
+    thumbnailPath: `users/${userA.id}/images/2026-04-25/.variants/img-A-public/thumb.png`,
     sourceType: 'b64_json',
     index: 1
   });
@@ -192,6 +196,15 @@ test('other logged-in user can access a public user-scoped image', async () => {
     { user: userB, sessionId: 's' }
   );
   assert.equal(res.statusCode, 200);
+});
+
+test('other logged-in user can access a public image thumbnail variant', async () => {
+  const res = await call(
+    `/gallery-files/users/${userA.id}/images/2026-04-25/.variants/img-A-public/thumb.png`,
+    { user: userB, sessionId: 's' }
+  );
+  assert.equal(res.statusCode, 200);
+  assert.ok(Buffer.isBuffer(res.body) && res.body.length === 5);
 });
 
 test('unauthenticated request still cannot access a public image file', async () => {

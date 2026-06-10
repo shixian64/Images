@@ -21,6 +21,18 @@ function imageSrcFromGalleryItem(item = {}) {
   return item?.url || item?.local_url || item?.localUrl || '';
 }
 
+function thumbnailSrcFromGalleryItem(item = {}) {
+  return item?.thumbnailUrl || item?.thumbnail_url || item?.previewUrl || item?.preview_url || imageSrcFromGalleryItem(item);
+}
+
+function previewSrcFromGalleryItem(item = {}) {
+  return item?.previewUrl || item?.preview_url || imageSrcFromGalleryItem(item);
+}
+
+function downloadSrcFromGalleryItem(item = {}) {
+  return item?.downloadUrl || imageSrcFromGalleryItem(item);
+}
+
 function ensurePreviewModal() {
   if (previewModal) return previewModal;
 
@@ -48,7 +60,7 @@ function ensurePreviewModal() {
 }
 
 function openPreviewModal(item, trigger, index = -1) {
-  const src = imageSrcFromGalleryItem(item);
+  const src = previewSrcFromGalleryItem(item);
   if (!src) return;
 
   const prompt = item.prompt || item.revisedPrompt || '';
@@ -83,7 +95,7 @@ function findAdjacentPreviewIndex(direction) {
   if (!Number.isInteger(currentIndex) || currentIndex < 0) return -1;
 
   for (let index = currentIndex + direction; index >= 0 && index < galleryItems.length; index += direction) {
-    if (imageSrcFromGalleryItem(galleryItems[index])) return index;
+    if (previewSrcFromGalleryItem(galleryItems[index])) return index;
   }
   return -1;
 }
@@ -163,7 +175,8 @@ function emptyHtml(message = '还没有本地图片。生成成功后会自动�
 
 function renderImageCards(items = galleryItems) {
   return items.map((item, index) => {
-    const src = imageSrcFromGalleryItem(item);
+    const thumbSrc = thumbnailSrcFromGalleryItem(item);
+    const downloadSrc = downloadSrcFromGalleryItem(item);
     const prompt = getImagePrompt(item);
     const promptText = prompt || '暂无提示词';
     const promptPreview = `<p class="prompt-preview${prompt ? '' : ' is-empty'}" title="${escapeHtml(promptText)}">${escapeHtml(promptText)}</p>`;
@@ -186,12 +199,12 @@ function renderImageCards(items = galleryItems) {
     const likeText = item.likedByMe ? '已赞' : (likeLimitReached ? '今日用完' : '点赞');
     const actionButtons = publicControls
       ? `
-        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        <a href="${escapeHtml(downloadSrc)}" download="${escapeHtml(downloadName)}">下载</a>
         <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
         <button type="button" data-gallery-like aria-pressed="${item.likedByMe ? 'true' : 'false'}" ${likeDisabled ? 'disabled' : ''}>${likeText}</button>
       `
       : `
-        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
+        <a href="${escapeHtml(downloadSrc)}" download="${escapeHtml(downloadName)}">下载</a>
         ${item.id ? `<button type="button" data-gallery-add-reference>加入参考图</button>` : ''}
         <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
         ${item.id && !comicProjectControls ? `<button type="button" data-gallery-toggle-public>${isPublic ? '取消公开' : '公开'}</button>` : ''}
@@ -202,7 +215,7 @@ function renderImageCards(items = galleryItems) {
       <div class="gallery-image-wrap">
         ${hasLikeBadge ? `<span class="like-badge" title="获赞数量">♥ ${likeCount}</span>` : ''}
         <button class="image-preview-trigger" type="button" data-gallery-index="${index}" aria-label="放大查看第 ${galleryItems.length - index} 张原图">
-          <img src="${escapeHtml(src)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
+          <img src="${escapeHtml(thumbSrc)}" alt="${escapeHtml((prompt || `本地图库图片 ${index + 1}`).slice(0, 120))}" loading="lazy" />
         </button>
         <div class="card-actions">
           ${actionButtons}

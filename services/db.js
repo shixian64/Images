@@ -260,6 +260,8 @@ CREATE TABLE IF NOT EXISTS images (
   output_format   TEXT,
   profile_name    TEXT,
   source_type     TEXT,
+  thumbnail_path  TEXT,
+  preview_path    TEXT,
   image_index     INTEGER,
   comic_project_id TEXT,
   comic_panel_index INTEGER
@@ -466,6 +468,7 @@ export function migrate() {
   runSchemaMigration(db, 10, 'user_password_reset_required', () => migrateUserPasswordResetRequired(db));
   runSchemaMigration(db, 11, 'session_csrf_tokens', () => migrateSessionCsrfTokens(db));
   runSchemaMigration(db, 12, 'prompt_square_fts_index', () => migratePromptSquareFtsIndex(db));
+  runSchemaMigration(db, 13, 'image_variant_paths', () => migrateImageVariantPaths(db));
   seedPromptSquareDefaults(db);
   migrateLegacyGallery(db);
 }
@@ -591,6 +594,16 @@ function migratePromptSquareFtsIndex(db) {
   db.exec(PROMPT_SQUARE_FTS_DROP);
   db.exec(PROMPT_SQUARE_FTS_SCHEMA);
   rebuildPromptSquareFts(db);
+}
+
+function migrateImageVariantPaths(db) {
+  addColumnIfMissing(db, 'images', 'thumbnail_path', 'thumbnail_path TEXT');
+  addColumnIfMissing(db, 'images', 'preview_path', 'preview_path TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_images_path ON images(path);
+    CREATE INDEX IF NOT EXISTS idx_images_thumbnail_path ON images(thumbnail_path);
+    CREATE INDEX IF NOT EXISTS idx_images_preview_path ON images(preview_path);
+  `);
 }
 
 function migrateImagePublicColumns(db) {
@@ -1176,8 +1189,9 @@ export const images = {
       (id, user_id, created_at, filename, path, mime_type, bytes,
        is_public, published_at,
        prompt, revised_prompt, model, size, quality, output_format,
-       profile_name, source_type, image_index, comic_project_id, comic_panel_index)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       profile_name, source_type, thumbnail_path, preview_path,
+       image_index, comic_project_id, comic_panel_index)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       meta.id,
       meta.userId,
@@ -1196,6 +1210,8 @@ export const images = {
       meta.outputFormat || null,
       meta.profileName || null,
       meta.sourceType || null,
+      meta.thumbnailPath || null,
+      meta.previewPath || null,
       Number.isFinite(meta.index) ? meta.index : null,
       meta.comicProjectId || null,
       Number.isFinite(meta.comicPageIndex)
@@ -1209,6 +1225,13 @@ export const images = {
   },
   findByPath(path) {
     return open().prepare('SELECT * FROM images WHERE path = ?').get(path) || null;
+  },
+  findByServedPath(path) {
+    return open().prepare(`
+      SELECT * FROM images
+      WHERE path = ? OR thumbnail_path = ? OR preview_path = ?
+      LIMIT 1
+    `).get(path, path, path) || null;
   },
   listByUser(userId, limit = 500) {
     return open().prepare(`

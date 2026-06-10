@@ -12,6 +12,10 @@ let gallery;
 let user;
 
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+const VALID_PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'base64'
+);
 
 function response(bytes, { status = 200, headers = {} } = {}) {
   return new Response(bytes, { status, headers });
@@ -94,6 +98,35 @@ test('saveGeneratedImages streams URL images with redirect disabled', async () =
   assert.equal(result.saved[0].bytes, PNG_BYTES.length);
   assert.equal(result.items[0].bytes, PNG_BYTES.length);
   assert.deepEqual(listFilesRecursive(join(workDir, 'generated', 'tmp', 'downloads')), []);
+});
+
+test('saveGeneratedImages creates gallery thumbnail variants for PNG images', async () => {
+  const result = await gallery.saveGeneratedImages(
+    [{ b64_json: VALID_PNG_BYTES.toString('base64') }],
+    { prompt: 'thumbnail variant', outputFormat: 'png' },
+    { userId: user.id }
+  );
+
+  assert.equal(result.saved.length, 1);
+  const saved = result.saved[0];
+  assert.match(saved.thumbnailPath, /\/\.variants\/[^/]+\/thumb\.png$/);
+  assert.match(saved.thumbnailUrl, /^\/gallery-files\//);
+  assert.equal(result.items[0].thumbnailUrl, saved.thumbnailUrl);
+
+  const thumbAbs = join(workDir, 'generated', ...saved.thumbnailPath.split('/'));
+  assert.equal(existsSync(thumbAbs), true);
+  assert.equal(db.images.findById(saved.id).thumbnail_path, saved.thumbnailPath);
+
+  const listed = await gallery.listGallery({ userId: user.id, limit: 1000 });
+  const item = listed.items.find((it) => it.id === saved.id);
+  assert.equal(item.thumbnailUrl, saved.thumbnailUrl);
+  assert.equal(item.downloadUrl, saved.url);
+
+  const orphans = await gallery.scanOrphans();
+  assert.equal(orphans.danglingFiles.some((file) => file.path === saved.thumbnailPath), false);
+
+  await gallery.removeImage(saved.id, { userId: user.id });
+  assert.equal(existsSync(thumbAbs), false);
 });
 
 test('comic project images are saved under projects and hidden from my gallery', async () => {

@@ -8,6 +8,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 
 import { positiveIntFromEnv } from '../utils/config.js';
 import { images as imagesTable, imageLikes, comicProjects, dbPaths } from './db.js';
+import { createGalleryImageVariants } from './image-variants.js';
 import { tryReserveStorageBytes } from './quota.js';
 import { guardedFetch } from './upstream.js';
 import {
@@ -383,6 +384,8 @@ function rowToItem(row) {
     outputFormat: row.output_format || '',
     profileName: row.profile_name || '',
     sourceType: row.source_type || '',
+    thumbnailPath: row.thumbnail_path || '',
+    previewPath: row.preview_path || '',
     index: Number.isFinite(row.image_index) ? row.image_index : null,
     comicProjectId: row.comic_project_id || '',
     comicPageIndex,
@@ -454,6 +457,7 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
   for (const [imageIndex, item] of items.entries()) {
     let storageReservation = null;
     let writtenFilePath = '';
+    let writtenVariantPaths = [];
     let dbInserted = false;
     let asset = null;
     try {
@@ -495,6 +499,14 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       // 相对路径（存库 & 给前端拼 URL）：users/<uid>/images/<date>/<file>
       const relPath = `${userImageRel(userId)}/${dateDir}/${fileName}`;
       const id = randomUUID();
+      const variants = await createGalleryImageVariants({
+        sourcePath: filePath,
+        sourceRelPath: relPath,
+        mimeType: asset.mimeType,
+        imageId: id,
+        userId
+      }).catch(() => ({}));
+      writtenVariantPaths = Array.isArray(variants.writtenPaths) ? variants.writtenPaths : [];
 
       imagesTable.insert({
         id,
@@ -513,6 +525,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         outputFormat: context.outputFormat || '',
         profileName: context.profileName || '',
         sourceType: asset.sourceType,
+        thumbnailPath: variants.thumbnailPath || '',
+        previewPath: variants.previewPath || '',
         index: imageIndex + 1,
         comicProjectId,
         comicPageIndex,
@@ -525,6 +539,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       }
 
       const publicUrl = toPublicUrl(relPath);
+      const thumbnailUrl = variants.thumbnailPath ? toPublicUrl(variants.thumbnailPath) : '';
+      const previewUrl = variants.previewPath ? toPublicUrl(variants.previewPath) : '';
       const meta = {
         id,
         userId,
@@ -533,6 +549,10 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         path: relPath,
         url: publicUrl,
         mimeType: asset.mimeType,
+        thumbnailPath: variants.thumbnailPath || '',
+        thumbnailUrl,
+        previewPath: variants.previewPath || '',
+        previewUrl,
         bytes: assetBytes,
         isPublic: false,
         publishedAt: null,
@@ -557,6 +577,10 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         ...item,
         local_url: publicUrl,
         localUrl: publicUrl,
+        thumbnail_url: thumbnailUrl || undefined,
+        thumbnailUrl: thumbnailUrl || undefined,
+        preview_url: previewUrl || undefined,
+        previewUrl: previewUrl || undefined,
         gallery_id: id,
         comic_project_id: comicProjectId || undefined,
         comic_page_index: comicPageIndex || undefined,
@@ -569,6 +593,9 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
       await cleanupTempFile(asset?.tempFilePath);
       if (writtenFilePath && !dbInserted) {
         try { await unlink(writtenFilePath); } catch { /* best-effort cleanup */ }
+      }
+      for (const variantPath of writtenVariantPaths) {
+        try { await unlink(variantPath); } catch { /* best-effort cleanup */ }
       }
       nextItems.push({ ...item, save_error: err.message || String(err) });
     } finally {
@@ -589,10 +616,14 @@ async function itemsFromRows(rows, { viewerId = null } = {}) {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return null;
       const publicUrl = toPublicUrl(item.path);
+      const thumbnailUrl = item.thumbnailPath ? toPublicUrl(item.thumbnailPath) : '';
+      const previewUrl = item.previewPath ? toPublicUrl(item.previewPath) : '';
       return {
         ...item,
         url: publicUrl,
         downloadUrl: publicUrl,
+        thumbnailUrl: thumbnailUrl || publicUrl,
+        previewUrl: previewUrl || publicUrl,
         bytes: item.bytes || fileStat.size
       };
     } catch (err) {
@@ -737,10 +768,14 @@ async function adminItemsFromRows(rows = []) {
         };
       }
       const publicUrl = toPublicUrl(item.path);
+      const thumbnailUrl = item.thumbnailPath ? toPublicUrl(item.thumbnailPath) : '';
+      const previewUrl = item.previewPath ? toPublicUrl(item.previewPath) : '';
       return {
         ...item,
         url: publicUrl,
         downloadUrl: publicUrl,
+        thumbnailUrl: thumbnailUrl || publicUrl,
+        previewUrl: previewUrl || publicUrl,
         bytes: item.bytes || fileStat.size,
         fileExists: true,
         fileMissing: false,
@@ -811,8 +846,10 @@ export async function removeImage(id, { userId, isAdmin = false } = {}) {
   if (!row) throw new Error('image not found');
   if (!isAdmin && row.user_id !== userId) throw new Error('forbidden');
 
-  const abs = resolveStoredAbs(row.path, { userId: row.user_id });
-  if (abs) {
+  const paths = [...new Set([row.path, row.thumbnail_path, row.preview_path].filter(Boolean))];
+  for (const relPath of paths) {
+    const abs = resolveStoredAbs(relPath, { userId: row.user_id });
+    if (!abs) continue;
     try {
       await unlink(abs);
     } catch (err) {
@@ -898,6 +935,12 @@ export async function scanOrphans() {
 
     for (const entry of entries) {
       dbKnownPaths.add(entry.segs.join('/'));
+      for (const relPath of [entry.row.thumbnail_path, entry.row.preview_path]) {
+        const variantSegments = storedPathSegments(relPath);
+        if (isTrustedStoredImagePath(variantSegments, entry.row.user_id)) {
+          dbKnownPaths.add(variantSegments.join('/'));
+        }
+      }
     }
 
     const missingPage = await mapWithConcurrency(entries, galleryStatConcurrency(), async ({ row, abs }) => {
@@ -1048,7 +1091,7 @@ export async function removeDanglingFile(relPath) {
   const abs = resolve(GALLERY_ROOT, ...segs);
   assertUserPath(abs, segs[1]);
   // 再次确认 DB 中没人认领该文件
-  const row = imagesTable.findByPath(segs.join('/'));
+  const row = imagesTable.findByServedPath(segs.join('/'));
   if (row) throw new Error('file is referenced by db row, refuse to delete');
 
   await unlink(abs);

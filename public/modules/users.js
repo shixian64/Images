@@ -1625,7 +1625,7 @@ function renderAdminGallery() {
       <tbody>
         ${items.map((item) => {
           const missing = item.fileMissing === true;
-          const src = missing ? '' : (item.url || item.downloadUrl || '');
+          const src = missing ? '' : (item.thumbnailUrl || item.previewUrl || item.url || item.downloadUrl || '');
           const prompt = item.revisedPrompt || item.prompt || item.filename || '图库图片';
           const isChecked = gallerySelected.has(item.id);
           return `
@@ -1863,10 +1863,11 @@ async function bulkDeleteImages() {
 }
 
 function openImageDetail(item) {
-  const src = item.fileMissing === true ? '' : (item.url || item.downloadUrl || '');
+  const src = item.fileMissing === true ? '' : (item.previewUrl || item.url || item.downloadUrl || '');
+  const originalSrc = item.fileMissing === true ? '' : (item.downloadUrl || item.url || src);
   const html = `
     <div class="image-detail">
-      ${src ? `<a href="${escapeHtml(src)}" target="_blank" rel="noreferrer"><img class="image-detail-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.filename || '')}" /></a>` : ''}
+      ${src ? `<a href="${escapeHtml(originalSrc)}" target="_blank" rel="noreferrer"><img class="image-detail-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.filename || '')}" /></a>` : ''}
       <dl class="user-detail-grid">
         <dt>用户</dt><dd>${escapeHtml(userLabel(item.userId))}</dd>
         <dt>文件</dt><dd><code>${escapeHtml(item.path || '')}</code></dd>

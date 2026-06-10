@@ -107,7 +107,7 @@ export function createStaticHandler(publicDir, rootDir = publicDir + '/..') {
 
       // 其他登录用户只能访问已公开的图片文件。
       const lookupKey = ['users', uid, 'images', ...rest.split(/[\\/]+/).filter(Boolean)].join('/');
-      const row = imagesTable.findByPath(lookupKey);
+      const row = imagesTable.findByServedPath(lookupKey);
       if (!row?.is_public) return { forbidden: true };
       return { filePath, root: expectedRoot };
     }
