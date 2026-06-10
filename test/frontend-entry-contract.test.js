@@ -36,6 +36,17 @@ test('entry HTML keeps the browser boot path external and module based', () => {
   }
 });
 
+test('entry HTML loads split CSS bundles in dependency order', () => {
+  const html = read(INDEX_HTML);
+  const links = [...html.matchAll(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/g)]
+    .map((match) => match[1].replace(/[?#].*$/, ''));
+
+  assert.deepEqual(links, ['./styles.css', './logs.css', './admin.css']);
+  for (const href of links) {
+    assert.equal(existsSync(join('public', href.slice(2))), true, `missing ${href}`);
+  }
+});
+
 test('top-level navigation tabs have matching tab panels', () => {
   const html = read(INDEX_HTML);
   const topMenu = html.match(/<nav\b[^>]*class=["'][^"']*top-menu[^"']*["'][^>]*>([\s\S]*?)<\/nav>/)?.[1] || '';
