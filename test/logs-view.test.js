@@ -8,8 +8,10 @@ import {
   logSummaryHtml,
   shortLogTime
 } from '../public/modules/logs-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('logs view renders summary counts, active level and sync state', () => {
+  setLocale('zh-CN');
   const logs = [
     { level: 'info' },
     { level: 'info' },
@@ -42,6 +44,7 @@ test('logs view renders summary counts, active level and sync state', () => {
 });
 
 test('logs view renders empty state', () => {
+  setLocale('zh-CN');
   const html = logEmptyHtml();
   assert.match(html, /empty-state/);
   assert.match(html, /没有匹配的日志/);
@@ -49,6 +52,7 @@ test('logs view renders empty state', () => {
 });
 
 test('logs view escapes dynamic log item fields', () => {
+  setLocale('zh-CN');
   const html = logItemHtml({
     id: 'log"><bad>',
     ts: '2026-06-09T12:34:56.000Z',
@@ -74,6 +78,7 @@ test('logs view escapes dynamic log item fields', () => {
 });
 
 test('logs view handles missing timestamp without throwing', () => {
+  setLocale('zh-CN');
   assert.equal(shortLogTime(null), '');
   assert.equal(shortLogTime('bad'), '');
 
@@ -82,3 +87,32 @@ test('logs view handles missing timestamp without throwing', () => {
   assert.match(html, /hello/);
 });
 
+test('logs view uses locale messages for summary, sync, empty and actions', () => {
+  setLocale('en-US');
+  const logs = [
+    { level: 'info' },
+    { level: 'warn' },
+    { level: 'error' }
+  ];
+  const summary = logSummaryHtml({
+    logs,
+    filtered: logs.slice(0, 1),
+    activeLevel: 'info',
+    syncEnabled: true,
+    syncQueueLength: 2
+  });
+
+  assert.match(summary, /3 total · 1 shown/);
+  assert.match(summary, /title="Filter Info logs; click again to clear"/);
+  assert.match(summary, /aria-label="Sync client logs to the server"/);
+  assert.match(summary, /Server sync: on · 2 pending/);
+
+  const disabled = logSummaryHtml({ logs, filtered: [], syncEnabled: false, syncQueueLength: 9 });
+  assert.match(disabled, /Server sync: off/);
+  assert.doesNotMatch(disabled, /9 pending/);
+
+  assert.match(logEmptyHtml(), /No matching logs/);
+  assert.match(logItemHtml({ id: '1', level: 'info', message: 'hello' }), />Copy<\/button>/);
+
+  setLocale('zh-CN');
+});
