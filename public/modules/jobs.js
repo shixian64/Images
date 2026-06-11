@@ -1,6 +1,6 @@
 // Left dock generation queue: live SSE + compact operational controls.
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import {
   doneJobDismissalKey,
@@ -9,6 +9,10 @@ import {
   removeDismissalsForJobIds,
   writeDismissedDoneJobs
 } from './job-dismissal.js';
+import {
+  jobQueueSummaryHtml,
+  renderJobListSection
+} from './jobs-view.js';
 
 let jobs = [];
 let mounted = false;
@@ -25,47 +29,6 @@ const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 const ACTIVE = new Set(['queued', 'running']);
 
 function now() { return Date.now(); }
-
-function statusLabel(status) {
-  return {
-    queued: '排队',
-    running: '执行中',
-    succeeded: '成功',
-    failed: '失败',
-    cancelled: '已取消',
-    timeout: '超时'
-  }[status] || status || '-';
-}
-
-function statusTone(status) {
-  if (status === 'succeeded') return 'ok';
-  if (status === 'failed' || status === 'timeout') return 'err';
-  if (status === 'running') return 'busy';
-  if (status === 'cancelled') return 'muted';
-  return 'queued';
-}
-
-function formatTimeMs(ms) {
-  const n = Number(ms) || 0;
-  if (n <= 0) return '0s';
-  const sec = Math.max(1, Math.round(n / 1000));
-  if (sec < 60) return `${sec}s`;
-  return `${Math.floor(sec / 60)}m ${sec % 60}s`;
-}
-
-function imageSrcFromItem(item = {}) {
-  if (item.local_url) return item.local_url;
-  if (item.localUrl) return item.localUrl;
-  if (item.url) return item.url;
-  if (item.b64_json && String(item.b64_json).startsWith('data:')) return item.b64_json;
-  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  return '';
-}
-
-function firstThumb(job) {
-  const items = Array.isArray(job?.result?.data) ? job.result.data : [];
-  return imageSrcFromItem(items[0] || {});
-}
 
 function isImageGenerationJob(job = {}) {
   const type = job.payload?.jobType || '';
@@ -162,16 +125,6 @@ function upsertJob(job, { notify = false } = {}) {
   renderQueue();
 }
 
-function emptyLine(text) {
-  return `<div class="job-queue-empty">${escapeHtml(text)}</div>`;
-}
-
-function progressInfo(job) {
-  if (job.status !== 'running') return { text: '' };
-  const elapsed = Math.max(0, now() - (Number(job.startedAt) || now()));
-  return { text: `已运行 ${formatTimeMs(elapsed)}` };
-}
-
 function hasActiveJobs() {
   return jobs.some((job) => ACTIVE.has(job.status));
 }
@@ -202,78 +155,28 @@ function updateQueueVisibility() {
   if (!visible) document.body.classList.remove('job-queue-open');
 }
 
-function jobMeta(job) {
-  const payload = job.payload || {};
-  if (payload.jobType === 'comic_storyboard') {
-    const pageLimit = payload.pageLimit ?? payload.pageCount ?? payload.panelCount;
-    return ['漫画页分镜', job.model || payload.model, pageLimit ? `模型自动页数 · 最多 ${pageLimit} 页` : '']
-      .filter(Boolean)
-      .join(' · ');
-  }
-  return [job.model || payload.model, payload.size, payload.quality, `n=${job.n || payload.n || 1}`]
-    .filter(Boolean)
-    .join(' · ');
-}
-
-function renderJobCard(job, kind) {
-  const prompt = job.promptPreview || job.payload?.prompt || '未命名任务';
-  const tone = statusTone(job.status);
-  const info = progressInfo(job);
-  const canCancel = job.status === 'queued' || job.status === 'running';
-  const canRetry = job.status === 'failed' || job.status === 'timeout';
-  const canDismiss = kind === 'recent' && FINAL.has(job.status);
-  const thumb = firstThumb(job);
-  const position = job.status === 'queued' && job.position ? `<span>前面还有 ${Math.max(0, job.position - 1)} 位</span>` : '';
-  const error = job.error ? `<p class="job-card-error">${escapeHtml(job.error)}</p>` : '';
-  const progress = job.status === 'running'
-    ? `<div class="job-card-time">${escapeHtml(info.text)}</div>`
-    : '';
-  const resultThumb = thumb
-    ? `<button class="job-thumb" type="button" data-job-act="preview" title="查看结果"><img src="${escapeHtml(thumb)}" alt="" /></button>`
-    : `<span class="job-status-dot" data-tone="${tone}" aria-hidden="true"></span>`;
-
-  return `
-    <article class="job-card" data-job-id="${escapeHtml(job.id)}" data-status="${escapeHtml(job.status)}" data-kind="${kind}">
-      <div class="job-card-main">
-        ${resultThumb}
-        <div class="job-card-text">
-          <div class="job-card-title" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</div>
-          <div class="job-card-meta">${escapeHtml(jobMeta(job) || '-')}</div>
-          <div class="job-card-sub"><span>${statusLabel(job.status)}</span>${position}</div>
-          ${progress}
-          ${error}
-        </div>
-      </div>
-      <div class="job-card-actions">
-        ${canCancel ? `<button class="ghost small" data-job-act="cancel" title="取消任务">×</button>` : ''}
-        ${canRetry ? `<button class="ghost small" data-job-act="retry">重试</button>` : ''}
-        ${canDismiss ? `<button class="ghost small" data-job-act="dismiss" title="从最近完成删除">删除</button>` : ''}
-      </div>
-    </article>
-  `;
-}
-
 function renderQueue() {
   const running = jobs.filter((job) => job.status === 'running');
   const queued = jobs.filter((job) => job.status === 'queued');
   const recent = jobs.filter((job) => isVisibleRecentJob(job));
+  const nowMs = now();
 
   const summary = $('jobQueueSummary');
   if (summary) {
-    summary.innerHTML = `
-      <span><strong>${queued.length}</strong> 排队</span>
-      <span><strong>${running.length}</strong> 进行中</span>
-    `;
+    summary.innerHTML = jobQueueSummaryHtml({
+      queuedCount: queued.length,
+      runningCount: running.length
+    });
   }
   const badge = $('jobQueueMobileBadge');
   if (badge) badge.textContent = String(queued.length + running.length);
 
   const runningEl = $('jobQueueRunning');
-  if (runningEl) runningEl.innerHTML = running.length ? running.map((job) => renderJobCard(job, 'running')).join('') : emptyLine('当前没有执行中的任务。');
+  if (runningEl) runningEl.innerHTML = renderJobListSection(running, 'running', '当前没有执行中的任务。', { nowMs });
   const queuedEl = $('jobQueueQueued');
-  if (queuedEl) queuedEl.innerHTML = queued.length ? queued.map((job) => renderJobCard(job, 'queued')).join('') : emptyLine('队列为空。');
+  if (queuedEl) queuedEl.innerHTML = renderJobListSection(queued, 'queued', '队列为空。', { nowMs });
   const recentEl = $('jobQueueRecent');
-  if (recentEl) recentEl.innerHTML = recent.length ? recent.map((job) => renderJobCard(job, 'recent')).join('') : emptyLine('暂无完成记录。');
+  if (recentEl) recentEl.innerHTML = renderJobListSection(recent, 'recent', '暂无完成记录。', { nowMs });
 
   updateQueueVisibility();
 }
