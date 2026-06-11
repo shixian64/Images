@@ -38,6 +38,8 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('promptHistory.examples.previewAria', { index: 1 }), 'Preview example image 1');
   assert.equal(t('promptSquare.summary.count', { total: 3, shown: 1 }), 'Square 3 total · 1 shown');
   assert.equal(t('promptSquare.preview.openAria', { title: 'Demo' }), 'Open Demo example image');
+  assert.equal(t('prompt.source.square'), 'Square');
+  assert.equal(t('prompt.untitled'), 'Untitled prompt');
   assert.equal(t('studio.result.previewAria', { index: 2 }), 'Enlarge generated image 2');
   assert.equal(t('studio.reference.removeAria', { index: 1 }), 'Remove reference image 1');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');

@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 export const MAX_PROMPT_HISTORY = 160;
 export const MAX_PROMPT_EXAMPLE_IMAGES = 4;
 export const PROMPT_EXAMPLE_ACCEPT = 'image/png,image/jpeg,image/webp';
@@ -14,16 +16,6 @@ export const BUILDER_FIELDS = [
   ['negative', 'promptNegativeInput'],
   ['composed', 'promptComposedOutput']
 ];
-
-const SOURCE_LABEL = {
-  builder: '构造器',
-  studio: '生成页',
-  comic: '漫画',
-  manual: '手动',
-  optimizer: '优化',
-  square: '广场',
-  seed: '精选'
-};
 
 export function createPromptId() {
   return globalThis.crypto?.randomUUID?.()
@@ -42,12 +34,12 @@ export function mergeTags(a, b) {
 }
 
 export function deriveTitle(prompt) {
-  const firstLine = String(prompt || '').trim().split(/\n+/)[0] || '未命名提示词';
+  const firstLine = String(prompt || '').trim().split(/\n+/)[0] || t('prompt.untitled');
   return firstLine.length > 30 ? `${firstLine.slice(0, 30)}…` : firstLine;
 }
 
 export function sourceLabel(source) {
-  return SOURCE_LABEL[source] || SOURCE_LABEL.manual;
+  return t(`prompt.source.${source}`, {}, t('prompt.source.manual'));
 }
 
 export function formatTime(iso) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { setLocale } from '../public/modules/i18n.js';
 import {
   MAX_PROMPT_EXAMPLE_IMAGES,
   buildLargeSquarePreviewUrl,
@@ -13,9 +14,14 @@ import {
   sourceLabel
 } from '../public/modules/prompt-utils.js';
 
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
+
 test('prompt utility normalizes tags and history entries', () => {
   assert.deepEqual(normalizeTags(' 国风, 赛博\n#国风，夜景 '), ['国风', '赛博', '夜景']);
   assert.deepEqual(mergeTags(['国风', '夜景'], '夜景,赛博'), ['国风', '夜景', '赛博']);
+  assert.equal(deriveTitle(''), '未命名提示词');
   assert.equal(deriveTitle('长'.repeat(31)), `${'长'.repeat(30)}…`);
   assert.equal(sourceLabel('square'), '广场');
   assert.equal(sourceLabel('unknown'), '手动');
@@ -57,4 +63,12 @@ test('prompt utility trims example image metadata and upgrades CDN preview URLs'
     'https://img.test/cdn-cgi/image/width=1200,quality=92/path.png'
   );
   assert.equal(buildLargeSquarePreviewUrl('https://img.test/plain.png'), 'https://img.test/plain.png');
+});
+
+test('prompt utility source labels follow current locale', () => {
+  setLocale('en-US');
+
+  assert.equal(deriveTitle(''), 'Untitled prompt');
+  assert.equal(sourceLabel('square'), 'Square');
+  assert.equal(sourceLabel('unknown'), 'Manual');
 });
