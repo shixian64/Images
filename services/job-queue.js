@@ -29,6 +29,7 @@ import {
   persistQueueSettings,
   priorityForUser
 } from './queue-settings.js';
+import { emitJob, emitQueueRefresh } from './queue-events.js';
 import { compactGenerationResult, serializeJob } from './queue-serialization.js';
 import { logger } from '../utils/logger.js';
 
@@ -55,12 +56,9 @@ let stopped = false;
 
 const activeJobs = new Map();
 const transientJobSecrets = new Map();
-const userSubscribers = new Map();
-const jobSubscribers = new Map();
-const adminSubscribers = new Set();
-const jobListeners = new Map();
 
 export { getQueueSettings, normalizeQueueSettings } from './queue-settings.js';
+export { onJobUpdate, subscribeAdminJobs, subscribeJob, subscribeUserJobs } from './queue-events.js';
 export { compactGenerationResult, serializeJob } from './queue-serialization.js';
 
 export function setQueueSettings(patch = {}, updatedBy = null) {
@@ -74,68 +72,6 @@ function httpError(statusCode, message, code) {
   err.statusCode = statusCode;
   if (code) err.code = code;
   return err;
-}
-
-function safeWriteSse(res, event, data = {}) {
-  if (!res || res.destroyed || res.writableEnded) return false;
-  try {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function addSubscriber(map, key, res) {
-  const set = map.get(key) || new Set();
-  set.add(res);
-  map.set(key, set);
-  return () => {
-    set.delete(res);
-    if (!set.size) map.delete(key);
-  };
-}
-
-export function subscribeUserJobs(userId, res) {
-  return addSubscriber(userSubscribers, userId, res);
-}
-
-export function subscribeJob(jobId, res) {
-  return addSubscriber(jobSubscribers, jobId, res);
-}
-
-export function subscribeAdminJobs(res) {
-  adminSubscribers.add(res);
-  return () => adminSubscribers.delete(res);
-}
-
-export function onJobUpdate(jobId, handler) {
-  const set = jobListeners.get(jobId) || new Set();
-  set.add(handler);
-  jobListeners.set(jobId, set);
-  return () => {
-    set.delete(handler);
-    if (!set.size) jobListeners.delete(jobId);
-  };
-}
-
-function emitTo(set, event, data) {
-  for (const res of [...(set || [])]) {
-    if (!safeWriteSse(res, event, data)) set.delete(res);
-  }
-}
-
-function emitJob(job, event = 'job') {
-  const payload = serializeJob(job, { includeUser: false });
-  if (!payload) return;
-  emitTo(userSubscribers.get(job.user_id), event, payload);
-  emitTo(jobSubscribers.get(job.id), event, payload);
-  const adminPayload = serializeJob(job, { includeUser: true });
-  emitTo(adminSubscribers, event, adminPayload);
-  for (const handler of [...(jobListeners.get(job.id) || [])]) {
-    try { handler(payload, event); } catch { /* listener errors must not break scheduler */ }
-  }
 }
 
 function syncComicProjectStatusForJob(job) {
@@ -555,10 +491,7 @@ function queuedWaitCleanup(settings = getQueueSettings()) {
   if (changed) {
     logger.warn('job.queue_wait_timeout', { cancelled: changed, maxWaitMs: wait });
     // Refresh snapshots so remaining queued jobs get updated positions.
-    emitTo(adminSubscribers, 'refresh', { reason: 'queue_wait_timeout', changed });
-    for (const set of userSubscribers.values()) {
-      emitTo(set, 'refresh', { reason: 'queue_wait_timeout', changed });
-    }
+    emitQueueRefresh({ reason: 'queue_wait_timeout', changed });
   }
 }
 
