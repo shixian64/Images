@@ -4,6 +4,12 @@ import { $, escapeHtml, setStatus } from './dom.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES } from '../../shared/constants.js';
 import { getChatConfig, getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
 import { apiFetch } from './auth.js';
+import {
+  cancelGenerationJob,
+  createAbortError,
+  fetchGenerationJob,
+  waitForGenerationJob
+} from './job-wait.js';
 import { submitGenerationJob } from './jobs.js';
 import { addLog } from './logs.js';
 import { addPromptHistory } from './prompts.js';
@@ -130,9 +136,7 @@ function setSelectValue(id, value) {
 }
 
 function abortError(message = '已停止漫画生成。') {
-  const err = new Error(message);
-  err.name = 'AbortError';
-  return err;
+  return createAbortError(message);
 }
 
 function showComicError(message = '') {
@@ -601,56 +605,17 @@ async function analyzeStoryboard() {
 }
 
 async function fetchJob(jobId) {
-  const resp = await apiFetch('/api/jobs', { headers: { accept: 'application/json' } });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-  return (Array.isArray(data.items) ? data.items : []).find((job) => job.id === jobId) || null;
+  return fetchGenerationJob(jobId, { apiFetch });
 }
 
 function waitForJob(jobId, { signal } = {}) {
-  return new Promise((resolve, reject) => {
-    let done = false;
-    let polling = false;
-
-    const cleanup = () => {
-      done = true;
-      clearTimeout(timeoutId);
-      clearInterval(pollId);
-      window.removeEventListener('generation-job-finished', onFinished);
-      signal?.removeEventListener?.('abort', onAbort);
-    };
-    const finish = (job) => {
-      if (done) return;
-      cleanup();
-      resolve(job);
-    };
-    const fail = (err) => {
-      if (done) return;
-      cleanup();
-      reject(err);
-    };
-    const onFinished = (ev) => {
-      const job = ev.detail?.job;
-      if (job?.id === jobId) finish(job);
-    };
-    const onAbort = () => fail(abortError());
-    const timeoutId = setTimeout(() => fail(new Error('等待任务完成超时。')), JOB_WAIT_TIMEOUT_MS);
-    const pollId = setInterval(async () => {
-      if (polling || done) return;
-      polling = true;
-      try {
-        const job = await fetchJob(jobId);
-        if (job && FINAL_STATUSES.has(job.status)) finish(job);
-      } catch {
-        // SSE 是主路径；轮询失败时继续等下一次。
-      } finally {
-        polling = false;
-      }
-    }, 4000);
-
-    window.addEventListener('generation-job-finished', onFinished);
-    signal?.addEventListener?.('abort', onAbort, { once: true });
-    if (signal?.aborted) onAbort();
+  return waitForGenerationJob(jobId, {
+    signal,
+    fetchJob,
+    eventTarget: window,
+    timeoutMs: JOB_WAIT_TIMEOUT_MS,
+    finalStatuses: FINAL_STATUSES,
+    abortErrorFactory: abortError
   });
 }
 
@@ -667,12 +632,7 @@ async function cancelCurrentStoryboardJob() {
 }
 
 async function cancelJobById(jobId) {
-  if (!jobId) return;
-  try {
-    await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
-  } catch {
-    // 停止是尽力而为；当前任务可能已经结束。
-  }
+  await cancelGenerationJob(jobId, { apiFetch });
 }
 
 function panelPayload({ panel, index, imageInfo, references }) {
