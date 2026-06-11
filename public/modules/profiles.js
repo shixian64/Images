@@ -1,6 +1,6 @@
 // Profiles 面板：CRUD + 生图/对话两套上游配置 + 连通性测试 + 概览统计。
 
-import { $, $$, escapeHtml, maskKey, setStatus } from './dom.js';
+import { $, $$, setStatus } from './dom.js';
 import {
   KEYS,
   readJsonScoped, writeJsonScoped,
@@ -10,6 +10,12 @@ import {
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL } from '../../shared/constants.js';
 import { addLog } from './logs.js';
 import { apiFetch } from './auth.js';
+import {
+  endpointTestResultView,
+  profileListHtml,
+  profileSummaryHtml,
+  systemDefaultCardHtml
+} from './profiles-view.js';
 
 const STATUS_LABEL = { active: '启用', draft: '草稿', paused: '暂停' };
 const DEFAULT_BASE_URL = 'https://api.openai.com';
@@ -311,12 +317,6 @@ function persist() {
 
 // ---- 渲染 ----
 
-function keyStatus(endpoint) {
-  if (endpoint?.hasApiKey === true) return '已配置';
-  if (endpoint?.hasApiKey === false) return '未配置';
-  return '读取中';
-}
-
 function renderSystemDefaultCard() {
   const card = $('systemDefaultCard');
   const checkbox = $('overrideSystemDefault');
@@ -326,22 +326,12 @@ function renderSystemDefaultCard() {
   const sys = getSystemDefaultProfile();
   const image = getImageConfig(sys);
   const chat = getChatConfig(sys);
-  const statusChip = sys.status === 'active'
-    ? '<span class="chip ok">已启用</span>'
-    : '<span class="chip err">已停用</span>';
-  const loadingChip = systemDefaultLoaded ? '' : '<span class="chip">读取中…</span>';
-  card.innerHTML = `
-    <div class="system-default-title">
-      <strong>${escapeHtml(sys.name || '系统默认接口')}</strong>
-      ${statusChip}
-      ${loadingChip}
-      <span class="chip info">${usesSystemDefault() ? '当前生效' : '个人覆盖中'}</span>
-    </div>
-    <div class="system-default-grid">
-      <span>生图</span><code>${escapeHtml(image.baseUrl || '-')}</code><strong>${escapeHtml(image.defaultModel || '-')}</strong><em>${keyStatus(image)}</em>
-      <span>对话</span><code>${escapeHtml(chat.baseUrl || '-')}</code><strong>${escapeHtml(chat.defaultModel || '-')}</strong><em>${keyStatus(chat)}</em>
-    </div>
-  `;
+  card.innerHTML = systemDefaultCardHtml(sys, {
+    image,
+    chat,
+    systemMode: usesSystemDefault(),
+    loaded: systemDefaultLoaded
+  });
 }
 
 function renderProfileMode() {
@@ -358,14 +348,7 @@ function renderProfileMode() {
 }
 
 function renderList() {
-  $('profileList').innerHTML = profiles.map((p) => {
-    const active = p.id === activeId ? ' active' : '';
-    return `<li>
-      <button class="profile-item${active}" data-id="${escapeHtml(p.id)}">
-        <strong>${escapeHtml(p.name || '未命名')}</strong>
-      </button>
-    </li>`;
-  }).join('');
+  $('profileList').innerHTML = profileListHtml(profiles, { activeId });
 
   $$('.profile-item').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -377,21 +360,16 @@ function renderList() {
 }
 
 function renderSummary() {
-  const activeCount = profiles.filter((p) => p.status === 'active').length;
   const p = getEffectiveProfile();
   const image = getImageConfig(p);
   const chat = getChatConfig(p);
   const systemMode = usesSystemDefault();
-  $('profileSummary').innerHTML = `
-    <div><span>生效模式</span><strong>${systemMode ? '系统默认' : '个人覆盖'}</strong></div>
-    <div><span>个人接口数</span><strong>${profiles.length}</strong></div>
-    <div><span>启用接口</span><strong>${activeCount}</strong></div>
-    <div><span>当前接口</span><strong>${escapeHtml(p?.name || '未命名')}</strong></div>
-    <div><span>生图模型</span><strong>${escapeHtml(image.defaultModel || '-')}</strong></div>
-    <div><span>对话模型</span><strong>${escapeHtml(chat.defaultModel || '-')}</strong></div>
-    <div><span>生图密钥</span><strong>${escapeHtml(systemMode ? keyStatus(image) : maskKey(image.apiKey))}</strong></div>
-    <div><span>对话密钥</span><strong>${escapeHtml(systemMode ? keyStatus(chat) : maskKey(chat.apiKey))}</strong></div>
-  `;
+  $('profileSummary').innerHTML = profileSummaryHtml(profiles, {
+    effectiveProfile: p,
+    image,
+    chat,
+    systemMode
+  });
 }
 
 function renderEndpointTestResult(kind) {
@@ -399,21 +377,9 @@ function renderEndpointTestResult(kind) {
   const endpoint = getEndpoint(p, kind);
   const el = $(`${kind}TestResult`);
   if (!el) return;
-  if (!endpoint.testStatus || endpoint.testStatus === 'unknown') {
-    el.dataset.state = 'idle';
-    el.textContent = '未测试';
-    return;
-  }
-  if (endpoint.testStatus === 'ok') {
-    el.dataset.state = 'ok';
-    el.textContent = `OK · ${endpoint.testLatencyMs ?? '?'}ms`;
-  } else if (endpoint.testStatus === 'busy') {
-    el.dataset.state = 'busy';
-    el.textContent = '测试中…';
-  } else {
-    el.dataset.state = 'err';
-    el.textContent = `失败 · ${endpoint.testError || '未知错误'}`;
-  }
+  const view = endpointTestResultView(endpoint);
+  el.dataset.state = view.state;
+  el.textContent = view.text;
 }
 
 function renderTestResult() {
