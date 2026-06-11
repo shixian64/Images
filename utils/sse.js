@@ -6,9 +6,10 @@ function responseClosed(res) {
   return !res || res.destroyed || res.writableEnded;
 }
 
-export function writeSse(res, event, data = {}) {
+export function writeSse(res, event, data = {}, { id = null } = {}) {
   if (responseClosed(res) || typeof res.write !== 'function') return false;
   try {
+    if (id !== null && id !== undefined && id !== '') res.write(`id: ${id}\n`);
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
     return true;

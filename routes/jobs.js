@@ -11,7 +11,11 @@ import {
   getJobForUser,
   getQueueSettings,
   getUserJobs,
+  queueEventWatermark,
   queueStats,
+  replayAdminJobEvents,
+  replaySingleJobEvents,
+  replayUserJobEvents,
   retryJob,
   setQueueSettings,
   subscribeAdminJobs,
@@ -19,6 +23,15 @@ import {
   subscribeUserJobs,
   updateJobPriority
 } from '../services/job-queue.js';
+
+function replayAfterId(req, url) {
+  const raw = url?.searchParams?.get('after')
+    || req.headers?.['last-event-id']
+    || req.headers?.['Last-Event-ID']
+    || '';
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? Math.floor(id) : 0;
+}
 
 async function readBodyOrEmpty(req) {
   try { return await readJsonBody(req); }
@@ -28,7 +41,7 @@ async function readBodyOrEmpty(req) {
   }
 }
 
-async function handleUserJobs(req, res, pathname) {
+async function handleUserJobs(req, res, pathname, url) {
   const user = req.session.user;
 
   if (pathname === '/api/jobs') {
@@ -39,8 +52,9 @@ async function handleUserJobs(req, res, pathname) {
   if (pathname === '/api/jobs/stream') {
     if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     openSse(res);
-    writeSse(res, 'snapshot', { items: getUserJobs(user.id) });
     const cleanup = subscribeUserJobs(user.id, res);
+    replayUserJobEvents(user.id, res, { afterId: replayAfterId(req, url) });
+    writeSse(res, 'snapshot', { items: getUserJobs(user.id) }, { id: queueEventWatermark() || null });
     createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     return;
   }
@@ -52,8 +66,9 @@ async function handleUserJobs(req, res, pathname) {
     try {
       const job = getJobForUser(id, user);
       openSse(res);
-      writeSse(res, 'snapshot', { job });
       const cleanup = subscribeJob(id, res);
+      replaySingleJobEvents(id, res, { afterId: replayAfterId(req, url) });
+      writeSse(res, 'snapshot', { job: getJobForUser(id, user) }, { id: queueEventWatermark() || null });
       createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     } catch (err) {
       return sendJson(res, routeErrorStatus(err), { error: err.message || String(err) });
@@ -115,12 +130,13 @@ async function handleAdminJobs(req, res, pathname, url) {
   if (pathname === '/api/admin/jobs/stream') {
     if (req.method !== 'GET') return sendMethodNotAllowed(res, ['GET']);
     openSse(res);
+    const cleanup = subscribeAdminJobs(res);
+    replayAdminJobEvents(res, { afterId: replayAfterId(req, url) });
     writeSse(res, 'snapshot', {
       items: getAdminJobs({ limit: 200 }),
       settings: getQueueSettings(),
       stats: queueStats()
-    });
-    const cleanup = subscribeAdminJobs(res);
+    }, { id: queueEventWatermark() || null });
     createSseSession(res, { heartbeatMs: 25_000, onClose: cleanup });
     return;
   }

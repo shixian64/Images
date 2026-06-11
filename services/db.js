@@ -17,6 +17,7 @@ import { migrateSchema } from './sqlite-schema-migrations.js';
 import { createAuditLogRepository, createClientLogRepository, createImageLikeRepository } from './db-logs.js';
 import { createUsageDailyRepository, createUserQuotaRepository } from './db-usage.js';
 import { createGenerationJobRepository } from './db-generation-jobs.js';
+import { createQueueEventRepository } from './db-queue-events.js';
 import { createImageRepository } from './db-images.js';
 import { createComicProjectRepository } from './db-comic-projects.js';
 import { createRegistrationInviteRepositories } from './db-registration-invites.js';
@@ -103,6 +104,10 @@ export const usageDaily = createUsageDailyRepository({ open });
 // ---- generation_jobs ----
 
 export const generationJobs = createGenerationJobRepository({ open });
+
+// ---- queue event replay log ----
+
+export const queueEvents = createQueueEventRepository({ open });
 
 // ---- registration_invites ----
 

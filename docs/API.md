@@ -61,16 +61,16 @@
 | GET | `/api/jobs/:id` | 登录 | 当前用户读取单个任务。 |
 | POST | `/api/jobs/:id/cancel` | 登录 | 取消当前用户任务。 |
 | POST | `/api/jobs/:id/retry` | 登录 | 重试当前用户可重试任务。 |
-| GET | `/api/jobs/stream` | 登录 | 订阅当前用户任务 SSE。 |
-| GET | `/api/jobs/:id/stream` | 登录 | 订阅单任务 SSE。 |
+| GET | `/api/jobs/stream` | 登录 | 订阅当前用户任务 SSE；支持 `Last-Event-ID` 或 `?after=<eventId>` 回放近期队列事件。 |
+| GET | `/api/jobs/:id/stream` | 登录 | 订阅单任务 SSE；支持 `Last-Event-ID` 或 `?after=<eventId>` 回放近期任务事件。 |
 | GET | `/api/admin/jobs` | 管理员 | 管理员任务列表。 |
 | GET/PUT | `/api/admin/jobs/settings` | 管理员 | 读取/保存队列设置。 |
 | GET | `/api/admin/jobs/:id` | 管理员 | 管理员读取单个任务。 |
 | POST | `/api/admin/jobs/:id/cancel` | 管理员 | 管理员取消任务。 |
 | PATCH/POST | `/api/admin/jobs/:id/priority` | 管理员 | 调整任务优先级。 |
-| GET | `/api/admin/jobs/stream` | 管理员 | 订阅管理员任务 SSE。 |
+| GET | `/api/admin/jobs/stream` | 管理员 | 订阅管理员任务 SSE；支持 `Last-Event-ID` 或 `?after=<eventId>` 回放近期管理队列事件。 |
 
-队列当前运行边界：SQLite 持久化 + 单 Node 进程调度。系统默认接口的 queued / stale running 任务可在重启后继续排队执行；个人覆盖 Key 只在当前进程内存中存在，queued / running 任务在重启后需要用户重新提交。
+队列当前运行边界：SQLite 持久化 + 单 Node 进程调度。系统默认接口的 queued / stale running 任务可在重启后继续排队执行；个人覆盖 Key 只在当前进程内存中存在，queued / running 任务在重启后需要用户重新提交。任务 SSE 会把近期 job / refresh 事件写入 SQLite 事件日志，用于浏览器断线后的 `Last-Event-ID` 重连回放；它不是跨多 worker 的完整消息总线。
 
 ## 图库
 

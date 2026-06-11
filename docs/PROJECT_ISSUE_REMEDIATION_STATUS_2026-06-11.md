@@ -53,6 +53,7 @@
 | 38、39 | 部分闭环 | 队列已暴露 runtime 边界并使用原子 claim 降低重复执行风险，但仍不是分布式 worker lease。 |
 | 40 | 部分闭环 | 启动时已能将使用系统默认接口的 stale running job 恢复为 queued；个人覆盖 Key 因密钥仅在进程内仍会在重启后标记失败。 |
 | 41、42 | 部分闭环 | 个人 Key 不落库，已有普通用户确认与管理 runtime 说明；根因仍是“进程内易失密钥”。 |
+| 43 | 部分闭环 | 队列 SSE 已把近期 job / refresh 事件持久化到 SQLite，并支持 `Last-Event-ID` / `?after=` 重连回放；仍不是跨多 worker 的完整通知总线。 |
 | 55、58 | 部分闭环 | 上游响应和内存默认值已收紧，URL / 上传路径也更流式；仍需要长期容量压测验证峰值。 |
 | 67、71 | 进行中 | 已大量拆 `*-view.js` 并补转义测试，但大前端模块与 HTML 模板治理仍需持续推进。 |
 | 69 | 部分闭环 | 审计日志 metadata 与 generation job result / progress 已复用统一 JSON budget helper；client logs 也已有接入预算；Prompt Square 列表只返回裁剪后的 prompt 预览，详情接口保留完整内容；系统配置脱敏导出会裁剪超大 value，含密钥的可恢复导出保持完整。剩余零散 JSON 响应仍需持续梳理。 |
@@ -63,7 +64,6 @@
 
 | 原始编号 | 当前状态 | 下一步建议 |
 | --- | --- | --- |
-| 43 | 未完成 | SSE 订阅状态持久化需要更完整的 worker / 通知模型。 |
 | 68 | 未完成 | `DatabaseSync` 阻塞事件循环的问题需要 worker thread、异步 DB 层或外部数据库方案。 |
 | 80 | 未完成 | i18n / locale 层尚未建立。 |
 | 89 | 未完成 | 仍缺真实浏览器 E2E / 视觉回归。 |

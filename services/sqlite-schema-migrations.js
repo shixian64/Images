@@ -246,6 +246,22 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_status
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_finished
   ON generation_jobs(finished_at DESC);
 
+CREATE TABLE IF NOT EXISTS queue_events (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope        TEXT NOT NULL DEFAULT 'global',
+  event        TEXT NOT NULL,
+  user_id      TEXT,
+  job_id       TEXT,
+  payload_json TEXT NOT NULL,
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_queue_events_user_id
+  ON queue_events(scope, user_id, id);
+CREATE INDEX IF NOT EXISTS idx_queue_events_job_id
+  ON queue_events(scope, job_id, id);
+CREATE INDEX IF NOT EXISTS idx_queue_events_scope_id
+  ON queue_events(scope, id);
+
 CREATE TABLE IF NOT EXISTS registration_invites (
   code        TEXT PRIMARY KEY,
   max_uses    INTEGER NOT NULL DEFAULT 1,
@@ -336,6 +352,7 @@ export function migrateSchema(db, { nowIso, dbPath, migrationBackupDir, legacyGa
   runSchemaMigration(db, 11, 'session_csrf_tokens', () => migrateSessionCsrfTokens(db));
   runSchemaMigration(db, 12, 'prompt_square_fts_index', () => migratePromptSquareFtsIndex(db));
   runSchemaMigration(db, 13, 'image_variant_paths', () => migrateImageVariantPaths(db));
+  runSchemaMigration(db, 14, 'queue_event_log', () => migrateQueueEventLog(db));
   seedPromptSquareDefaults(db, { nowIso });
   migrateLegacyGallery(db, { legacyGallery, legacyGalleryDone, nowIso });
 }
@@ -473,6 +490,26 @@ function migrateImageVariantPaths(db) {
   `);
 }
 
+function migrateQueueEventLog(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS queue_events (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope        TEXT NOT NULL DEFAULT 'global',
+      event        TEXT NOT NULL,
+      user_id      TEXT,
+      job_id       TEXT,
+      payload_json TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_queue_events_user_id
+      ON queue_events(scope, user_id, id);
+    CREATE INDEX IF NOT EXISTS idx_queue_events_job_id
+      ON queue_events(scope, job_id, id);
+    CREATE INDEX IF NOT EXISTS idx_queue_events_scope_id
+      ON queue_events(scope, id);
+  `);
+}
+
 function migrateImagePublicColumns(db) {
   addColumnIfMissing(db, 'images', 'is_public', 'is_public INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'images', 'published_at', 'published_at TEXT');
@@ -564,5 +601,4 @@ function migratePromptSquareNullableOwner(db, { dbPath, migrationBackupDir }) {
     db.exec('PRAGMA foreign_keys = ON;');
   }
 }
-
 

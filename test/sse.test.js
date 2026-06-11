@@ -56,6 +56,14 @@ test('writeSse serializes event payloads', () => {
   assert.equal(res.chunks.join(''), 'event: snapshot\ndata: {"ok":true}\n\n');
 });
 
+test('writeSse can attach replay ids', () => {
+  const res = new MockResponse();
+
+  assert.equal(writeSse(res, 'job', { ok: true }, { id: 42 }), true);
+
+  assert.equal(res.chunks.join(''), 'id: 42\nevent: job\ndata: {"ok":true}\n\n');
+});
+
 test('SSE close cleanup runs once and stops heartbeat writes', async () => {
   const res = new MockResponse();
   let cleanupCalls = 0;

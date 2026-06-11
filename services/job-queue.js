@@ -50,7 +50,16 @@ let stopped = false;
 const activeJobs = new Map();
 
 export { getQueueSettings, normalizeQueueSettings } from './queue-settings.js';
-export { onJobUpdate, subscribeAdminJobs, subscribeJob, subscribeUserJobs } from './queue-events.js';
+export {
+  onJobUpdate,
+  queueEventWatermark,
+  replayAdminJobEvents,
+  replaySingleJobEvents,
+  replayUserJobEvents,
+  subscribeAdminJobs,
+  subscribeJob,
+  subscribeUserJobs
+} from './queue-events.js';
 export {
   getAdminJob,
   getAdminJobs,
