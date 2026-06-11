@@ -10,6 +10,7 @@ import { resolve, sep } from 'node:path';
 import { positiveIntFromEnv } from '../utils/config.js';
 import { generationJobs, images as imagesTable } from './db.js';
 import { guardPaths } from './path-guard.js';
+import { isTerminalJobStatus } from './queue-status.js';
 
 const DEFAULT_MAX_REFERENCE_IMAGES = 4;
 const DEFAULT_MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -36,8 +37,6 @@ const EXT_BY_MIME = {
   'image/jpg': 'jpg',
   'image/webp': 'webp'
 };
-
-const TERMINAL_JOB_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 
 export function getMaxReferenceImages() {
   return positiveIntFromEnv('MAX_REFERENCE_IMAGES', DEFAULT_MAX_REFERENCE_IMAGES);
@@ -391,7 +390,7 @@ export async function cleanupExpiredReferenceJobFiles({ now = Date.now(), ttlMs 
       const st = await stat(abs);
       if (ttlMs <= 0 || now - st.mtimeMs >= ttlMs) {
         const job = generationJobs.findById(entry.name);
-        if (job && !TERMINAL_JOB_STATUSES.has(job.status)) continue;
+        if (job && !isTerminalJobStatus(job.status)) continue;
         await rm(abs, { recursive: true, force: true });
         removed += 1;
       }

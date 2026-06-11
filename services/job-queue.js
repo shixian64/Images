@@ -31,12 +31,10 @@ import {
 } from './queue-settings.js';
 import { emitJob, emitQueueRefresh } from './queue-events.js';
 import { compactGenerationResult, serializeJob } from './queue-serialization.js';
+import { isActiveJobStatus, isTerminalJobStatus } from './queue-status.js';
 import { logger } from '../utils/logger.js';
 
 const TICK_MS = 5_000;
-const ACTIVE_STATUSES = new Set(['queued', 'running']);
-const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
-
 const RUNTIME_INFO = Object.freeze({
   backend: 'sqlite-single-process',
   distributed: false,
@@ -651,7 +649,7 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
   const job = generationJobs.findById(jobId);
   if (!job) throw httpError(404, 'job not found');
   if (!admin && job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
-  if (TERMINAL_STATUSES.has(job.status)) return serializeJob(job, { includeUser: admin });
+  if (isTerminalJobStatus(job.status)) return serializeJob(job, { includeUser: admin });
 
   if (job.status === 'queued') {
     const cancelled = generationJobs.updateStatus(job.id, 'cancelled', {
@@ -727,7 +725,7 @@ export async function retryJob(jobId, userInfo) {
   const job = generationJobs.findById(jobId);
   if (!job) throw httpError(404, 'job not found');
   if (job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
-  if (!TERMINAL_STATUSES.has(job.status)) throw httpError(409, 'job is not finished');
+  if (!isTerminalJobStatus(job.status)) throw httpError(409, 'job is not finished');
   if (job.payload?.interfaceMode === 'custom' || job.payload?.useSystemDefault === false) {
     throw httpError(400, '个人接口任务需要从 Studio 重新提交，以便重新提供 API Key。');
   }
@@ -763,5 +761,5 @@ export function updateJobPriority(jobId, priority, userInfo) {
 }
 
 export function isActiveStatus(status) {
-  return ACTIVE_STATUSES.has(status);
+  return isActiveJobStatus(status);
 }

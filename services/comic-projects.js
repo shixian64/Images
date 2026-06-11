@@ -4,6 +4,12 @@ import { comicProjects, generationJobs, images as imagesTable } from './db.js';
 import { galleryFileUrl, listComicProjectImages, removeImage } from './gallery-store.js';
 import { cancelJob } from './job-queue.js';
 import {
+  ACTIVE_JOB_STATUSES,
+  FAILED_JOB_STATUSES,
+  TERMINAL_JOB_STATUSES,
+  isActiveJobStatus
+} from './queue-status.js';
+import {
   COMIC_PAGE_COUNT_LIMITS,
   normalizeComicPageStoryboard,
   normalizeComicStoryboard
@@ -17,9 +23,6 @@ const COMIC_PROJECT_STATUSES = new Set([
   'stopped',
   'failed'
 ]);
-const ACTIVE_JOB_STATUSES = new Set(['queued', 'running']);
-const FAILED_JOB_STATUSES = new Set(['failed', 'timeout']);
-const TERMINAL_JOB_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 
 function cleanString(value, max = 4000) {
   return String(value ?? '').trim().slice(0, max);
@@ -409,7 +412,7 @@ export async function deleteComicProject(id, { userId, isAdmin = false } = {}) {
   const jobs = listProjectJobs(project);
   const cancelledJobs = [];
   for (const job of jobs) {
-    if (!ACTIVE_JOB_STATUSES.has(job.status)) continue;
+    if (!isActiveJobStatus(job.status)) continue;
     try {
       cancelledJobs.push(cancelJob(job.id, { id: project.user_id }, { admin: true }));
     } catch (err) {
