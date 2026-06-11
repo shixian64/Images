@@ -41,6 +41,15 @@ import {
   renderDefaultsCard,
   renderQuotaTable
 } from './admin-quota.js';
+import {
+  formatBytes,
+  formatTime,
+  roleLabel,
+  shortId,
+  statusLabel,
+  usersPagerView,
+  usersTableHtml
+} from './users-view.js';
 
 let users = [];
 let mounted = false;
@@ -59,39 +68,6 @@ const MANAGEMENT_TABS = new Set([
   'interfaceManagement',
   'galleryManagement'
 ]);
-
-function formatTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (!value) return '-';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-function shortId(id) {
-  const text = String(id || '');
-  return text ? text.slice(0, 8) : '-';
-}
-
-function roleLabel(role) {
-  return role === 'admin' ? '管理员' : '普通用户';
-}
-
-function statusLabel(status) {
-  return status === 'active' ? '启用' : '停用';
-}
 
 function userLabel(userId) {
   const user = userDirectory.get(userId) || users.find((item) => item.id === userId);
@@ -113,34 +89,6 @@ function knownUsers() {
   });
 }
 
-function renderRow(user) {
-  const isSelf = user.id === getCurrentUserId();
-  const selfTip = isSelf ? ' title="不能修改自己" disabled' : '';
-  const roleOptions = ['admin', 'user'].map((value) => {
-    const selected = value === user.role ? ' selected' : '';
-    return `<option value="${value}"${selected}>${roleLabel(value)}</option>`;
-  }).join('');
-
-  const statusBtnClass = user.status === 'active' ? 'danger ghost small' : 'primary small';
-  const statusBtnLabel = user.status === 'active' ? '停用' : '启用';
-
-  return `<tr data-user-id="${escapeHtml(user.id)}">
-    <td>${escapeHtml(user.username || '-')}${isSelf ? ' <span class="chip info">你</span>' : ''}</td>
-    <td>${escapeHtml(user.email || '-')}</td>
-    <td>
-      <select class="users-role-select"${selfTip}>${roleOptions}</select>
-    </td>
-    <td>
-      <span class="chip ${user.status === 'active' ? 'ok' : 'err'}">${statusLabel(user.status)}</span>
-    </td>
-    <td>${escapeHtml(formatTime(user.last_login_at || user.lastLoginAt))}</td>
-    <td class="users-actions-cell"><div class="actions-wrap">
-      <button class="ghost small" data-act="detail">详情</button>
-      <button class="${statusBtnClass} users-status-btn"${selfTip}>${statusBtnLabel}</button>
-    </div></td>
-  </tr>`;
-}
-
 function renderTable() {
   const wrap = $('usersTableWrap');
   const summary = $('usersSummary');
@@ -156,45 +104,15 @@ function renderTable() {
 
   renderUsersPager();
 
-  if (!users.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无用户数据</p></div>`;
-    return;
-  }
-
-  wrap.innerHTML = `
-    <table class="users-table">
-      <thead>
-        <tr>
-          <th>用户名</th>
-          <th>邮箱</th>
-          <th>角色</th>
-          <th>状态</th>
-          <th>最后登录</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>${users.map(renderRow).join('')}</tbody>
-    </table>
-  `;
+  wrap.innerHTML = usersTableHtml(users, { currentUserId: getCurrentUserId() });
 }
 
 function renderUsersPager() {
   const pager = $('usersPager');
   if (!pager) return;
-  const total = Number(userView.filtered) || 0;
-  const pageSize = Number(userView.pageSize) || 50;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (total <= pageSize) {
-    pager.hidden = true;
-    pager.innerHTML = '';
-    return;
-  }
-  pager.hidden = false;
-  pager.innerHTML = `
-    <button class="ghost small" data-users-pager="prev" ${userView.page <= 1 ? 'disabled' : ''}>上一页</button>
-    <span>第 ${userView.page} / ${totalPages} 页 · 每页 ${pageSize}</span>
-    <button class="ghost small" data-users-pager="next" ${userView.page >= totalPages ? 'disabled' : ''}>下一页</button>
-  `;
+  const view = usersPagerView(userView);
+  pager.hidden = view.hidden;
+  pager.innerHTML = view.html;
 }
 
 function buildUsersQuery() {
