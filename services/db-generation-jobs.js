@@ -3,6 +3,8 @@
 import { randomUUID } from 'node:crypto';
 
 const JOB_JSON_FIELDS = new Set(['payload_json', 'result_json', 'progress_json']);
+export const JOB_RESULT_MAX_JSON_CHARS = 80_000;
+export const JOB_PROGRESS_MAX_JSON_CHARS = 10_000;
 
 function parseJob(row) {
   if (!row) return null;
@@ -23,10 +25,43 @@ function parseJob(row) {
   return out;
 }
 
-function jobPayload(value, fallback = null) {
+function truncateJsonText(value, maxChars) {
+  const text = String(value ?? '');
+  const max = Math.max(0, Math.floor(Number(maxChars) || 0));
+  if (text.length <= max) return text;
+  if (max <= 3) return '.'.repeat(max);
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function compactJsonString(json, maxChars) {
+  const out = {
+    truncated: true,
+    originalJsonChars: json.length,
+    preview: ''
+  };
+  const overhead = JSON.stringify(out).length;
+  out.preview = truncateJsonText(json, Math.max(0, maxChars - overhead - 1));
+  while (JSON.stringify(out).length > maxChars && out.preview.length > 0) {
+    out.preview = truncateJsonText(out.preview, Math.max(0, out.preview.length - 256));
+  }
+  return JSON.stringify(out);
+}
+
+function jobPayload(value, fallback = null, { maxJsonChars = null } = {}) {
   if (value === undefined) return undefined;
   if (value === null) return fallback;
-  return JSON.stringify(value);
+  const json = JSON.stringify(value);
+  if (json === undefined) return fallback;
+  if (!maxJsonChars || json.length <= maxJsonChars) return json;
+  return compactJsonString(json, maxJsonChars);
+}
+
+function jobResultPayload(value) {
+  return jobPayload(value, null, { maxJsonChars: JOB_RESULT_MAX_JSON_CHARS });
+}
+
+function jobProgressPayload(value) {
+  return jobPayload(value, null, { maxJsonChars: JOB_PROGRESS_MAX_JSON_CHARS });
 }
 
 function parseJobPayloadJson(value) {
@@ -193,7 +228,7 @@ export function createGenerationJobRepository({ open }) {
           AND cancel_requested = 0
       `).run(
         startedAt,
-        progress === null || progress === undefined ? null : JSON.stringify(progress || {}),
+        progress === null || progress === undefined ? null : jobProgressPayload(progress || {}),
         Math.max(0, Math.floor(Number(attempts) || 0)),
         now,
         id
@@ -208,9 +243,9 @@ export function createGenerationJobRepository({ open }) {
       const next = {
         started_at: patch.startedAt === undefined ? current.started_at : patch.startedAt,
         finished_at: patch.finishedAt === undefined ? current.finished_at : patch.finishedAt,
-        result_json: patch.result === undefined ? current.result_json : jobPayload(patch.result),
+        result_json: patch.result === undefined ? current.result_json : jobResultPayload(patch.result),
         error_message: patch.errorMessage === undefined ? current.error_message : (patch.errorMessage || null),
-        progress_json: patch.progress === undefined ? current.progress_json : jobPayload(patch.progress),
+        progress_json: patch.progress === undefined ? current.progress_json : jobProgressPayload(patch.progress),
         attempts: patch.attempts === undefined ? current.attempts : Math.max(0, Math.floor(Number(patch.attempts) || 0)),
         cancel_requested: patch.cancelRequested === undefined
           ? current.cancel_requested
@@ -247,7 +282,7 @@ export function createGenerationJobRepository({ open }) {
         UPDATE generation_jobs
         SET progress_json = ?, updated_at = ?
         WHERE id = ?
-      `).run(JSON.stringify(progress || {}), Date.now(), id);
+      `).run(jobProgressPayload(progress || {}), Date.now(), id);
       return repo.findById(id);
     },
     updatePayload(id, payload) {
