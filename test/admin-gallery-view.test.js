@@ -149,7 +149,9 @@ test('admin gallery detail and orphan scan escape dynamic fields', () => {
     outputFormat: '<png>',
     profileName: '<profile>',
     prompt: '<prompt>',
-    revisedPrompt: '<revised>'
+    promptTruncated: true,
+    revisedPrompt: '<revised>',
+    revisedPromptTruncated: true
   }, {
     users: [{ id: 'u1', username: '<alice>' }]
   });
@@ -158,6 +160,8 @@ test('admin gallery detail and orphan scan escape dynamic fields', () => {
   assert.match(detail.html, /href="\/download&quot;&gt;&lt;bad&gt;"/);
   assert.match(detail.html, /&lt;prompt&gt;/);
   assert.match(detail.html, /&lt;revised&gt;/);
+  assert.match(detail.html, /提示词已按管理员列表预算裁剪/);
+  assert.match(detail.html, /Revised Prompt 已按管理员列表预算裁剪/);
   assert.doesNotMatch(detail.html, /<prompt>/);
   assert.doesNotMatch(detail.html, /<bad>/);
 

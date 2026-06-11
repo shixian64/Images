@@ -23,6 +23,9 @@ import {
   userImageRel,
   guardPaths
 } from './path-guard.js';
+import { truncateJsonText } from '../utils/json-budget.js';
+
+export const ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS = 1_000;
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -65,6 +68,29 @@ function rowToItem(row) {
     comicPageIndex,
     // Backward-compatible alias for older clients and the current DB column name.
     comicPanelIndex: comicPageIndex
+  };
+}
+
+function textPreview(value, maxChars) {
+  const text = String(value || '');
+  return {
+    value: truncateJsonText(text, maxChars),
+    length: text.length,
+    truncated: text.length > maxChars
+  };
+}
+
+function capAdminGalleryItem(item = {}) {
+  const prompt = textPreview(item.prompt, ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS);
+  const revisedPrompt = textPreview(item.revisedPrompt, ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS);
+  return {
+    ...item,
+    prompt: prompt.value,
+    promptLength: prompt.length,
+    promptTruncated: prompt.truncated,
+    revisedPrompt: revisedPrompt.value,
+    revisedPromptLength: revisedPrompt.length,
+    revisedPromptTruncated: revisedPrompt.truncated
   };
 }
 
@@ -384,7 +410,7 @@ function hasAdminGalleryFilters(options = {}) {
 
 async function adminItemsFromRows(rows = []) {
   return mapWithConcurrency(rows, galleryStatConcurrency(), async (row) => {
-    const item = rowToItem(row);
+    const item = capAdminGalleryItem(rowToItem(row));
     const filePath = resolveStoredAbs(item.path, { userId: item.userId });
     if (!filePath) {
       return {

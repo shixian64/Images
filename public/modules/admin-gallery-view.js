@@ -209,6 +209,8 @@ export function adminGalleryModelFilterOptionsHtml(models = [], current = '') {
 export function adminGalleryImageDetailView(item = {}, { users = [] } = {}) {
   const src = item.fileMissing === true ? '' : (item.previewUrl || item.url || item.downloadUrl || '');
   const originalSrc = item.fileMissing === true ? '' : (item.downloadUrl || item.url || src);
+  const promptTruncated = item.promptTruncated === true;
+  const revisedPromptTruncated = item.revisedPromptTruncated === true;
   return {
     title: item.filename || '图片',
     html: `
@@ -228,11 +230,13 @@ export function adminGalleryImageDetailView(item = {}, { users = [] } = {}) {
       <section class="user-detail-block">
         <h3>提示词</h3>
         <p class="prompt-preview-detail">${escapeHtml(item.prompt || '-')}</p>
+        ${promptTruncated ? '<p class="hint">提示词已按管理员列表预算裁剪，完整内容未随列表响应返回。</p>' : ''}
       </section>
       ${item.revisedPrompt ? `
         <section class="user-detail-block">
           <h3>Revised Prompt</h3>
           <p class="prompt-preview-detail">${escapeHtml(item.revisedPrompt)}</p>
+          ${revisedPromptTruncated ? '<p class="hint">Revised Prompt 已按管理员列表预算裁剪，完整内容未随列表响应返回。</p>' : ''}
         </section>
       ` : ''}
     </div>

@@ -80,7 +80,7 @@
 | POST | `/api/gallery/:id/visibility` | 登录 | 设置图片公开/取消公开；普通用户只能操作自己的图片。 |
 | POST | `/api/gallery/:id/like` | 登录 | 点赞公开图片；受每日点赞次数限制。 |
 | DELETE | `/api/gallery/:id` | 登录 | 删除当前用户图片。 |
-| GET | `/api/admin/gallery` | 管理员 | 管理员图库列表，支持筛选、分页、排序。 |
+| GET | `/api/admin/gallery` | 管理员 | 管理员图库列表，支持筛选、分页、排序；列表中的 `prompt` / `revisedPrompt` 会按响应预算裁剪，并通过 `promptLength`、`promptTruncated`、`revisedPromptLength`、`revisedPromptTruncated` 标识裁剪状态。 |
 | GET | `/api/admin/gallery/stats` | 管理员 | 图库统计。 |
 | DELETE | `/api/admin/gallery/:id` | 管理员 | 管理员删除单张图片。 |
 | POST | `/api/admin/gallery/bulk-delete` | 管理员 | 管理员批量删除图片。 |

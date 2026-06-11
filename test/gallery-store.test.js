@@ -129,6 +129,39 @@ test('saveGeneratedImages creates gallery thumbnail variants for PNG images', as
   assert.equal(existsSync(thumbAbs), false);
 });
 
+test('admin gallery list caps prompt previews without changing stored prompts', async () => {
+  const longPrompt = [
+    'admin gallery prompt start',
+    'p'.repeat(gallery.ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS + 200),
+    'admin gallery prompt end'
+  ].join('\n');
+  const longRevised = [
+    'admin gallery revised start',
+    'r'.repeat(gallery.ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS + 200),
+    'admin gallery revised end'
+  ].join('\n');
+  const result = await gallery.saveGeneratedImages(
+    [{ b64_json: Buffer.from(PNG_BYTES).toString('base64'), revised_prompt: longRevised }],
+    { prompt: longPrompt, outputFormat: 'png' },
+    { userId: user.id }
+  );
+  const saved = result.saved[0];
+
+  const admin = await gallery.listAdminGallery({ pageSize: 200 });
+  const item = admin.items.find((entry) => entry.id === saved.id);
+  assert.ok(item, 'saved image should appear in admin gallery list');
+  assert.equal(item.promptTruncated, true);
+  assert.equal(item.promptLength, longPrompt.length);
+  assert.ok(item.prompt.length <= gallery.ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS);
+  assert.doesNotMatch(item.prompt, /admin gallery prompt end/);
+  assert.equal(item.revisedPromptTruncated, true);
+  assert.equal(item.revisedPromptLength, longRevised.length);
+  assert.ok(item.revisedPrompt.length <= gallery.ADMIN_GALLERY_LIST_PROMPT_MAX_CHARS);
+  assert.doesNotMatch(item.revisedPrompt, /admin gallery revised end/);
+  assert.equal(db.images.findById(saved.id).prompt, longPrompt);
+  assert.equal(db.images.findById(saved.id).revised_prompt, longRevised);
+});
+
 test('comic project images are saved under projects and hidden from my gallery', async () => {
   const projectId = 'comic-project-gallery-test';
   db.comicProjects.upsert({
