@@ -1,7 +1,7 @@
 // Studio 面板：生成器 + 预估耗时 + ⌘⏎ 快捷键 + Prompt 草稿。
 // 对应 docs §5.3 Studio 详细设计 + §5.1 键盘友好 + §5.6 状态与反馈。
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { KEYS, readStringScoped, writeStringScoped } from './state.js';
 import {
   DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES,
@@ -21,6 +21,11 @@ import {
   formatOptimizedPromptParagraphs
 } from './studio-prompt-optimizer.js';
 import { readGenerateStream } from './studio-stream.js';
+import {
+  imageSrcFromItem,
+  referenceListView,
+  studioGalleryView
+} from './studio-view.js';
 
 const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
 const PROMPT_SOURCE = Object.freeze({
@@ -41,14 +46,6 @@ const loggedQueueFinalJobIds = new Set();
 let referenceItems = [];
 let referenceSeq = 0;
 
-function formatBytes(bytes) {
-  const value = Number(bytes || 0);
-  if (!value) return '';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(2)} MB`;
-}
-
 function referenceId(prefix = 'ref') {
   referenceSeq += 1;
   return `${prefix}-${Date.now()}-${referenceSeq}`;
@@ -60,35 +57,14 @@ function revokeReferencePreview(item) {
   }
 }
 
-function referencePreview(item = {}) {
-  return item.previewUrl || item.url || item.local_url || item.localUrl || '';
-}
-
 function renderReferences() {
   const list = $('referenceList');
   const clearBtn = $('clearReferences');
   if (!list) return;
   if (clearBtn) clearBtn.disabled = referenceItems.length === 0;
-  if (!referenceItems.length) {
-    list.dataset.empty = 'true';
-    list.innerHTML = '<div class="reference-empty">还没有参考图。生成结果卡片可点“加入参考图”。</div>';
-    return;
-  }
-  list.dataset.empty = 'false';
-  list.innerHTML = referenceItems.map((item, index) => {
-    const src = referencePreview(item);
-    const name = item.filename || item.name || (item.type === 'upload' ? '上传图片' : '图库图片');
-    const source = item.type === 'upload' ? '上传' : '图库';
-    const bytes = formatBytes(item.bytes);
-    return `<article class="reference-item" data-reference-id="${escapeHtml(item.clientId)}">
-      <img src="${escapeHtml(src)}" alt="${escapeHtml(`参考图 ${index + 1}`)}" />
-      <button class="reference-remove" type="button" data-reference-remove aria-label="移除参考图 ${index + 1}">移除</button>
-      <div class="reference-item-meta">
-        <span title="${escapeHtml(name)}">#${index + 1} ${escapeHtml(source)}</span>
-        <span>${escapeHtml(bytes)}</span>
-      </div>
-    </article>`;
-  }).join('');
+  const view = referenceListView(referenceItems);
+  list.dataset.empty = view.empty ? 'true' : 'false';
+  list.innerHTML = view.html;
 }
 
 function addUploadReferences(files) {
@@ -334,15 +310,6 @@ function showTaskProgress(kind, message) {
   if (messageEl) messageEl.textContent = message;
 }
 
-function imageSrcFromItem(item) {
-  if (item.local_url) return item.local_url;
-  if (item.localUrl) return item.localUrl;
-  if (item.url) return item.url;
-  if (item.b64_json && String(item.b64_json).startsWith('data:')) return item.b64_json;
-  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  return '';
-}
-
 function openPreviewModal(item, trigger) {
   const src = imageSrcFromItem(item || {});
   if (!src) return false;
@@ -361,42 +328,11 @@ function closePreviewModal() {
 
 function renderImages(items, prompt) {
   const gallery = $('gallery');
-  if (!items.length) {
-    studioPreviewItems = [];
-    studioPreviewPrompt = '';
-    gallery.dataset.empty = 'true';
-    gallery.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">⚠</div>
-        <p>接口返回成功，但 <code>data[]</code> 为空。</p>
-      </div>`;
-    return;
-  }
-  studioPreviewItems = items;
-  studioPreviewPrompt = prompt || '';
-  gallery.dataset.empty = 'false';
-  const altBase = escapeHtml((prompt || '').slice(0, 100));
-  gallery.innerHTML = items.map((item, index) => {
-    const src = imageSrcFromItem(item);
-    const stem = `image-${Date.now()}-${index + 1}`;
-    const downloadName = item.file_name || `${stem}.png`;
-    const saveError = item.save_error
-      ? `<p class="revised">本地保存失败：${escapeHtml(item.save_error)}</p>`
-      : '';
-    const galleryId = item.gallery_id || item.galleryId || '';
-    const refDisabled = galleryId ? '' : 'disabled';
-    return `<article class="image-card">
-      <button class="image-preview-trigger" type="button" data-studio-index="${index}" aria-label="放大查看第 ${index + 1} 张生成图">
-        <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
-      </button>
-      <div class="card-actions">
-        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
-        <button type="button" data-studio-add-reference="${index}" ${refDisabled}>加入参考图</button>
-        <button type="button" data-studio-edit-reference="${index}" ${refDisabled}>继续编辑</button>
-      </div>
-      ${saveError}
-    </article>`;
-  }).join('');
+  const view = studioGalleryView(items, prompt);
+  studioPreviewItems = view.empty ? [] : items;
+  studioPreviewPrompt = view.empty ? '' : (prompt || '');
+  gallery.dataset.empty = view.empty ? 'true' : 'false';
+  gallery.innerHTML = view.html;
 }
 
 async function requestGenerate(payload, controller, started) {
