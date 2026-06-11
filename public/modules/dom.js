@@ -1,4 +1,6 @@
-// DOM 基础工具。统一 $, escape, mask，避免各模块各写一遍。
+import { t } from './i18n.js';
+
+// Shared DOM helpers for $, escaping, and masking.
 
 export const $ = (id) => document.getElementById(id);
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -9,10 +11,10 @@ export function escapeHtml(input) {
   }[c]));
 }
 
-// 前端日志 / 展示用的脱敏，与 server 保持一致的外观。
+// Frontend log/display masking; keep the same visible shape as the server.
 export function maskKey(key) {
   const value = String(key || '');
-  if (!value) return '未填写 Key';
+  if (!value) return t('dom.maskKey.empty');
   if (value.length <= 8) return `${value.slice(0, 2)}••••`;
   return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 }
@@ -26,7 +28,7 @@ export function readNumber(id) {
   return value === '' || value == null ? '' : Number(value);
 }
 
-// 简易 toast（写入 status-chip）。超出重复写入会自动清理。
+// Lightweight toast helper that writes into the status chip and can auto-reset.
 let statusResetTimer = null;
 export function setStatus(text, state = 'ready', autoResetMs = 0) {
   const el = $('status');
@@ -36,7 +38,7 @@ export function setStatus(text, state = 'ready', autoResetMs = 0) {
   if (statusResetTimer) clearTimeout(statusResetTimer);
   if (autoResetMs > 0) {
     statusResetTimer = setTimeout(() => {
-      el.textContent = '就绪';
+      el.textContent = t('dom.status.ready');
       el.dataset.state = 'ready';
     }, autoResetMs);
   }
