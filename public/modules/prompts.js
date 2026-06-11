@@ -9,6 +9,7 @@ import {
 } from './state.js';
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { copyText } from './clipboard.js';
+import { composePrompt, promptBuilderQualityChecks } from './prompt-builder-model.js';
 import { upsertPromptHistoryEntry } from './prompt-history-model.js';
 import {
   filterPromptSquareItems,
@@ -104,18 +105,6 @@ function getBuilderParts() {
   };
 }
 
-function composePrompt(parts = getBuilderParts()) {
-  const lines = [];
-  if (parts.subject) lines.push(parts.subject);
-  if (parts.style) lines.push(`风格与媒介：${parts.style}`);
-  if (parts.composition) lines.push(`构图与镜头：${parts.composition}`);
-  if (parts.lighting) lines.push(`光线与氛围：${parts.lighting}`);
-  if (parts.palette) lines.push(`色彩与材质：${parts.palette}`);
-  if (parts.text) lines.push(`画面文字：${parts.text}`);
-  if (parts.negative) lines.push(`避免：${parts.negative}`);
-  return lines.join('\n');
-}
-
 function setComposedOutput(value) {
   const output = $('promptComposedOutput');
   if (!output) return;
@@ -124,7 +113,7 @@ function setComposedOutput(value) {
 }
 
 function recomputeOutput() {
-  setComposedOutput(composePrompt());
+  setComposedOutput(composePrompt(getBuilderParts()));
   updateQualityList();
   saveBuilderDraft();
 }
@@ -136,14 +125,7 @@ function updatePreviewCount() {
 }
 
 function updateQualityList() {
-  const parts = getBuilderParts();
-  const checks = {
-    subject: Boolean(parts.subject),
-    style: Boolean(parts.style),
-    composition: Boolean(parts.composition),
-    lighting: Boolean(parts.lighting),
-    constraints: Boolean(parts.negative || parts.text)
-  };
+  const checks = promptBuilderQualityChecks(getBuilderParts());
   $$('#promptQualityList [data-check]').forEach((el) => {
     el.dataset.state = checks[el.dataset.check] ? 'ok' : 'empty';
   });
@@ -154,7 +136,7 @@ function loadBuilderDraft() {
   for (const [name, id] of BUILDER_FIELDS) {
     if ($(id)) $(id).value = draft?.[name] || '';
   }
-  if (!$('promptComposedOutput')?.value) setComposedOutput(composePrompt());
+  if (!$('promptComposedOutput')?.value) setComposedOutput(composePrompt(getBuilderParts()));
   updatePreviewCount();
   updateQualityList();
 }
@@ -836,7 +818,7 @@ function loadEntryToBuilder(entry) {
   $('promptPaletteInput').value = parts.palette || '';
   $('promptTextInput').value = parts.text || '';
   $('promptNegativeInput').value = parts.negative || '';
-  setComposedOutput(entry.prompt || composePrompt());
+  setComposedOutput(entry.prompt || composePrompt(getBuilderParts()));
   updateQualityList();
   saveBuilderDraft();
 }
