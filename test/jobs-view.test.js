@@ -15,8 +15,10 @@ import {
   renderJobCard,
   renderJobListSection
 } from '../public/modules/jobs-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('jobs view formats status, durations, image sources and metadata', () => {
+  setLocale('zh-CN');
   assert.equal(jobStatusLabel('queued'), '排队');
   assert.equal(jobStatusLabel('unknown'), 'unknown');
   assert.equal(jobStatusTone('succeeded'), 'ok');
@@ -43,6 +45,7 @@ test('jobs view formats status, durations, image sources and metadata', () => {
 });
 
 test('jobs view renders queue summaries and empty lines', () => {
+  setLocale('zh-CN');
   assert.match(jobQueueSummaryHtml({ queuedCount: 2, runningCount: 1 }), /<strong>2<\/strong> 排队/);
   assert.equal(jobQueueEmptyText('running'), '当前没有执行中的任务。');
   assert.equal(jobQueueEmptyText('queued'), '队列为空。');
@@ -58,6 +61,7 @@ test('jobs view renders queue summaries and empty lines', () => {
 });
 
 test('jobs view escapes dynamic job card fields', () => {
+  setLocale('zh-CN');
   const html = renderJobCard({
     id: 'job"><bad>',
     status: '<unknown>',
@@ -86,6 +90,7 @@ test('jobs view escapes dynamic job card fields', () => {
 });
 
 test('jobs view renders actions by state and running progress', () => {
+  setLocale('zh-CN');
   const running = renderJobCard({
     id: 'r1',
     status: 'running',
@@ -102,4 +107,40 @@ test('jobs view renders actions by state and running progress', () => {
   const succeeded = renderJobListSection([{ id: 's1', status: 'succeeded', promptPreview: 'ok' }], 'recent');
   assert.match(succeeded, /成功/);
   assert.match(succeeded, /data-job-act="dismiss"/);
+});
+
+test('jobs view uses locale messages for queue chrome', () => {
+  setLocale('en-US');
+
+  assert.equal(jobStatusLabel('queued'), 'Queued');
+  assert.equal(formatJobDuration(0), '0s');
+  assert.equal(jobProgressInfo({ status: 'running', startedAt: 1_000 }, { nowMs: 66_000 }).text, 'Running for 1m 5s');
+  assert.equal(jobMeta({ payload: { jobType: 'comic_storyboard', model: 'm', pageLimit: 3 } }), 'Comic storyboard · m · Auto page count · up to 3 pages');
+  assert.equal(jobQueueEmptyText('running'), 'No running jobs.');
+  assert.equal(jobQueueEmptyText('queued'), 'Queue is empty.');
+  assert.equal(jobQueueEmptyText('recent'), 'No completed jobs yet.');
+  assert.equal(jobQueueEmptyText('other'), 'No jobs.');
+  assert.match(jobQueueSummaryHtml({ queuedCount: 2, runningCount: 1 }), /<strong>2<\/strong> queued/);
+
+  const queued = renderJobCard({
+    id: 'q1',
+    status: 'queued',
+    position: 3,
+    payload: { model: 'm' }
+  }, 'queued');
+  assert.match(queued, /Untitled job/);
+  assert.match(queued, /2 ahead/);
+  assert.match(queued, /title="Cancel job"/);
+
+  const done = renderJobCard({
+    id: 'd1',
+    status: 'failed',
+    promptPreview: 'failed',
+    result: { data: [{ url: '/thumb.png' }] }
+  }, 'recent');
+  assert.match(done, /title="View result"/);
+  assert.match(done, />Retry<\/button>/);
+  assert.match(done, /title="Remove from recent completions">Delete<\/button>/);
+
+  setLocale('zh-CN');
 });
