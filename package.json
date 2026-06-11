@@ -10,6 +10,7 @@
     "check:js": "node scripts/check-js-syntax.js",
     "coverage": "node --experimental-sqlite --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=60 --test-coverage-functions=70 --test \"test/**/*.test.js\"",
     "test": "node --experimental-sqlite --test \"test/**/*.test.js\"",
+    "e2e:smoke": "node scripts/e2e-smoke.js",
     "backup:generated": "node scripts/generated-backup.js backup",
     "restore:generated": "node scripts/generated-backup.js restore",
     "config:export": "node --experimental-sqlite scripts/system-config.js export",
