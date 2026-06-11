@@ -1,4 +1,5 @@
 import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 
 export const DEFAULT_INTERFACE_BASE_URL = 'https://api.openai.com';
 
@@ -19,41 +20,47 @@ export function globalEndpointConfig(globalInterface = null, kind = 'image') {
 }
 
 export function interfaceKeyState(endpoint = {}) {
-  if (endpoint.hasApiKey === true) return '已配置';
-  if (endpoint.hasApiKey === false) return '未配置';
-  return '未知';
+  if (endpoint.hasApiKey === true) return t('admin.interfaces.key.configured');
+  if (endpoint.hasApiKey === false) return t('admin.interfaces.key.missing');
+  return t('admin.interfaces.key.unknown');
 }
 
 export function globalEndpointTestView(endpoint = {}) {
   if (!endpoint.testStatus || endpoint.testStatus === 'unknown') {
-    return { state: 'idle', text: '未测试' };
+    return { state: 'idle', text: t('admin.interfaces.test.untested') };
   }
   if (endpoint.testStatus === 'ok') {
     return { state: 'ok', text: `OK · ${endpoint.testLatencyMs ?? '?'}ms` };
   }
   if (endpoint.testStatus === 'busy') {
-    return { state: 'busy', text: '测试中…' };
+    return { state: 'busy', text: t('admin.interfaces.test.busy') };
   }
   return {
     state: 'err',
-    text: `失败 · ${endpoint.secretError || endpoint.testError || '未知错误'}`
+    text: t('admin.interfaces.test.failed', {
+      error: endpoint.secretError || endpoint.testError || t('common.unknownError')
+    })
   };
 }
 
 export function globalInterfaceSummaryHtml(globalInterface = null) {
-  if (!globalInterface) return '<span class="chip">尚未加载</span>';
+  if (!globalInterface) return `<span class="chip">${escapeHtml(t('admin.interfaces.summary.notLoaded'))}</span>`;
   const image = globalEndpointConfig(globalInterface, 'image');
   const chat = globalEndpointConfig(globalInterface, 'chat');
+  const imageKeyState = interfaceKeyState(image);
+  const chatKeyState = interfaceKeyState(chat);
   return `
-    <span class="chip ${globalInterface.enabled === false ? 'error' : 'ok'}">${globalInterface.enabled === false ? '停用' : '启用'}</span>
-    <span class="chip info">${escapeHtml(globalInterface.name || '系统默认')}</span>
-    <span class="chip">生图 Key：${interfaceKeyState(image)}</span>
-    <span class="chip">对话 Key：${interfaceKeyState(chat)}</span>
-    <span class="chip">生图模型：${escapeHtml(image.defaultModel || '-')}</span>
-    <span class="chip">对话模型：${escapeHtml(chat.defaultModel || '-')}</span>
+    <span class="chip ${globalInterface.enabled === false ? 'error' : 'ok'}">${escapeHtml(globalInterface.enabled === false ? t('admin.interfaces.summary.disabled') : t('admin.interfaces.summary.enabled'))}</span>
+    <span class="chip info">${escapeHtml(globalInterface.name || t('admin.interfaces.summary.systemDefault'))}</span>
+    <span class="chip">${escapeHtml(t('admin.interfaces.summary.imageKey', { state: imageKeyState }))}</span>
+    <span class="chip">${escapeHtml(t('admin.interfaces.summary.chatKey', { state: chatKeyState }))}</span>
+    <span class="chip">${escapeHtml(t('admin.interfaces.summary.imageModel', { model: image.defaultModel || t('common.empty') }))}</span>
+    <span class="chip">${escapeHtml(t('admin.interfaces.summary.chatModel', { model: chat.defaultModel || t('common.empty') }))}</span>
   `;
 }
 
 export function globalInterfaceErrorHtml(message) {
-  return `<span class="chip error">加载失败：${escapeHtml(message || '未知错误')}</span>`;
+  return `<span class="chip error">${escapeHtml(t('admin.interfaces.error.loadFailed', {
+    error: message || t('common.unknownError')
+  }))}</span>`;
 }

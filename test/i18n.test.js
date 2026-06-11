@@ -24,6 +24,7 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(getLocale(), 'en-US');
   assert.equal(t('job.status.running'), 'Running');
   assert.equal(t('admin.clientLogs.summary.count', { count: 3 }), 'Showing 3');
+  assert.equal(t('admin.interfaces.summary.imageKey', { state: 'Configured' }), 'Image key: Configured');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');
   assert.equal(t('missing.key', {}, 'Fallback {name}'), 'Fallback ');
   assert.equal(t('missing.key', { name: 'Alice' }, 'Fallback {name}'), 'Fallback Alice');

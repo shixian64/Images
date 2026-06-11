@@ -9,8 +9,10 @@ import {
   globalInterfaceSummaryHtml,
   interfaceKeyState
 } from '../public/modules/admin-interfaces-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('admin interfaces view normalizes endpoint defaults and key state', () => {
+  setLocale('zh-CN');
   assert.equal(DEFAULT_INTERFACE_BASE_URL, 'https://api.openai.com');
   assert.deepEqual(globalEndpointConfig(null, 'image'), {
     baseUrl: DEFAULT_INTERFACE_BASE_URL,
@@ -32,6 +34,7 @@ test('admin interfaces view normalizes endpoint defaults and key state', () => {
 });
 
 test('admin interfaces view formats endpoint test state', () => {
+  setLocale('zh-CN');
   assert.deepEqual(globalEndpointTestView({ testStatus: 'unknown' }), { state: 'idle', text: '未测试' });
   assert.deepEqual(globalEndpointTestView({ testStatus: 'ok', testLatencyMs: 123 }), { state: 'ok', text: 'OK · 123ms' });
   assert.deepEqual(globalEndpointTestView({ testStatus: 'busy' }), { state: 'busy', text: '测试中…' });
@@ -39,6 +42,7 @@ test('admin interfaces view formats endpoint test state', () => {
 });
 
 test('admin interfaces view renders escaped summary', () => {
+  setLocale('zh-CN');
   assert.match(globalInterfaceSummaryHtml(null), /尚未加载/);
   const html = globalInterfaceSummaryHtml({
     enabled: false,
@@ -64,10 +68,37 @@ test('admin interfaces view renders escaped summary', () => {
 });
 
 test('admin interfaces view renders escaped error chip', () => {
+  setLocale('zh-CN');
   const html = globalInterfaceErrorHtml('上游异常 <script>alert(1)</script> "><bad>');
 
   assert.match(html, /class="chip error"/);
   assert.match(html, /上游异常 &lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<bad>/);
+});
+
+test('admin interfaces view uses locale messages for summary chrome', () => {
+  setLocale('en-US');
+  assert.equal(interfaceKeyState({ hasApiKey: true }), 'Configured');
+  assert.equal(interfaceKeyState({ hasApiKey: false }), 'Not configured');
+  assert.equal(interfaceKeyState({ hasApiKey: null }), 'Unknown');
+  assert.deepEqual(globalEndpointTestView({ testStatus: 'unknown' }), { state: 'idle', text: 'Not tested' });
+  assert.deepEqual(globalEndpointTestView({ testStatus: 'busy' }), { state: 'busy', text: 'Testing…' });
+  assert.deepEqual(globalEndpointTestView({ testStatus: 'failed' }), { state: 'err', text: 'Failed · Unknown error' });
+
+  assert.match(globalInterfaceSummaryHtml(null), /Not loaded/);
+  const html = globalInterfaceSummaryHtml({
+    enabled: true,
+    image: { hasApiKey: true, defaultModel: 'img' },
+    chat: { hasApiKey: false, defaultModel: 'chat' }
+  });
+  assert.match(html, /Enabled/);
+  assert.match(html, /System default/);
+  assert.match(html, /Image key: Configured/);
+  assert.match(html, /Chat key: Not configured/);
+  assert.match(html, /Image model: img/);
+  assert.match(html, /Chat model: chat/);
+  assert.match(globalInterfaceErrorHtml('boom'), /Load failed: boom/);
+
+  setLocale('zh-CN');
 });
