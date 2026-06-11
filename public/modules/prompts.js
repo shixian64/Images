@@ -9,19 +9,17 @@ import {
 } from './state.js';
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { copyText } from './clipboard.js';
+import { upsertPromptHistoryEntry } from './prompt-history-model.js';
 import { createImagePreviewController } from './image-preview.js';
 import {
   BUILDER_FIELDS,
   MAX_PROMPT_EXAMPLE_IMAGES,
-  MAX_PROMPT_HISTORY,
   PROMPT_EXAMPLE_ACCEPT,
   buildLargeSquarePreviewUrl,
-  createPromptId,
   deriveTitle,
   formatTime,
   historyPreviewImageIds,
   historyPreviewImages,
-  mergeTags,
   normalizeHistory,
   normalizeTags,
   sourceLabel
@@ -244,68 +242,11 @@ function currentPromptPayload(source = 'builder') {
 
 export function addPromptHistory(prompt, meta = {}) {
   ensureHistoryLoaded();
-  const normalizedPrompt = String(prompt || '').trim();
-  if (!normalizedPrompt) return null;
-
-  const now = new Date().toISOString();
-  const source = meta.source || 'manual';
-  const index = history.findIndex((item) => item.prompt === normalizedPrompt);
-  const title = meta.title ? String(meta.title).trim() : '';
-  const entryMeta = {
-    model: meta.model || '',
-    size: meta.size || '',
-    quality: meta.quality || '',
-    outputFormat: meta.outputFormat || '',
-    sref: meta.sref || '',
-    sourceHot: meta.sourceHot || '',
-    sourceName: meta.sourceName || '',
-    sourceUrl: meta.sourceUrl || '',
-    previewImages: Array.isArray(meta.previewImages) ? meta.previewImages : []
-  };
-
-  if (index >= 0) {
-    const existing = history[index];
-    history[index] = {
-      ...existing,
-      title: title || existing.title || deriveTitle(normalizedPrompt),
-      tags: mergeTags(existing.tags, meta.tags),
-      source: existing.source === 'studio' ? existing.source : source,
-      updatedAt: now,
-      lastUsedAt: source === 'studio' ? now : existing.lastUsedAt,
-      useCount: existing.useCount + (source === 'studio' ? 1 : 0),
-      parts: meta.parts || existing.parts || null,
-      meta: { ...existing.meta, ...entryMeta }
-    };
-    history.unshift(...history.splice(index, 1));
-  } else {
-    history.unshift({
-      id: createPromptId(),
-      title: title || deriveTitle(normalizedPrompt),
-      prompt: normalizedPrompt,
-      tags: normalizeTags(meta.tags),
-      source,
-      createdAt: now,
-      updatedAt: now,
-      lastUsedAt: source === 'studio' ? now : '',
-      useCount: source === 'studio' ? 1 : 0,
-      pinned: false,
-      isPublic: false,
-      squareId: '',
-      publishedAt: '',
-      parts: meta.parts || null,
-      meta: entryMeta
-    });
-  }
-
-  if (history.length > MAX_PROMPT_HISTORY) {
-    const pinned = history.filter((item) => item.pinned).slice(0, MAX_PROMPT_HISTORY);
-    const unpinned = history
-      .filter((item) => !item.pinned)
-      .slice(0, Math.max(0, MAX_PROMPT_HISTORY - pinned.length));
-    history = [...pinned, ...unpinned];
-  }
+  const result = upsertPromptHistoryEntry(history, prompt, meta);
+  if (!result.changed) return null;
+  history = result.history;
   saveHistory();
-  return history[0];
+  return result.entry;
 }
 
 function filteredHistory() {
