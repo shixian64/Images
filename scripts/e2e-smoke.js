@@ -259,6 +259,37 @@ function hasLoginCredentials(opts = {}) {
   return Boolean(opts.username && opts.password);
 }
 
+const MAIN_APP_TAB_IDS = Object.freeze([
+  'studioPanel',
+  'comicPanel',
+  'promptPanel',
+  'galleryPanel',
+  'configPanel',
+  'logsPanel'
+]);
+
+async function verifyMainTabs(client, timeoutMs) {
+  const checked = [];
+  for (const tabId of MAIN_APP_TAB_IDS) {
+    const state = await waitForEvaluate(client, `(() => {
+      const tabId = ${JSON.stringify(tabId)};
+      const button = Array.from(document.querySelectorAll('.tab-button')).find((item) => item.dataset.tab === tabId);
+      if (!button || button.hidden) throw new Error('tab button not available: ' + tabId);
+      button.click();
+      const panel = document.getElementById(tabId);
+      if (!panel) throw new Error('tab panel not found: ' + tabId);
+      if (!button.classList.contains('active') || !panel.classList.contains('active')) return null;
+      return {
+        tabId,
+        activeButton: true,
+        activePanel: true
+      };
+    })()`, timeoutMs, `main tab switch ${tabId}`);
+    checked.push(state.tabId);
+  }
+  return checked;
+}
+
 async function runLoginFlow(client, opts) {
   await evaluate(client, `(() => {
     const form = document.querySelector('#loginForm');
@@ -269,7 +300,7 @@ async function runLoginFlow(client, opts) {
     return true;
   })()`);
 
-  return waitForEvaluate(client, `(() => {
+  const app = await waitForEvaluate(client, `(() => {
     const error = document.querySelector('#authError:not([hidden])')?.textContent?.trim();
     if (error) throw new Error('login failed: ' + error);
     const appReady = Boolean(document.querySelector('#studioPanel.active') && document.querySelector('#prompt') && document.querySelector('#userMenu'));
@@ -283,6 +314,8 @@ async function runLoginFlow(client, opts) {
       inlineScripts: document.querySelectorAll('script:not([src])').length
     };
   })()`, opts.timeoutMs, 'authenticated app shell');
+  app.tabsChecked = await verifyMainTabs(client, opts.timeoutMs);
+  return app;
 }
 
 async function runSmoke(opts) {
@@ -332,6 +365,11 @@ async function runSmoke(opts) {
     if (!page.registerHidden) throw new Error('register form should be hidden by default');
     if (page.inlineScripts !== 0) throw new Error(`expected no inline scripts, found ${page.inlineScripts}`);
 
+    if (opts.screenshot) {
+      const shot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+      writeFileSync(resolve(opts.screenshot), Buffer.from(shot.data, 'base64'));
+    }
+
     const app = hasLoginCredentials(opts) ? await runLoginFlow(client, opts) : null;
     if (app) {
       if (app.path !== '/' && app.path !== '/index.html') throw new Error(`unexpected app path after login: ${app.path}`);
@@ -339,19 +377,17 @@ async function runSmoke(opts) {
       if (!app.promptField) throw new Error('main prompt field not found after login');
       if (app.tabCount < 4) throw new Error(`expected main navigation tabs after login, found ${app.tabCount}`);
       if (app.inlineScripts !== 0) throw new Error(`expected no inline scripts in app shell, found ${app.inlineScripts}`);
+      if (app.tabsChecked.length !== MAIN_APP_TAB_IDS.length) throw new Error(`expected ${MAIN_APP_TAB_IDS.length} checked tabs, found ${app.tabsChecked.length}`);
     }
 
-    if (opts.screenshot) {
-      const shot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-      writeFileSync(resolve(opts.screenshot), Buffer.from(shot.data, 'base64'));
-    }
     console.log(JSON.stringify({
       ok: true,
       browser,
       baseUrl: opts.baseUrl,
       title: page.title,
       authenticated: Boolean(app),
-      appTitle: app?.title || ''
+      appTitle: app?.title || '',
+      tabsChecked: app?.tabsChecked || []
     }, null, 2));
     return { ok: true };
   } finally {

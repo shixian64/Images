@@ -42,6 +42,6 @@ npm run e2e:smoke -- --username alice --password "test-password"
 - 校验 `#loginForm` 存在。
 - 校验 `#registerForm` 默认隐藏。
 - 校验入口 HTML 没有 inline `<script>`，与当前 CSP 约束一致。
-- 如果提供 `E2E_USERNAME` / `E2E_PASSWORD` 或 `--username` / `--password`，会提交真实登录表单，进入 `/` 后校验 `#studioPanel.active`、`#prompt`、主导航 tab 和主应用无 inline `<script>`。
+- 如果提供 `E2E_USERNAME` / `E2E_PASSWORD` 或 `--username` / `--password`，会提交真实登录表单，进入 `/` 后校验 `#studioPanel.active`、`#prompt`、主导航 tab、主应用无 inline `<script>`，并逐个切换 `studioPanel`、`comicPanel`、`promptPanel`、`galleryPanel`、`configPanel`、`logsPanel`。
 
-这不是完整视觉回归；后续可在同一 CDP 基础上扩展主要 tab 切换、截图基线和差异阈值。
+这不是完整视觉回归；后续可在同一 CDP 基础上扩展截图基线和差异阈值。
