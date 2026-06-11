@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   adminClientLogLevelChipClass,
   adminClientLogRowHtml,
+  adminClientLogsErrorHtml,
   adminClientLogsSummaryText,
   adminClientLogsTableView,
   adminClientLogShortId,
@@ -24,6 +25,10 @@ test('admin client logs view formats labels and filter options', () => {
   assert.equal(adminClientLogLevelChipClass('info'), 'ok');
   assert.equal(adminClientLogLevelChipClass('debug'), '');
   assert.equal(adminClientLogsSummaryText([{}, {}]), '显示 2 条');
+
+  const error = adminClientLogsErrorHtml('bad <script>alert(1)</script>');
+  assert.match(error, /bad &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(error, /<script>/);
 
   const options = adminClientLogUserOptionsHtml([
     { id: 'u"><bad>', username: '<alice>' }

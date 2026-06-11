@@ -38,6 +38,10 @@ export function adminClientLogsSummaryText(logs = []) {
   return `显示 ${Array.isArray(logs) ? logs.length : 0} 条`;
 }
 
+export function adminClientLogsErrorHtml(message = '加载失败') {
+  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+}
+
 export function adminClientLogsTableView(logs = [], { users = [] } = {}) {
   const rows = Array.isArray(logs) ? logs : [];
   if (!rows.length) {

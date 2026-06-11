@@ -1,8 +1,9 @@
 // ?????????????
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import {
+  adminClientLogsErrorHtml,
   adminClientLogsSummaryText,
   adminClientLogsTableView,
   adminClientLogUserOptionsHtml
@@ -67,7 +68,7 @@ export async function refreshAdminClientLogs({ silent = false } = {}) {
   } catch (err) {
     setStatus(`加载客户端日志失败：${err?.message || err}`, 'err', 2400);
     const wrap = $('adminClientLogsTableWrap');
-    if (wrap) wrap.innerHTML = `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`;
+    if (wrap) wrap.innerHTML = adminClientLogsErrorHtml(err?.message || '加载失败');
   }
 }
 
