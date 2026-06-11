@@ -14,6 +14,11 @@ import {
   normalizeComicPageStoryboard,
   normalizeComicStoryboard
 } from '../shared/comic-workflow.js';
+import { truncateJsonText } from '../utils/json-budget.js';
+
+export const COMIC_PROJECT_LIST_STORY_MAX_CHARS = 800;
+export const COMIC_PROJECT_LIST_STORYBOARD_MAX_PANELS = 6;
+const COMIC_PROJECT_LIST_PANEL_TEXT_MAX_CHARS = 180;
 
 const COMIC_PROJECT_STATUSES = new Set([
   'draft',
@@ -208,6 +213,61 @@ function countJobsByStatus(jobs = []) {
   return byStatus;
 }
 
+function textPreview(value, maxChars) {
+  const text = String(value ?? '');
+  return {
+    value: truncateJsonText(text, maxChars),
+    length: text.length,
+    truncated: text.length > maxChars
+  };
+}
+
+function summarizePageStoryboard(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return {
+    layoutType: truncateJsonText(value.layoutType ?? value.layout_type ?? '', COMIC_PROJECT_LIST_PANEL_TEXT_MAX_CHARS),
+    panelCount: Number(value.panelCount ?? value.panel_count) || 0
+  };
+}
+
+function summarizeStoryboardForList(storyboard = {}) {
+  if (!storyboard || typeof storyboard !== 'object' || Array.isArray(storyboard)) {
+    return {
+      storyboard: {},
+      storyboardLength: 2,
+      storyboardTruncated: false,
+      storyboardPanelCount: 0
+    };
+  }
+  const panels = Array.isArray(storyboard.panels) ? storyboard.panels : [];
+  const sourceJson = JSON.stringify(storyboard);
+  const summarizedPanels = panels
+    .slice(0, COMIC_PROJECT_LIST_STORYBOARD_MAX_PANELS)
+    .map((panel = {}) => {
+      const pageStoryboard = summarizePageStoryboard(panel.pageStoryboard ?? panel.page_storyboard);
+      return {
+        beat: truncateJsonText(panel.beat ?? '', COMIC_PROJECT_LIST_PANEL_TEXT_MAX_CHARS),
+        imagePrompt: truncateJsonText(panel.imagePrompt ?? panel.image_prompt ?? '', COMIC_PROJECT_LIST_PANEL_TEXT_MAX_CHARS),
+        ...(pageStoryboard ? { pageStoryboard } : {})
+      };
+    });
+  const summary = {
+    title: truncateJsonText(storyboard.title ?? '', 120),
+    styleId: truncateJsonText(storyboard.styleId ?? storyboard.style_id ?? '', 80),
+    styleLabel: truncateJsonText(storyboard.styleLabel ?? storyboard.style_label ?? '', 80),
+    pageStoryboardEnabled: Boolean(storyboard.pageStoryboardEnabled ?? storyboard.page_storyboard_enabled),
+    pageCount: Number(storyboard.pageCount ?? storyboard.page_count) || panels.length,
+    panelCount: panels.length,
+    panels: summarizedPanels
+  };
+  return {
+    storyboard: summary,
+    storyboardLength: sourceJson.length,
+    storyboardTruncated: panels.length > summarizedPanels.length || JSON.stringify(summary).length < sourceJson.length,
+    storyboardPanelCount: panels.length
+  };
+}
+
 function summarizeComicProjectProgress(project = {}, { images = null, jobs = [] } = {}) {
   const total = Math.max(0, Number(project.pageCount ?? project.panelCount ?? project.panel_count) || 0);
   const imageFallback = Number(project.imageCount ?? project.image_count) || 0;
@@ -250,16 +310,30 @@ function summarizeComicProjectProgress(project = {}, { images = null, jobs = [] 
   };
 }
 
-function projectToItem(row = {}, { jobs = [] } = {}) {
+function projectToItem(row = {}, { jobs = [], list = false } = {}) {
   const thumbnailUrl = row.thumbnail_path ? galleryFileUrl(row.thumbnail_path) : '';
   const storyboard = row.storyboard || {};
   const storedCount = Number(row.panel_count) || 0;
   const pageCount = pageCountForRow(row);
+  const fullStory = row.story || '';
+  const story = list
+    ? textPreview(fullStory, COMIC_PROJECT_LIST_STORY_MAX_CHARS)
+    : { value: fullStory, length: fullStory.length, truncated: false };
+  const storyboardResponse = list
+    ? summarizeStoryboardForList(storyboard)
+    : {
+        storyboard,
+        storyboardLength: JSON.stringify(storyboard).length,
+        storyboardTruncated: false,
+        storyboardPanelCount: Array.isArray(storyboard.panels) ? storyboard.panels.length : 0
+      };
   const item = {
     id: row.id,
     userId: row.user_id,
     title: row.title || '未命名漫画',
-    story: row.story || '',
+    story: story.value,
+    storyLength: story.length,
+    storyTruncated: story.truncated,
     styleId: row.style_id || '',
     styleLabel: row.style_label || '',
     // panelCount is kept for API compatibility; pageCount is the clearer
@@ -273,7 +347,10 @@ function projectToItem(row = {}, { jobs = [] } = {}) {
     outputFormat: row.output_format || '',
     useContext: Boolean(row.use_context),
     status: row.status || 'draft',
-    storyboard,
+    storyboard: storyboardResponse.storyboard,
+    storyboardLength: storyboardResponse.storyboardLength,
+    storyboardTruncated: storyboardResponse.storyboardTruncated,
+    storyboardPanelCount: storyboardResponse.storyboardPanelCount,
     imageCount: Number(row.image_count) || 0,
     thumbnailUrl,
     createdAt: row.created_at || '',
@@ -384,7 +461,7 @@ export function listComicProjects({ userId, limit = 200 } = {}) {
   const rows = comicProjects.listByUser(userId, limit);
   const jobsByProject = listProjectJobsByIdForUser(userId, rows.map((row) => row.id));
   return {
-    items: rows.map((row) => projectToItem(row, { jobs: jobsByProject.get(row.id) || [] })),
+    items: rows.map((row) => projectToItem(row, { jobs: jobsByProject.get(row.id) || [], list: true })),
     count: comicProjects.countByUser(userId)
   };
 }

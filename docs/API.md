@@ -104,8 +104,8 @@ Prompt Square `meta.previewImages` 仅保留本地提示词示例图路径或无
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET/POST | `/api/comic-projects` | 登录 | 列表 / 创建漫画项目。 |
-| GET/PUT/PATCH/DELETE | `/api/comic-projects/:id` | 登录 | 读取、更新、删除漫画项目。 |
+| GET/POST | `/api/comic-projects` | 登录 | 列表 / 创建漫画项目；列表响应只返回故事与分镜预览，并通过 `storyLength`、`storyTruncated`、`storyboardLength`、`storyboardTruncated` 标识裁剪状态。 |
+| GET/PUT/PATCH/DELETE | `/api/comic-projects/:id` | 登录 | 读取、更新、删除漫画项目；详情响应保留完整故事与分镜。 |
 | POST | `/api/comic-storyboards` | 登录 | 创建分镜生成任务。 |
 
 ## 管理后台

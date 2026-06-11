@@ -300,3 +300,61 @@ test('comic projects route supports CRUD and cascades project image deletion', a
   assert.equal(db.comicProjects.findById(created.id), null);
   assert.equal(db.images.listByComicProject(created.id, { limit: 10 }).length, 0);
 });
+
+test('comic project list caps story and storyboard previews while detail keeps full content', async () => {
+  const panelCount = comicProjects.COMIC_PROJECT_LIST_STORYBOARD_MAX_PANELS + 2;
+  const longStory = [
+    'budget story start',
+    'x'.repeat(comicProjects.COMIC_PROJECT_LIST_STORY_MAX_CHARS + 200),
+    'budget story end'
+  ].join('\n');
+  const panels = Array.from({ length: panelCount }, (_, index) => ({
+    beat: `budget beat ${index + 1} ${'b'.repeat(260)}`,
+    imagePrompt: `budget image prompt ${index + 1} ${'p'.repeat(260)}`,
+    pageStoryboard: {
+      layoutType: `budget layout ${index + 1} ${'l'.repeat(220)}`,
+      panelCount: 1,
+      subPanels: [{ id: 'A', content: `content ${index + 1}` }]
+    }
+  }));
+
+  const create = await callComicRoute('POST', '/api/comic-projects', {
+    body: {
+      title: 'Budgeted comic project list item',
+      story: longStory,
+      status: 'storyboard',
+      storyboard: {
+        title: 'Budgeted storyboard',
+        pageStoryboardEnabled: true,
+        panels
+      }
+    }
+  });
+  assert.equal(create.statusCode, 200);
+  const created = create.json().project;
+  assert.equal(created.story, longStory);
+  assert.equal(created.storyboard.panels.length, panelCount);
+
+  const list = await callComicRoute('GET', '/api/comic-projects', { query: '?limit=20' });
+  assert.equal(list.statusCode, 200);
+  const listed = list.json().items.find((item) => item.id === created.id);
+  assert.ok(listed, 'created project should appear in comic project list');
+  assert.equal(listed.storyTruncated, true);
+  assert.equal(listed.storyLength, longStory.length);
+  assert.ok(listed.story.length <= comicProjects.COMIC_PROJECT_LIST_STORY_MAX_CHARS);
+  assert.doesNotMatch(listed.story, /budget story end/);
+  assert.equal(listed.storyboardTruncated, true);
+  assert.equal(listed.storyboardPanelCount, panelCount);
+  assert.equal(listed.storyboard.panels.length, comicProjects.COMIC_PROJECT_LIST_STORYBOARD_MAX_PANELS);
+  assert.ok(listed.storyboard.panels[0].imagePrompt.length <= 180);
+
+  const detail = await callComicRoute('GET', `/api/comic-projects/${encodeURIComponent(created.id)}`);
+  assert.equal(detail.statusCode, 200);
+  const detailBody = detail.json();
+  assert.equal(detailBody.project.storyTruncated, false);
+  assert.equal(detailBody.project.storyLength, longStory.length);
+  assert.equal(detailBody.project.story, longStory);
+  assert.equal(detailBody.project.storyboardTruncated, false);
+  assert.equal(detailBody.project.storyboard.panels.length, panelCount);
+  assert.match(detailBody.project.storyboard.panels[0].imagePrompt, /p{200}/);
+});
