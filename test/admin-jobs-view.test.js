@@ -18,6 +18,7 @@ import {
 import { setLocale } from '../public/modules/i18n.js';
 
 test('admin jobs view formats common labels and durations', () => {
+  setLocale('zh-CN');
   assert.equal(formatAdminJobTime('not-a-date'), '-');
   assert.equal(formatAdminJobDuration(0), '-');
   assert.equal(formatAdminJobDuration(999), '999ms');
@@ -39,6 +40,7 @@ test('admin jobs view formats common labels and durations', () => {
 });
 
 test('admin jobs view renders escaped summary and settings', () => {
+  setLocale('zh-CN');
   const summary = adminJobsSummaryHtml({
     byStatus: { queued: '2"><bad>', running: 1, succeeded: 3, failed: 1, timeout: 2 },
     successRate: '88.5',
@@ -71,6 +73,7 @@ test('admin jobs view renders escaped summary and settings', () => {
 });
 
 test('admin jobs view renders empty and escaped job rows', () => {
+  setLocale('zh-CN');
   const empty = adminJobsTableView([]);
   assert.equal(empty.empty, true);
   assert.match(empty.html, /暂无队列任务/);
@@ -109,6 +112,7 @@ test('admin jobs view renders empty and escaped job rows', () => {
 });
 
 test('admin jobs view renders escaped error banner', () => {
+  setLocale('zh-CN');
   const html = adminJobsErrorHtml('加载失败 <script>alert(1)</script> "><bad>');
 
   assert.match(html, /class="error-banner"/);
@@ -118,6 +122,7 @@ test('admin jobs view renders escaped error banner', () => {
 });
 
 test('admin jobs view renders table and running cancellation state', () => {
+  setLocale('zh-CN');
   const view = adminJobsTableView([
     {
       id: 'job1',
@@ -138,4 +143,61 @@ test('admin jobs view renders table and running cancellation state', () => {
   assert.match(view.html, /value="7"/);
   assert.match(view.html, /已运行 1m 5s/);
   assert.doesNotMatch(view.html, /data-admin-job-act="cancel" disabled/);
+});
+
+test('admin jobs view uses locale messages for table chrome and settings', () => {
+  setLocale('en-US');
+
+  const summary = adminJobsSummaryHtml({
+    byStatus: { queued: 2, running: 1, succeeded: 3, failed: 1, timeout: 2 },
+    successRate: '88.5',
+    avgSuccessDurationMs: 61_000
+  });
+  assert.match(summary, /Queued 2/);
+  assert.match(summary, /Running 1/);
+  assert.match(summary, /Succeeded 3/);
+  assert.match(summary, /Failed 3/);
+  assert.match(summary, /Success rate 88\.5%/);
+  assert.match(summary, /Avg duration 1m 1s/);
+
+  assert.match(adminJobSettingsHtml(null), /Settings not loaded/);
+  const settings = adminJobSettingsHtml({
+    maintenance_mode: false,
+    global_concurrency: null,
+    max_pending_per_user: 2,
+    max_pending_global: 10,
+    max_wait_ms: 0,
+    execution_timeout_ms: null,
+    max_retries: 1,
+    role_priorities: { admin: 100 }
+  });
+  assert.match(settings, /Maintenance mode/);
+  assert.match(settings, /Stop accepting new jobs/);
+  assert.match(settings, /placeholder="Follow env \/ no limit"/);
+  assert.match(settings, /Max pending per user/);
+  assert.match(settings, /placeholder="0 = no limit"/);
+  assert.match(settings, /placeholder="Blank = default"/);
+  assert.match(settings, /Role priorities JSON/);
+
+  assert.match(adminJobsTableView([]).html, /No queued generation jobs/);
+  const table = adminJobsTableView([{
+    id: 'job1',
+    userId: 'u1',
+    status: 'running',
+    promptPreview: 'Run',
+    priority: 7,
+    startedAt: 10_000
+  }], {
+    users: [{ id: 'u1', email: 'u1@example.test' }],
+    nowMs: 75_000
+  }).html;
+  assert.match(table, />Status<\/th>/);
+  assert.match(table, />User<\/th>/);
+  assert.match(table, />Task<\/th>/);
+  assert.match(table, />Priority<\/th>/);
+  assert.match(table, />Actions<\/th>/);
+  assert.match(table, /Running for 1m 5s/);
+  assert.match(table, />Cancel<\/button>/);
+
+  setLocale('zh-CN');
 });

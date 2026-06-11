@@ -53,51 +53,51 @@ export function adminJobsSummaryHtml(stats = null) {
   const by = stats?.byStatus || {};
   const successRate = stats?.successRate == null ? '-' : `${safeNumber(stats.successRate)}%`;
   return `
-    <span class="chip info">排队 ${safeNumber(by.queued)}</span>
-    <span class="chip info">执行中 ${safeNumber(by.running)}</span>
-    <span class="chip ok">成功 ${safeNumber(by.succeeded)}</span>
-    <span class="chip error">失败 ${safeNumber(by.failed) + safeNumber(by.timeout)}</span>
-    <span class="chip">成功率 ${successRate}</span>
-    <span class="chip">平均耗时 ${formatAdminJobDuration(stats?.avgSuccessDurationMs)}</span>
+    <span class="chip info">${escapeHtml(t('admin.jobs.summary.queued', { count: safeNumber(by.queued) }))}</span>
+    <span class="chip info">${escapeHtml(t('admin.jobs.summary.running', { count: safeNumber(by.running) }))}</span>
+    <span class="chip ok">${escapeHtml(t('admin.jobs.summary.succeeded', { count: safeNumber(by.succeeded) }))}</span>
+    <span class="chip error">${escapeHtml(t('admin.jobs.summary.failed', { count: safeNumber(by.failed) + safeNumber(by.timeout) }))}</span>
+    <span class="chip">${escapeHtml(t('admin.jobs.summary.successRate', { rate: successRate }))}</span>
+    <span class="chip">${escapeHtml(t('admin.jobs.summary.avgDuration', { duration: formatAdminJobDuration(stats?.avgSuccessDurationMs) }))}</span>
   `;
 }
 
 export function adminJobSettingsHtml(settings = null) {
-  if (!settings) return '<p class="hint">尚未加载设置。</p>';
+  if (!settings) return `<p class="hint">${escapeHtml(t('admin.jobs.settings.notLoaded'))}</p>`;
   return `
     <label class="field switch-field">
-      <span>维护模式</span>
+      <span>${escapeHtml(t('admin.jobs.settings.maintenanceMode'))}</span>
       <label class="switch-row">
         <input id="queueMaintenanceMode" type="checkbox" ${settings.maintenance_mode ? 'checked' : ''} />
-        <span>开启后不接新任务且暂停调度</span>
+        <span>${escapeHtml(t('admin.jobs.settings.maintenanceHint'))}</span>
       </label>
     </label>
-    <label class="field"><span>全局并发</span>
-      <input id="queueGlobalConcurrency" type="number" min="0" placeholder="跟随环境变量 / 不限" value="${escapeHtml(settingValue(settings, 'global_concurrency'))}" />
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.globalConcurrency'))}</span>
+      <input id="queueGlobalConcurrency" type="number" min="0" placeholder="${escapeHtml(t('admin.jobs.settings.globalConcurrencyPlaceholder'))}" value="${escapeHtml(settingValue(settings, 'global_concurrency'))}" />
     </label>
-    <label class="field"><span>每用户最大排队数</span>
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.maxPendingPerUser'))}</span>
       <input id="queueMaxPendingUser" type="number" min="0" value="${escapeHtml(settingValue(settings, 'max_pending_per_user'))}" />
     </label>
-    <label class="field"><span>全局最大排队数</span>
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.maxPendingGlobal'))}</span>
       <input id="queueMaxPendingGlobal" type="number" min="0" value="${escapeHtml(settingValue(settings, 'max_pending_global'))}" />
     </label>
-    <label class="field"><span>最长等待（分钟）</span>
-      <input id="queueMaxWaitMin" type="number" min="0" value="${settings.max_wait_ms ? Math.round(Number(settings.max_wait_ms) / 60000) : ''}" placeholder="0 = 不限制" />
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.maxWaitMinutes'))}</span>
+      <input id="queueMaxWaitMin" type="number" min="0" value="${settings.max_wait_ms ? Math.round(Number(settings.max_wait_ms) / 60000) : ''}" placeholder="${escapeHtml(t('admin.jobs.settings.maxWaitPlaceholder'))}" />
     </label>
-    <label class="field"><span>执行超时（分钟）</span>
-      <input id="queueExecutionTimeoutMin" type="number" min="0" value="${settings.execution_timeout_ms ? Math.round(Number(settings.execution_timeout_ms) / 60000) : ''}" placeholder="留空 = 默认" />
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.executionTimeoutMinutes'))}</span>
+      <input id="queueExecutionTimeoutMin" type="number" min="0" value="${settings.execution_timeout_ms ? Math.round(Number(settings.execution_timeout_ms) / 60000) : ''}" placeholder="${escapeHtml(t('admin.jobs.settings.executionTimeoutPlaceholder'))}" />
     </label>
-    <label class="field"><span>失败重试次数</span>
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.maxRetries'))}</span>
       <input id="queueMaxRetries" type="number" min="0" value="${escapeHtml(settingValue(settings, 'max_retries'))}" />
     </label>
-    <label class="field"><span>角色优先级 JSON</span>
+    <label class="field"><span>${escapeHtml(t('admin.jobs.settings.rolePrioritiesJson'))}</span>
       <textarea id="queueRolePriorities" rows="3">${escapeHtml(JSON.stringify(settings.role_priorities || { admin: 100, user: 0 }, null, 2))}</textarea>
     </label>
   `;
 }
 
 export function adminJobsErrorHtml(message) {
-  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+  return `<div class="error-banner">${escapeHtml(message || t('common.loadFailed'))}</div>`;
 }
 
 export function adminJobsTableView(jobs = [], { users = [], nowMs = Date.now() } = {}) {
@@ -105,7 +105,7 @@ export function adminJobsTableView(jobs = [], { users = [], nowMs = Date.now() }
   if (!rows.length) {
     return {
       empty: true,
-      html: '<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无队列任务</p></div>'
+      html: `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>${escapeHtml(t('admin.jobs.empty'))}</p></div>`
     };
   }
   return {
@@ -114,12 +114,12 @@ export function adminJobsTableView(jobs = [], { users = [], nowMs = Date.now() }
     <table class="users-table management-table admin-jobs-table">
       <thead>
         <tr>
-          <th>状态</th>
-          <th>用户</th>
-          <th>任务</th>
-          <th>优先级</th>
-          <th>时间</th>
-          <th>操作</th>
+          <th>${escapeHtml(t('admin.jobs.header.status'))}</th>
+          <th>${escapeHtml(t('admin.jobs.header.user'))}</th>
+          <th>${escapeHtml(t('admin.jobs.header.task'))}</th>
+          <th>${escapeHtml(t('admin.jobs.header.priority'))}</th>
+          <th>${escapeHtml(t('admin.jobs.header.time'))}</th>
+          <th>${escapeHtml(t('admin.jobs.header.actions'))}</th>
         </tr>
       </thead>
       <tbody>
@@ -136,7 +136,7 @@ export function adminJobRowHtml(job = {}, { users = [], nowMs = Date.now() } = {
   const running = job.status === 'running' || job.status === 'queued';
   const durationText = job.startedAt && job.finishedAt
     ? formatAdminJobDuration(job.finishedAt - job.startedAt)
-    : (job.startedAt ? `已运行 ${formatAdminJobDuration(nowMs - job.startedAt)}` : '-');
+    : (job.startedAt ? t('admin.jobs.runningDuration', { duration: formatAdminJobDuration(nowMs - job.startedAt) }) : t('common.empty'));
   return `
             <tr data-admin-job-id="${escapeHtml(job.id)}">
               <td><span class="chip ${adminJobStatusChipClass(job.status)}">${escapeHtml(adminJobStatusText(job.status))}</span></td>
@@ -163,7 +163,7 @@ export function adminJobRowHtml(job = {}, { users = [], nowMs = Date.now() } = {
                 </div>
               </td>
               <td class="users-actions-cell"><div class="actions-wrap">
-                <button class="danger ghost small" data-admin-job-act="cancel" ${running ? '' : 'disabled'}>取消</button>
+                <button class="danger ghost small" data-admin-job-act="cancel" ${running ? '' : 'disabled'}>${escapeHtml(t('admin.jobs.action.cancel'))}</button>
               </div></td>
             </tr>
           `;
