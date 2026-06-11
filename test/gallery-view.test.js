@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  comicProjectCardHtml,
+  comicProjectCardsHtml,
+  comicProjectDetailHtml,
+  comicProjectProgress,
+  comicProjectProgressText,
+  comicProjectStatusLabel,
   downloadSrcFromGalleryItem,
   formatBytes,
   galleryEmptyHtml,
@@ -92,4 +98,106 @@ test('gallery view renders multiple cards with a stable total count', () => {
 
   assert.match(html, /#5/);
   assert.match(html, /#4/);
+});
+
+test('gallery view formats comic project status and progress', () => {
+  assert.equal(comicProjectStatusLabel('storyboard'), '已生成页分镜');
+  assert.equal(comicProjectStatusLabel('custom'), 'custom');
+  assert.deepEqual(comicProjectProgress({
+    status: 'generating',
+    pageCount: 5,
+    progress: {
+      completed: 7,
+      running: 1,
+      queued: 2,
+      failed: 3,
+      computedStatus: 'generating'
+    }
+  }), {
+    total: 5,
+    completed: 5,
+    active: 0,
+    running: 1,
+    queued: 2,
+    failed: 3,
+    computedStatus: 'generating'
+  });
+  assert.equal(comicProjectProgressText({
+    pageCount: 5,
+    progress: { completed: 2, running: 1, queued: 1 }
+  }), '2/5 张 · 1 个运行中 · 1 个排队中');
+  assert.equal(comicProjectProgressText({
+    imageCount: 2,
+    progress: { failed: 1 }
+  }), '2/- 张 · 1 个失败');
+});
+
+test('gallery view renders escaped comic project cards', () => {
+  const html = comicProjectCardHtml({
+    id: 'p"><script>',
+    title: '<title>',
+    story: '<story>',
+    thumbnailUrl: '/thumb"><bad>',
+    updatedAt: 'bad-date',
+    styleLabel: '<style>',
+    imageModel: '<model>',
+    size: '<size>',
+    quality: '<quality>',
+    progress: {
+      total: 4,
+      completed: 2,
+      running: 1,
+      computedStatus: '<status>'
+    }
+  }, '1"><bad>', { totalCount: '3"><bad>' });
+
+  assert.match(html, /data-comic-project-id="p&quot;&gt;&lt;script&gt;"/);
+  assert.match(html, /data-comic-project-index="0"/);
+  assert.match(html, /src="\/thumb&quot;&gt;&lt;bad&gt;"/);
+  assert.match(html, /aria-label="打开漫画项目 &lt;title&gt;"/);
+  assert.match(html, /&lt;status&gt; · 2\/4 张 · 1 个运行中/);
+  assert.match(html, /&lt;style&gt; · &lt;model&gt; · &lt;size&gt; · &lt;quality&gt;/);
+  assert.match(html, /title="&lt;story&gt;"/);
+  assert.doesNotMatch(html, /<title>/);
+  assert.doesNotMatch(html, /<bad>/);
+
+  const list = comicProjectCardsHtml([
+    { id: 'a', title: 'A' },
+    { id: 'b', title: 'B' }
+  ]);
+  assert.match(list, /#2/);
+  assert.match(list, /#1/);
+});
+
+test('gallery view renders escaped comic project detail', () => {
+  const html = comicProjectDetailHtml({
+    title: '<title>',
+    story: '<story>',
+    styleLabel: '<style>',
+    imageModel: '<model>',
+    size: '<size>',
+    quality: '<quality>',
+    outputFormat: '<png>',
+    progress: {
+      total: 3,
+      completed: 1,
+      queued: 1,
+      computedStatus: '<status>'
+    }
+  }, [], {
+    emptyImagesHtml: galleryEmptyHtml('<empty>')
+  });
+
+  assert.match(html, /&lt;title&gt;/);
+  assert.match(html, /&lt;style&gt; · &lt;model&gt; · &lt;size&gt; · &lt;quality&gt; · &lt;png&gt;/);
+  assert.match(html, /1\/3 张 · 1 个排队中 · &lt;status&gt;/);
+  assert.match(html, /&lt;story&gt;/);
+  assert.match(html, /&lt;empty&gt;/);
+  assert.doesNotMatch(html, /<title>/);
+  assert.doesNotMatch(html, /<empty>/);
+
+  const withImages = comicProjectDetailHtml({ title: 'T' }, [{ id: 'img' }], {
+    imageCardsHtml: '<article class="image-card">image</article>'
+  });
+  assert.match(withImages, /<article class="image-card">image<\/article>/);
 });

@@ -1,13 +1,14 @@
 // 图库面板：展示我的图片 / 公开图片，并处理公开、点赞、删除等操作。
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import { switchTab } from './nav.js';
 import { copyText } from './clipboard.js';
 import { createImagePreviewController } from './image-preview.js';
 import {
-  formatTime,
+  comicProjectCardsHtml,
+  comicProjectDetailHtml,
   galleryEmptyHtml,
   galleryImageCardsHtml,
   getImagePrompt,
@@ -119,41 +120,6 @@ function renderImageCards(items = galleryItems) {
   });
 }
 
-function projectStatusLabel(status) {
-  return {
-    draft: '草稿',
-    storyboard: '已生成页分镜',
-    generating: '生成中',
-    completed: '已完成',
-    stopped: '已停止',
-    failed: '失败'
-  }[status] || status || '项目';
-}
-
-function projectProgress(project = {}, images = []) {
-  const progress = project.progress || {};
-  const total = Number(progress.total ?? project.pageCount ?? project.panelCount) || 0;
-  const completed = Number(progress.completed ?? project.imageCount ?? images.length) || 0;
-  return {
-    total,
-    completed: total ? Math.min(total, completed) : completed,
-    active: Number(progress.active) || 0,
-    running: Number(progress.running) || 0,
-    queued: Number(progress.queued) || 0,
-    failed: Number(progress.failed) || 0,
-    computedStatus: progress.computedStatus || project.status || 'draft'
-  };
-}
-
-function projectProgressText(project = {}, images = []) {
-  const progress = projectProgress(project, images);
-  const parts = [`${progress.completed}/${progress.total || '-'} 张`];
-  if (progress.running) parts.push(`${progress.running} 个运行中`);
-  if (progress.queued) parts.push(`${progress.queued} 个排队中`);
-  if (!progress.active && progress.failed) parts.push(`${progress.failed} 个失败`);
-  return parts.join(' · ');
-}
-
 function comicProjectDetailFromResponse(data = {}) {
   const progress = data.progress || data.project?.progress || null;
   return {
@@ -174,39 +140,7 @@ function renderComicProjects() {
     return;
   }
   list.dataset.empty = 'false';
-  list.innerHTML = comicProjects.map((project, index) => {
-    const thumb = project.thumbnailUrl
-      ? `<img src="${escapeHtml(project.thumbnailUrl)}" alt="${escapeHtml(project.title)}" loading="lazy" />`
-      : `<div class="comic-result-placeholder">项目</div>`;
-    const meta = [
-      project.styleLabel,
-      project.imageModel,
-      project.size,
-      project.quality
-    ].filter(Boolean).join(' · ');
-    const progress = projectProgress(project);
-    return `<article class="image-card gallery-card comic-project-card" data-comic-project-id="${escapeHtml(project.id)}" data-comic-project-index="${index}">
-      <div class="gallery-image-wrap">
-        <button class="image-preview-trigger comic-project-open" type="button" data-comic-project-open aria-label="打开漫画项目 ${escapeHtml(project.title)}">
-          ${thumb}
-        </button>
-        <div class="card-actions">
-          <button type="button" data-comic-project-open>打开</button>
-          <button type="button" data-comic-project-import>导入漫画</button>
-          <button type="button" data-comic-project-delete>删除</button>
-        </div>
-      </div>
-      <div class="image-meta">
-        <span>#${comicProjects.length - index}</span>
-        <span>${escapeHtml(formatTime(project.updatedAt || project.createdAt))}</span>
-      </div>
-      <div class="image-meta compact-meta">
-        <span>${escapeHtml(projectStatusLabel(progress.computedStatus))} · ${escapeHtml(projectProgressText(project))}</span>
-        <span>${escapeHtml(meta || '漫画项目')}</span>
-      </div>
-      <p class="prompt-preview" title="${escapeHtml(project.story || project.title)}">${escapeHtml(project.title || '未命名漫画')}</p>
-    </article>`;
-  }).join('');
+  list.innerHTML = comicProjectCardsHtml(comicProjects);
 }
 
 function renderComicProjectDetail() {
@@ -216,29 +150,10 @@ function renderComicProjectDetail() {
   const images = activeComicProject.images || [];
   galleryItems = images;
   list.dataset.empty = 'false';
-  const meta = [
-    project.styleLabel,
-    project.imageModel,
-    project.size,
-    project.quality,
-    project.outputFormat
-  ].filter(Boolean).join(' · ');
-  const progress = projectProgress(project, images);
-  list.innerHTML = `
-    <section class="comic-project-detail span-all">
-      <div>
-        <button class="ghost small" type="button" data-comic-project-back>← 返回漫画项目</button>
-        <h3>${escapeHtml(project.title || '未命名漫画')}</h3>
-        <p class="hint">${escapeHtml(meta || '漫画项目')} · ${escapeHtml(projectProgressText(project, images))} · ${escapeHtml(projectStatusLabel(progress.computedStatus))}</p>
-        <p class="prompt-preview">${escapeHtml(project.story || '暂无小故事')}</p>
-      </div>
-      <div class="comic-project-detail-actions">
-        <button type="button" class="primary" data-comic-project-import>导入至漫画菜单</button>
-        <button type="button" class="ghost danger" data-comic-project-delete>删除项目</button>
-      </div>
-    </section>
-    ${images.length ? renderImageCards(images) : emptyHtml('这个漫画项目还没有生成图片。可导入到漫画菜单继续生成。')}
-  `;
+  list.innerHTML = comicProjectDetailHtml(project, images, {
+    imageCardsHtml: renderImageCards(images),
+    emptyImagesHtml: emptyHtml('这个漫画项目还没有生成图片。可导入到漫画菜单继续生成。')
+  });
 }
 
 function renderGallery() {
