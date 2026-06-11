@@ -1,6 +1,6 @@
 // 管理员管理面板：用户管理 + 额度管理入口 + 图库管理概览。
 
-import { $, $$, escapeHtml, setStatus } from './dom.js';
+import { $, $$, setStatus } from './dom.js';
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { bindGlobalInterfacePanel, ensureGlobalInterfaceLoaded } from './admin-interfaces.js';
 import * as drawer from './drawer.js';
@@ -43,6 +43,7 @@ import {
 } from './admin-quota.js';
 import {
   shortId,
+  usersErrorHtml,
   usersPagerView,
   usersTableHtml
 } from './users-view.js';
@@ -148,7 +149,7 @@ async function refresh({ silent = false } = {}) {
     const message = err?.message || String(err);
     const wrap = $('usersTableWrap');
     if (wrap) {
-      wrap.innerHTML = `<div class="error-banner">加载用户失败：${escapeHtml(message)}</div>`;
+      wrap.innerHTML = usersErrorHtml(message, { prefix: '加载用户失败：' });
     }
     setStatus('加载用户失败', 'err', 2000);
   }
@@ -280,7 +281,7 @@ async function refreshOpenDetail() {
     });
     drawer.update({ body: renderUserDetailBody({ ...fullDetail, sectionErrors }, { currentUserId: getCurrentUserId() }), unsafeHtml: true });
   } catch (err) {
-    drawer.update({ body: `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`, unsafeHtml: true });
+    drawer.update({ body: usersErrorHtml(err?.message || '加载失败'), unsafeHtml: true });
   }
 }
 

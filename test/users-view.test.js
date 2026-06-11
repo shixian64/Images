@@ -8,6 +8,7 @@ import {
   roleLabel,
   shortId,
   statusLabel,
+  usersErrorHtml,
   usersPagerView,
   usersTableHtml
 } from '../public/modules/users-view.js';
@@ -56,6 +57,15 @@ test('users view renders table empty state and populated rows', () => {
   assert.match(html, /Alice/);
   assert.match(html, /普通用户/);
   assert.match(html, /停用/);
+});
+
+test('users view renders escaped error banner', () => {
+  const html = usersErrorHtml('<script>alert(1)</script> "><bad>', { prefix: '加载用户失败：' });
+
+  assert.match(html, /class="error-banner"/);
+  assert.match(html, /加载用户失败：&lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<bad>/);
 });
 
 test('users view renders pager visibility and boundaries', () => {

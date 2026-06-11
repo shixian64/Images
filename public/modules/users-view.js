@@ -85,6 +85,10 @@ export function usersTableHtml(items = [], { currentUserId = '' } = {}) {
   `;
 }
 
+export function usersErrorHtml(message, { prefix = '' } = {}) {
+  return `<div class="error-banner">${escapeHtml(prefix)}${escapeHtml(message || '加载失败')}</div>`;
+}
+
 export function usersPagerView(view = {}) {
   const total = Number(view.filtered) || 0;
   const pageSize = Number(view.pageSize) || 50;
