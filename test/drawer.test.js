@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { setLocale } from '../public/modules/i18n.js';
+
 class FakeNode {}
 
 class FakeElement extends FakeNode {
@@ -45,6 +47,10 @@ class FakeElement extends FakeNode {
     return null;
   }
 }
+
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
 
 function installDrawerDom(t) {
   const oldDocument = globalThis.document;
@@ -107,4 +113,17 @@ test('drawer update keeps the same safe default', async (t) => {
   const bodyEl = elements.get('appDrawerBody');
   assert.equal(bodyEl.textContent, '<script>alert(1)</script>');
   assert.equal(bodyEl.innerHTML, '');
+});
+
+test('drawer default title follows active locale', async (t) => {
+  const { elements } = installDrawerDom(t);
+  const drawer = await import(`../public/modules/drawer.js?locale=${Date.now()}-${Math.random()}`);
+
+  setLocale('en-US');
+  drawer.open({ body: 'content' });
+  assert.equal(elements.get('appDrawerTitle').textContent, 'Details');
+
+  setLocale('zh-CN');
+  drawer.open({ title: '', body: 'content' });
+  assert.equal(elements.get('appDrawerTitle').textContent, '详情');
 });

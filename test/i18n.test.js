@@ -26,6 +26,7 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('admin.clientLogs.summary.count', { count: 3 }), 'Showing 3');
   assert.equal(t('dom.maskKey.empty'), 'Missing key');
   assert.equal(t('dom.status.ready'), 'Ready');
+  assert.equal(t('drawer.title.default'), 'Details');
   assert.equal(t('admin.interfaces.summary.imageKey', { state: 'Configured' }), 'Image key: Configured');
   assert.equal(t('admin.registration.summary.defaultTtl', { days: 7 }), 'Default TTL: 7 days');
   assert.equal(t('admin.quota.header.usage'), 'Usage (today / month / storage)');

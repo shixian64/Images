@@ -1,8 +1,9 @@
-// 通用右侧抽屉组件。基于 #appDrawer 容器（见 index.html），
-// open({ eyebrow, title, body, unsafeHtml, onClose }) 渲染并打开；body 既可是字符串也可是 DOM 节点。
-// TAG: hmt---
-
 import { $ } from './dom.js';
+import { t } from './i18n.js';
+
+// Shared right-side drawer component backed by the #appDrawer container in index.html.
+// open({ eyebrow, title, body, unsafeHtml, onClose }) renders and opens the drawer.
+// The body can be either a string or a DOM Node.
 
 let bound = false;
 let activeCloseHandler = null;
@@ -35,7 +36,7 @@ function bindOnce() {
   });
 }
 
-export function open({ eyebrow = '', title = '详情', body = '', unsafeHtml = false, onClose } = {}) {
+export function open({ eyebrow = '', title = t('drawer.title.default'), body = '', unsafeHtml = false, onClose } = {}) {
   const wrap = ensureContainer();
   if (!wrap) return;
   bindOnce();
@@ -44,7 +45,7 @@ export function open({ eyebrow = '', title = '详情', body = '', unsafeHtml = f
   const titleEl = $('appDrawerTitle');
   const bodyEl = $('appDrawerBody');
   if (eyebrowEl) eyebrowEl.textContent = eyebrow || '';
-  if (titleEl) titleEl.textContent = title || '详情';
+  if (titleEl) titleEl.textContent = title || t('drawer.title.default');
   if (bodyEl) {
     renderBody(bodyEl, body, { unsafeHtml });
   }
