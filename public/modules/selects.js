@@ -1,6 +1,6 @@
 // 全局下拉增强：保留原生 select 作为数据源，额外渲染统一视觉的弹层。
 
-import { escapeHtml } from './dom.js';
+import { customSelectMenuHtml, selectOptionLabel } from './selects-view.js';
 
 const instances = new WeakMap();
 const allInstances = new Set();
@@ -18,7 +18,7 @@ function isEnhanceable(select) {
 }
 
 function optionLabel(option) {
-  return option.label || option.textContent || option.value || '未命名';
+  return selectOptionLabel(option);
 }
 
 function flattenOptions(select) {
@@ -113,31 +113,15 @@ function commitOption(instance, optionIndex) {
 function buildMenu(instance) {
   const { select, menu } = instance;
   const items = flattenOptions(select);
-  let lastGroup = null;
-  const rows = [];
-
-  items.forEach(({ option, group }) => {
-    const index = Array.prototype.indexOf.call(select.options, option);
-    if (option.hidden) return;
-    if (group && group !== lastGroup) {
-      rows.push(`<div class="custom-select-group">${escapeHtml(group)}</div>`);
-      lastGroup = group;
-    }
-    rows.push(`
-      <div
-        tabindex="-1"
-        class="custom-select-option"
-        role="option"
-        data-option-index="${index}"
-        aria-selected="${option.selected ? 'true' : 'false'}"
-        aria-disabled="${option.disabled ? 'true' : 'false'}"
-      >
-        <span>${escapeHtml(optionLabel(option))}</span>
-      </div>
-    `);
-  });
-
-  menu.innerHTML = rows.join('') || '<div class="custom-select-empty">暂无选项</div>';
+  menu.innerHTML = customSelectMenuHtml(items.map(({ option, group }) => ({
+    index: Array.prototype.indexOf.call(select.options, option),
+    group,
+    label: optionLabel(option),
+    value: option.value,
+    selected: option.selected,
+    disabled: option.disabled,
+    hidden: option.hidden
+  })));
 }
 
 export function syncSelect(select) {
