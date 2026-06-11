@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
   browserCandidates,
+  compareScreenshotBaselineEntries,
   findBrowser,
-  parseArgs
+  parseArgs,
+  screenshotFileName
 } from '../scripts/e2e-smoke.js';
 
 test('e2e smoke args use stable defaults and CLI overrides', () => {
@@ -13,6 +15,9 @@ test('e2e smoke args use stable defaults and CLI overrides', () => {
     '--browser', 'chrome',
     '--headed',
     '--screenshot', 'out.png',
+    '--screenshot-baseline', 'baseline.json',
+    '--screenshot-dir', 'screens',
+    '--screenshot-manifest', 'manifest.json',
     '--username', 'alice',
     '--password', 'secret-password',
     '--timeout-ms', '3000',
@@ -23,6 +28,9 @@ test('e2e smoke args use stable defaults and CLI overrides', () => {
   assert.equal(opts.browser, 'chrome');
   assert.equal(opts.headed, true);
   assert.equal(opts.screenshot, 'out.png');
+  assert.equal(opts.screenshotBaseline, 'baseline.json');
+  assert.equal(opts.screenshotDir, 'screens');
+  assert.equal(opts.screenshotManifest, 'manifest.json');
   assert.equal(opts.username, 'alice');
   assert.equal(opts.password, 'secret-password');
   assert.equal(opts.timeoutMs, 3000);
@@ -59,4 +67,28 @@ test('e2e smoke browser candidates include platform-specific chromium paths', (t
 test('e2e smoke accepts explicit browser commands from PATH', () => {
   assert.equal(findBrowser('chrome'), 'chrome');
   assert.equal(findBrowser('missing\\browser.exe'), '');
+});
+
+test('e2e smoke screenshot baseline helpers are deterministic', () => {
+  assert.equal(screenshotFileName('app:studioPanel'), 'app-studioPanel.png');
+  assert.equal(screenshotFileName(''), 'screenshot.png');
+
+  assert.deepEqual(compareScreenshotBaselineEntries([
+    { label: 'login', sha256: 'aaa' },
+    { label: 'app-studioPanel', sha256: 'bbb' }
+  ], {
+    screenshots: [
+      { label: 'login', sha256: 'aaa' },
+      { label: 'app-studioPanel', sha256: 'bbb' }
+    ]
+  }), { checked: 2 });
+
+  assert.throws(() => compareScreenshotBaselineEntries([
+    { label: 'login', sha256: 'changed' }
+  ], {
+    screenshots: [
+      { label: 'login', sha256: 'aaa' },
+      { label: 'app-studioPanel', sha256: 'bbb' }
+    ]
+  }), /screenshot baseline mismatch/);
 });

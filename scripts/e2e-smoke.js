@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 
@@ -20,6 +21,9 @@ export function parseArgs(argv = []) {
     headed: boolEnv('E2E_HEADED'),
     skipIfMissing: boolEnv('E2E_SKIP_IF_BROWSER_MISSING'),
     screenshot: process.env.E2E_SCREENSHOT || '',
+    screenshotBaseline: process.env.E2E_SCREENSHOT_BASELINE || '',
+    screenshotDir: process.env.E2E_SCREENSHOT_DIR || '',
+    screenshotManifest: process.env.E2E_SCREENSHOT_MANIFEST || '',
     username: process.env.E2E_USERNAME || '',
     password: process.env.E2E_PASSWORD || '',
     timeoutMs: Number(process.env.E2E_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
@@ -36,6 +40,12 @@ export function parseArgs(argv = []) {
       out.browser = argv[++i] || out.browser;
     } else if (arg === '--screenshot') {
       out.screenshot = argv[++i] || out.screenshot;
+    } else if (arg === '--screenshot-baseline') {
+      out.screenshotBaseline = argv[++i] || out.screenshotBaseline;
+    } else if (arg === '--screenshot-dir') {
+      out.screenshotDir = argv[++i] || out.screenshotDir;
+    } else if (arg === '--screenshot-manifest') {
+      out.screenshotManifest = argv[++i] || out.screenshotManifest;
     } else if (arg === '--username') {
       out.username = argv[++i] || out.username;
     } else if (arg === '--password') {
@@ -97,6 +107,7 @@ function printHelp() {
 
 Runs a dependency-light real-browser smoke test against an already running Image Studio server.
 Set E2E_USERNAME and E2E_PASSWORD, or pass --username/--password, to also verify login and the main app shell.
+Use --screenshot-dir with --screenshot-manifest to capture a visual baseline manifest, and --screenshot-baseline to compare it later.
 Set E2E_SKIP_IF_BROWSER_MISSING=1 or pass --skip-if-missing to make missing Chrome/Edge a skip instead of a failure.`);
 }
 
@@ -259,6 +270,68 @@ function hasLoginCredentials(opts = {}) {
   return Boolean(opts.username && opts.password);
 }
 
+function wantsScreenshots(opts = {}) {
+  return Boolean(opts.screenshot || opts.screenshotDir || opts.screenshotManifest || opts.screenshotBaseline);
+}
+
+export function screenshotFileName(label = '') {
+  const safe = String(label || 'screenshot')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return `${safe || 'screenshot'}.png`;
+}
+
+function ensureParentDir(filePath) {
+  mkdirSync(dirname(filePath), { recursive: true });
+}
+
+async function captureScreenshotEntry(client, label, outputPaths = []) {
+  const shot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  const buffer = Buffer.from(shot.data, 'base64');
+  const paths = [...new Set(outputPaths.filter(Boolean).map((item) => resolve(item)))];
+  for (const filePath of paths) {
+    ensureParentDir(filePath);
+    writeFileSync(filePath, buffer);
+  }
+  return {
+    label,
+    path: paths[0] || '',
+    paths,
+    bytes: buffer.length,
+    sha256: createHash('sha256').update(buffer).digest('hex')
+  };
+}
+
+function baselineScreenshots(input = {}) {
+  if (Array.isArray(input)) return input;
+  if (Array.isArray(input.screenshots)) return input.screenshots;
+  return [];
+}
+
+export function compareScreenshotBaselineEntries(entries = [], baseline = {}) {
+  const actual = new Map((entries || []).map((entry) => [entry?.label, entry?.sha256]));
+  const issues = [];
+  for (const expected of baselineScreenshots(baseline)) {
+    const label = expected?.label || '';
+    if (!label) continue;
+    if (!actual.has(label)) {
+      issues.push(`missing screenshot capture: ${label}`);
+      continue;
+    }
+    const expectedHash = String(expected.sha256 || '');
+    const actualHash = String(actual.get(label) || '');
+    if (expectedHash && actualHash !== expectedHash) {
+      issues.push(`hash mismatch for ${label}: expected ${expectedHash}, got ${actualHash}`);
+    }
+  }
+  if (issues.length) {
+    throw new Error(`screenshot baseline mismatch: ${issues.join('; ')}`);
+  }
+  return { checked: baselineScreenshots(baseline).filter((entry) => entry?.label).length };
+}
+
 const MAIN_APP_TAB_IDS = Object.freeze([
   'studioPanel',
   'comicPanel',
@@ -268,7 +341,7 @@ const MAIN_APP_TAB_IDS = Object.freeze([
   'logsPanel'
 ]);
 
-async function verifyMainTabs(client, timeoutMs) {
+async function verifyMainTabs(client, timeoutMs, onTabReady = null) {
   const checked = [];
   for (const tabId of MAIN_APP_TAB_IDS) {
     const state = await waitForEvaluate(client, `(() => {
@@ -286,11 +359,12 @@ async function verifyMainTabs(client, timeoutMs) {
       };
     })()`, timeoutMs, `main tab switch ${tabId}`);
     checked.push(state.tabId);
+    if (onTabReady) await onTabReady(tabId);
   }
   return checked;
 }
 
-async function runLoginFlow(client, opts) {
+async function runLoginFlow(client, opts, captureTabScreenshot = null) {
   await evaluate(client, `(() => {
     const form = document.querySelector('#loginForm');
     if (!form) throw new Error('login form not found before credential submit');
@@ -314,8 +388,18 @@ async function runLoginFlow(client, opts) {
       inlineScripts: document.querySelectorAll('script:not([src])').length
     };
   })()`, opts.timeoutMs, 'authenticated app shell');
-  app.tabsChecked = await verifyMainTabs(client, opts.timeoutMs);
+  app.tabsChecked = await verifyMainTabs(client, opts.timeoutMs, captureTabScreenshot);
   return app;
+}
+
+function screenshotPathInDir(dir, label) {
+  return join(resolve(dir), screenshotFileName(label));
+}
+
+function writeScreenshotManifest(filePath, manifest) {
+  const out = resolve(filePath);
+  ensureParentDir(out);
+  writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 async function runSmoke(opts) {
@@ -346,6 +430,7 @@ async function runSmoke(opts) {
   child.stderr.on('data', (chunk) => { stderr += String(chunk); });
 
   let client;
+  const screenshotEntries = [];
   try {
     await waitForJson(`http://127.0.0.1:${port}/json/version`, opts.timeoutMs);
     client = await newPage(port, opts.timeoutMs);
@@ -365,12 +450,21 @@ async function runSmoke(opts) {
     if (!page.registerHidden) throw new Error('register form should be hidden by default');
     if (page.inlineScripts !== 0) throw new Error(`expected no inline scripts, found ${page.inlineScripts}`);
 
-    if (opts.screenshot) {
-      const shot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-      writeFileSync(resolve(opts.screenshot), Buffer.from(shot.data, 'base64'));
+    if (wantsScreenshots(opts)) {
+      screenshotEntries.push(await captureScreenshotEntry(client, 'login', [
+        opts.screenshot ? resolve(opts.screenshot) : '',
+        opts.screenshotDir ? screenshotPathInDir(opts.screenshotDir, 'login') : ''
+      ]));
     }
 
-    const app = hasLoginCredentials(opts) ? await runLoginFlow(client, opts) : null;
+    const captureTabScreenshot = wantsScreenshots(opts)
+      ? async (tabId) => {
+          screenshotEntries.push(await captureScreenshotEntry(client, `app-${tabId}`, [
+            opts.screenshotDir ? screenshotPathInDir(opts.screenshotDir, `app-${tabId}`) : ''
+          ]));
+        }
+      : null;
+    const app = hasLoginCredentials(opts) ? await runLoginFlow(client, opts, captureTabScreenshot) : null;
     if (app) {
       if (app.path !== '/' && app.path !== '/index.html') throw new Error(`unexpected app path after login: ${app.path}`);
       if (!app.studioActive) throw new Error('studio panel should be active after login');
@@ -380,6 +474,21 @@ async function runSmoke(opts) {
       if (app.tabsChecked.length !== MAIN_APP_TAB_IDS.length) throw new Error(`expected ${MAIN_APP_TAB_IDS.length} checked tabs, found ${app.tabsChecked.length}`);
     }
 
+    if (opts.screenshotManifest) {
+      writeScreenshotManifest(opts.screenshotManifest, {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        browser,
+        baseUrl: opts.baseUrl,
+        authenticated: Boolean(app),
+        screenshots: screenshotEntries
+      });
+    }
+    if (opts.screenshotBaseline) {
+      const baseline = JSON.parse(readFileSync(resolve(opts.screenshotBaseline), 'utf8'));
+      compareScreenshotBaselineEntries(screenshotEntries, baseline);
+    }
+
     console.log(JSON.stringify({
       ok: true,
       browser,
@@ -387,7 +496,13 @@ async function runSmoke(opts) {
       title: page.title,
       authenticated: Boolean(app),
       appTitle: app?.title || '',
-      tabsChecked: app?.tabsChecked || []
+      tabsChecked: app?.tabsChecked || [],
+      screenshots: screenshotEntries.map((entry) => ({
+        label: entry.label,
+        path: entry.path,
+        bytes: entry.bytes,
+        sha256: entry.sha256
+      }))
     }, null, 2));
     return { ok: true };
   } finally {
