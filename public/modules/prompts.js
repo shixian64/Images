@@ -12,9 +12,7 @@ import { copyText } from './clipboard.js';
 import { composePrompt, promptBuilderQualityChecks } from './prompt-builder-model.js';
 import { upsertPromptHistoryEntry } from './prompt-history-model.js';
 import {
-  filterPromptSquareItems,
-  promptSquareSummaryStats,
-  promptSquareTags
+  filterPromptSquareItems
 } from './prompt-square-model.js';
 import { createImagePreviewController } from './image-preview.js';
 import {
@@ -30,6 +28,12 @@ import {
   normalizeTags,
   sourceLabel
 } from './prompt-utils.js';
+import {
+  promptSquareErrorHtml,
+  promptSquareListState,
+  promptSquareSummaryHtml,
+  promptSquareTagCloudHtml
+} from './prompt-square-view.js';
 
 // why：延迟到 mount 阶段再按用户 scope 加载历史，避免 import 期拿到 guest 数据。
 let history = [];
@@ -598,14 +602,7 @@ function renderSquareTagCloud() {
   const cloud = $('promptSquareTagCloud');
   if (!cloud) return;
   const previous = currentSquareTag();
-  const tags = promptSquareTags(squareItems);
-  const selected = previous !== 'all' && tags.includes(previous) ? previous : 'all';
-  cloud.innerHTML = [
-    `<button class="prompt-square-tag ${selected === 'all' ? 'active' : ''}" type="button" data-square-tag="all">所有风格</button>`,
-    ...tags.map((tag) => (
-      `<button class="prompt-square-tag ${selected === tag ? 'active' : ''}" type="button" data-square-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`
-    ))
-  ].join('');
+  cloud.innerHTML = promptSquareTagCloudHtml(squareItems, { selectedTag: previous });
 }
 
 function renderSquareSummary(filtered) {
@@ -613,87 +610,21 @@ function renderSquareSummary(filtered) {
   const count = $('promptSquareCount');
   if (count) count.textContent = String(squareItems.length);
   if (!el) return;
-  const stats = promptSquareSummaryStats(squareItems, getCurrentUserId());
-  el.innerHTML = `
-    <span class="chip">广场共 ${squareItems.length} 条 · 当前显示 ${filtered.length}</span>
-    <span class="chip info">我的公开 ${stats.mine}</span>
-    <span class="chip">累计使用 ${stats.totalUses}</span>
-    <span class="chip pin">风格标签 / 热度排序</span>
-  `;
+  el.innerHTML = promptSquareSummaryHtml(squareItems, filtered, { currentUserId: getCurrentUserId() });
 }
 
 function renderSquareList(filtered, { onUsePrompt } = {}) {
   const list = $('promptSquareList');
   if (!list) return;
 
-  if (squareLoading && !squareLoaded) {
-    list.dataset.empty = 'true';
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">⌁</div>
-        <p>正在加载提示词广场…</p>
-      </div>`;
-    return;
-  }
-
-  if (!filtered.length) {
-    list.dataset.empty = 'true';
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">✦</div>
-        <p>还没有匹配的公开提示词。可以先去“历史提示词管理”公开一条。</p>
-      </div>`;
-    return;
-  }
-
-  list.dataset.empty = 'false';
-  list.innerHTML = filtered.map((item, index) => {
-    const tags = item.tags?.length
-      ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
-      : '<span>未标记</span>';
-    const meta = [
-      item.meta?.sref ? `SREF ${item.meta.sref}` : '',
-      item.meta?.sourceHot ? `来源热度 ${item.meta.sourceHot}` : '',
-      item.meta?.model,
-      item.meta?.size,
-      item.meta?.quality
-    ].filter(Boolean).join(' · ');
-    const mine = item.owner?.id === getCurrentUserId();
-    const previewUrl = Array.isArray(item.meta?.previewImages)
-      ? item.meta.previewImages[0]
-      : item.meta?.previewImage || '';
-    const preview = previewUrl
-      ? `<button class="prompt-square-preview" type="button" data-square-preview="${escapeHtml(previewUrl)}" aria-label="打开 ${escapeHtml(item.title)} 示例图">
-          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(`${item.title} 示例图`)}" loading="lazy" referrerpolicy="no-referrer" />
-        </button>`
-      : '<div class="prompt-square-preview prompt-square-preview-placeholder" aria-hidden="true"><span>暂无示例图</span></div>';
-    return `
-      <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
-        <div class="prompt-square-rank">#${index + 1}</div>
-        <div class="prompt-square-main">
-          <div class="prompt-history-titleline">
-            <strong>${escapeHtml(item.title)}</strong>
-            <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(sourceLabel(item.source))}</span>
-            ${mine ? '<span class="prompt-public">我的公开</span>' : ''}
-          </div>
-          <p>${escapeHtml(item.prompt)}</p>
-          <div class="prompt-history-tags">${tags}</div>
-        </div>
-        <div class="prompt-square-side">
-          <span>作者 ${escapeHtml(item.owner?.username || 'unknown')}</span>
-          <span>发布 ${escapeHtml(formatTime(item.publishedAt))}</span>
-          <span>使用 ${Number(item.useCount) || 0} 次</span>
-          ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
-        </div>
-        ${preview}
-        <div class="prompt-history-buttons">
-          <button data-action="use-square" type="button">使用</button>
-          <button data-action="copy-square" type="button">复制</button>
-          <button data-action="save-square" type="button">保存到历史</button>
-          ${mine ? '<button data-action="unpublish-square" class="danger" type="button">取消公开</button>' : ''}
-        </div>
-      </article>`;
-  }).join('');
+  const view = promptSquareListState(filtered, {
+    currentUserId: getCurrentUserId(),
+    loading: squareLoading,
+    loaded: squareLoaded
+  });
+  list.dataset.empty = view.empty ? 'true' : 'false';
+  list.innerHTML = view.html;
+  if (view.empty) return;
 
   list.onclick = async (ev) => {
     const previewBtn = ev.target.closest('[data-square-preview]');
@@ -779,11 +710,7 @@ async function refreshPromptSquare({ silent = false, onUsePrompt = squareUseProm
     const list = $('promptSquareList');
     if (list) {
       list.dataset.empty = 'true';
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon" aria-hidden="true">!</div>
-          <p>提示词广场加载失败：${escapeHtml(err.message || String(err))}</p>
-        </div>`;
+      list.innerHTML = promptSquareErrorHtml(err);
     }
     if (!silent) setStatus('提示词广场加载失败', 'err', 1800);
   } finally {
