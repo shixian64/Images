@@ -71,6 +71,19 @@ export function quotaDefaultsCardHtml(defaults = null) {
   `;
 }
 
+export function quotaErrorHtml(message = '加载失败') {
+  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+}
+
+export function quotaRowMenuHtml() {
+  return `
+    <button data-act="edit-all">编辑全部字段…</button>
+    <button data-act="reset-today">重置今日用量</button>
+    <button data-act="reset-month">重置本月用量</button>
+    <button data-act="restore" class="danger">恢复为默认</button>
+  `;
+}
+
 export function inlineQuotaCellHtml(userId, field, value) {
   const overridden = value !== null && value !== undefined;
   return `

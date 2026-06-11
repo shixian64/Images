@@ -1,10 +1,12 @@
 // Admin quota management panel.
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import {
   quotaDefaultsCardHtml,
+  quotaErrorHtml,
+  quotaRowMenuHtml,
   quotaTableView
 } from './admin-quota-view.js';
 
@@ -76,7 +78,7 @@ export async function refreshQuota({ silent = false } = {}) {
   } catch (err) {
     setStatus(`加载额度失败：${err?.message || err}`, 'err', 2400);
     const wrap = $('quotaTableWrap');
-    if (wrap) wrap.innerHTML = `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`;
+    if (wrap) wrap.innerHTML = quotaErrorHtml(err?.message || '加载失败');
   }
 }
 
@@ -236,12 +238,7 @@ function openRowMenu(userId, anchor) {
   if (!item) return;
   const menu = document.createElement('div');
   menu.className = 'quota-row-menu';
-  menu.innerHTML = `
-    <button data-act="edit-all">编辑全部字段…</button>
-    <button data-act="reset-today">重置今日用量</button>
-    <button data-act="reset-month">重置本月用量</button>
-    <button data-act="restore" class="danger">恢复为默认</button>
-  `;
+  menu.innerHTML = quotaRowMenuHtml();
   document.body.appendChild(menu);
   const rect = anchor.getBoundingClientRect();
   menu.style.position = 'fixed';

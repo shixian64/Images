@@ -6,8 +6,10 @@ import {
   formatQuotaStorageMb,
   inlineQuotaCellHtml,
   quotaDefaultsCardHtml,
+  quotaErrorHtml,
   quotaMiniBar,
   quotaPct,
+  quotaRowMenuHtml,
   quotaStatusLabel,
   quotaStorageMiniBar,
   quotaTableRowHtml,
@@ -48,6 +50,18 @@ test('admin quota view renders escaped defaults and inline inputs', () => {
   assert.match(cell, /value="2&quot;&gt;&lt;bad&gt;"/);
   assert.match(cell, /overridden/);
   assert.doesNotMatch(cell, /<bad>/);
+});
+
+test('admin quota view renders escaped errors and row menu actions', () => {
+  const error = quotaErrorHtml('failed <script>alert(1)</script>');
+  assert.match(error, /failed &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(error, /<script>/);
+
+  const menu = quotaRowMenuHtml();
+  assert.match(menu, /data-act="edit-all"/);
+  assert.match(menu, /data-act="reset-today"/);
+  assert.match(menu, /data-act="reset-month"/);
+  assert.match(menu, /data-act="restore" class="danger"/);
 });
 
 test('admin quota view renders empty table state', () => {
