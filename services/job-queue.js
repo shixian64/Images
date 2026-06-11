@@ -106,6 +106,41 @@ function compactJobResult(job, body = {}) {
   return isComicStoryboardPayload(job?.payload) ? (body || {}) : compactGenerationResult(body);
 }
 
+function isRestartRecoverableJob(job) {
+  return job?.payload?.useSystemDefault === true || job?.payload?.interfaceMode === 'system';
+}
+
+function cleanupRecoveredFailedJob(job) {
+  if (!job?.id) return;
+  cleanupReferenceJobFiles(job.id).catch((err) => {
+    logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
+  });
+}
+
+function recoverRunningJobsOnStartup() {
+  const running = generationJobs.listAll({ limit: 10000, status: 'running' });
+  const result = { failed: 0, requeued: 0 };
+  for (const job of running) {
+    if (isRestartRecoverableJob(job)) {
+      const requeued = generationJobs.resetForRetry(job.id, { priority: job.priority });
+      if (requeued) result.requeued += 1;
+      continue;
+    }
+
+    const failed = generationJobs.updateStatus(job.id, 'failed', {
+      finishedAt: Date.now(),
+      errorMessage: 'server_restart',
+      progress: { stage: 'failed', message: '服务已重启，运行中的个人接口任务无法恢复' }
+    });
+    if (failed) {
+      result.failed += 1;
+      cleanupRecoveredFailedJob(failed);
+      syncComicProjectStatusForJob(failed);
+    }
+  }
+  return result;
+}
+
 export async function enqueueImageGeneration(body, userInfo) {
   if (!userInfo?.id) throw httpError(401, 'unauthorized');
   const freshUser = users.findById(userInfo.id) || userInfo;
@@ -514,15 +549,11 @@ export function startJobQueue() {
   if (started) return;
   started = true;
   stopped = false;
-  const recoveringComicJobs = generationJobs
-    .listAll({ limit: 10000, status: 'running' })
-    .filter((job) => job?.payload?.comicProjectId);
-  const recovered = generationJobs.recoverRunningAsFailed('server_restart');
-  for (const job of recoveringComicJobs) {
-    syncComicProjectStatusForJob({ ...job, status: 'failed' });
+  const recovered = recoverRunningJobsOnStartup();
+  if (recovered.failed || recovered.requeued) {
+    logger.warn('job.recovered_running_on_startup', recovered);
   }
-  if (recovered) logger.warn('job.recovered_running_as_failed', { recovered });
-  cleanupExpiredReferenceJobFiles(recovered ? { ttlMs: 0 } : undefined).then((removed) => {
+  cleanupExpiredReferenceJobFiles().then((removed) => {
     if (removed) logger.info('job.reference_cleanup_expired', { removed });
   }).catch((err) => {
     logger.warn('job.reference_cleanup_expired_failed', { error: err?.message || String(err) });

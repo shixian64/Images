@@ -70,7 +70,7 @@
 | PATCH/POST | `/api/admin/jobs/:id/priority` | 管理员 | 调整任务优先级。 |
 | GET | `/api/admin/jobs/stream` | 管理员 | 订阅管理员任务 SSE。 |
 
-队列当前运行边界：SQLite 持久化 + 单 Node 进程调度。系统默认接口任务可在重启后继续排队执行；个人覆盖 Key 只在当前进程内存中存在，重启后需要用户重新提交。
+队列当前运行边界：SQLite 持久化 + 单 Node 进程调度。系统默认接口的 queued / stale running 任务可在重启后继续排队执行；个人覆盖 Key 只在当前进程内存中存在，queued / running 任务在重启后需要用户重新提交。
 
 ## 图库
 

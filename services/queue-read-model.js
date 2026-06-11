@@ -7,7 +7,7 @@ const RUNTIME_INFO = Object.freeze({
   distributed: false,
   volatileSecrets: true,
   restartPolicy: Object.freeze({
-    running: 'mark_failed',
+    running: 'recover_system_default_or_mark_failed',
     systemQueued: 'resume_from_sqlite',
     customQueued: 'requires_same_node_process_secret'
   }),

@@ -440,8 +440,8 @@ test('system jobs with gallery references can be retried after staged files were
   jobQueue.cancelJob(job.id, u);
 });
 
-test('startup recovery marks stale running jobs as failed', async () => {
-  const u = user('recover_running');
+test('startup recovery marks custom-interface running jobs as failed', async () => {
+  const u = user('recover_custom_running');
   const job = await jobQueue.enqueueImageGeneration(payload(1), u);
   db.generationJobs.updateStatus(job.id, 'running', { startedAt: Date.now(), attempts: 1 });
   const recoveredDir = join(workDir, 'generated', 'tmp', 'jobs', job.id, 'references');
@@ -457,6 +457,34 @@ test('startup recovery marks stale running jobs as failed', async () => {
   assert.equal(cleaned, true);
   jobQueue.stopJobQueue();
   jobQueue.setQueueSettings({ maintenance_mode: false });
+});
+
+test('startup recovery requeues system-default running jobs', async () => {
+  const u = user('recover_system_running');
+  const job = await jobQueue.enqueueImageGeneration(systemPayload(1), u);
+  db.generationJobs.updateStatus(job.id, 'running', {
+    startedAt: Date.now(),
+    attempts: 2,
+    progress: { stage: 'upstream', message: 'in flight before restart' }
+  });
+  const recoveredDir = join(workDir, 'generated', 'tmp', 'jobs', job.id, 'references');
+  mkdirSync(recoveredDir, { recursive: true });
+  writeFileSync(join(recoveredDir, 'reference.png'), 'running');
+
+  try {
+    jobQueue.setQueueSettings({ maintenance_mode: true });
+    jobQueue.startJobQueue();
+    const recovered = jobQueue.getJobForUser(job.id, u);
+    assert.equal(recovered.status, 'queued');
+    assert.equal(recovered.error, '');
+    assert.equal(recovered.attempts, 0);
+    assert.equal(recovered.progress, null);
+    assert.equal(existsSync(recoveredDir), true);
+    jobQueue.cancelJob(job.id, u);
+  } finally {
+    jobQueue.stopJobQueue();
+    jobQueue.setQueueSettings({ maintenance_mode: false });
+  }
 });
 
 test('stopJobQueue immediately marks active running jobs as failed', async () => {
@@ -501,7 +529,7 @@ test('queue stats expose single-process runtime boundary', () => {
   assert.equal(stats.runtime.backend, 'sqlite-single-process');
   assert.equal(stats.runtime.distributed, false);
   assert.equal(stats.runtime.volatileSecrets, true);
-  assert.equal(stats.runtime.restartPolicy.running, 'mark_failed');
+  assert.equal(stats.runtime.restartPolicy.running, 'recover_system_default_or_mark_failed');
 });
 
 test('queue stats aggregate all jobs beyond admin list limits', () => {
