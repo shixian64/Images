@@ -1,13 +1,21 @@
-// 主题切换：system → light → dark → system
-// 对应 §5.1 深色模式一等公民。
+// Theme toggle: system → light → dark → system.
+// Corresponds to the first-class dark mode design.
 
 import { $ } from './dom.js';
+import { t } from './i18n.js';
 import { KEYS, readString, writeString } from './state.js';
 
-// 顺序决定点击切换的路径；第一个也是无存储时的默认（浅色）。
+// Click order; the first item is also the default when storage is empty.
 const ORDER = ['light', 'dark', 'system'];
 const ICONS = { system: '◐', light: '☀', dark: '☾' };
-const LABELS = { system: '跟随系统', light: '浅色', dark: '深色' };
+
+export function themeModeLabel(mode) {
+  return t(`theme.mode.${mode}`, {}, String(mode || ''));
+}
+
+export function themeToggleTitle(mode) {
+  return t('theme.toggle.title', { mode: themeModeLabel(mode) });
+}
 
 function apply(mode) {
   if (mode === 'system') {
@@ -18,7 +26,7 @@ function apply(mode) {
   const icon = document.querySelector('[data-theme-icon]');
   if (icon) icon.textContent = ICONS[mode] || ICONS.system;
   const btn = $('themeToggle');
-  if (btn) btn.title = `主题：${LABELS[mode] || mode}（点击切换）`;
+  if (btn) btn.title = themeToggleTitle(mode);
 }
 
 export function mountTheme() {
