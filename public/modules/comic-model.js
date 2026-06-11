@@ -199,6 +199,97 @@ export function ensureStoryboardPageStoryboards(value) {
   return value;
 }
 
+function entriesOf(value) {
+  if (!value) return [];
+  if (value instanceof Map) return Array.from(value.entries());
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object') return Object.entries(value);
+  return [];
+}
+
+function editorIndex(value) {
+  const index = Number(value);
+  return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+function hasEditorValue(value, index) {
+  if (!value) return false;
+  if (value instanceof Map) return value.has(index);
+  if (Array.isArray(value)) return value.some(([key]) => editorIndex(key) === index);
+  if (typeof value === 'object') return Object.hasOwn(value, index) || Object.hasOwn(value, String(index));
+  return false;
+}
+
+function getEditorValue(value, index) {
+  if (!value) return undefined;
+  if (value instanceof Map) return value.get(index);
+  if (Array.isArray(value)) {
+    const pair = value.find(([key]) => editorIndex(key) === index);
+    return pair?.[1];
+  }
+  if (typeof value === 'object') return value[index] ?? value[String(index)];
+  return undefined;
+}
+
+export function applyStoryboardEditorUpdates(value, {
+  panelPrompts = null,
+  pageStoryboards = null,
+  pagePanelCounts = null,
+  pageContents = null
+} = {}) {
+  if (!Array.isArray(value?.panels)) return value;
+
+  for (const [key, prompt] of entriesOf(panelPrompts)) {
+    const index = editorIndex(key);
+    if (index === null || !value.panels[index]) continue;
+    value.panels[index].imagePrompt = String(prompt || '').trim();
+  }
+
+  const pageIndexes = new Set();
+  for (const source of [pageStoryboards, pagePanelCounts, pageContents]) {
+    for (const [key] of entriesOf(source)) {
+      const index = editorIndex(key);
+      if (index !== null && value.panels[index]) pageIndexes.add(index);
+    }
+  }
+
+  for (const index of pageIndexes) {
+    const panel = value.panels[index];
+    if (!panel) continue;
+    const hasPageStoryboard = hasEditorValue(pageStoryboards, index);
+    const hasPagePanelCount = hasEditorValue(pagePanelCounts, index);
+    const hasPageContent = hasEditorValue(pageContents, index);
+    const rawStoryboard = hasPageStoryboard
+      ? getEditorValue(pageStoryboards, index)
+      : panel.pageStoryboard;
+    if (!rawStoryboard && !hasPagePanelCount && !hasPageContent) {
+      delete panel.pageStoryboard;
+      continue;
+    }
+
+    let pageStoryboard = normalizeComicPageStoryboard(rawStoryboard, index)
+      || normalizedOrFallbackPageStoryboard(panel, index);
+    if (hasPagePanelCount) {
+      pageStoryboard.panelCount = clampComicPagePanelCount(getEditorValue(pagePanelCounts, index));
+    }
+    if (hasPageContent) {
+      pageStoryboard.content = String(getEditorValue(pageContents, index) || '').trim();
+    }
+    if (hasPagePanelCount || hasPageContent) {
+      pageStoryboard.subPanels = resizePageSubPanels(
+        pageStoryboard,
+        pageStoryboard.panelCount,
+        pageStoryboard.content
+      );
+    }
+    panel.pageStoryboard = pageStoryboard;
+  }
+
+  value.pageCount = value.panels.length;
+  value.pageStoryboardEnabled = true;
+  return value;
+}
+
 export function pageStoryboardEditorEnabled(value) {
   return Array.isArray(value?.panels) && value.panels.length > 0;
 }

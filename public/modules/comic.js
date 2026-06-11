@@ -23,11 +23,11 @@ import {
   clampComicPagePanelCount,
   comicReferenceSpecs,
   comicStyleOptions,
-  getComicStyleTemplate,
-  normalizeComicPageStoryboard
+  getComicStyleTemplate
 } from '../../shared/comic-workflow.js';
 import {
   ACTIVE_JOB_STATUSES,
+  applyStoryboardEditorUpdates,
   FINAL_STATUSES,
   decodeEditorOriginalValue,
   encodeEditorOriginalValue,
@@ -44,7 +44,6 @@ import {
   pageStoryboardEditorValue,
   pageStoryboardPanelCountEditorValue,
   parsePageStoryboardEditorValue,
-  resizePageSubPanels,
   totalPagePanelCount
 } from './comic-model.js';
 
@@ -373,15 +372,16 @@ function renderComicResults() {
 
 function syncStoryboardFromEditors() {
   if (!storyboard?.panels) return;
-  document.querySelectorAll('[data-comic-panel-prompt]').forEach((el) => {
-    const index = Number(el.dataset.comicPanelPrompt);
-    if (!Number.isInteger(index) || !storyboard.panels[index]) return;
-    storyboard.panels[index].imagePrompt = el.value.trim();
-  });
-
+  const panelPrompts = new Map();
   const pageStoryboardByIndex = new Map();
   const pagePanelCountByIndex = new Map();
   const pageContentByIndex = new Map();
+
+  document.querySelectorAll('[data-comic-panel-prompt]').forEach((el) => {
+    const index = Number(el.dataset.comicPanelPrompt);
+    if (!Number.isInteger(index) || !storyboard.panels[index]) return;
+    panelPrompts.set(index, el.value);
+  });
 
   document.querySelectorAll('[data-comic-page-storyboard]').forEach((el) => {
     const index = Number(el.dataset.comicPageStoryboard);
@@ -405,42 +405,12 @@ function syncStoryboardFromEditors() {
     if (nextContent !== originalContent) pageContentByIndex.set(index, nextContent);
   });
 
-  const pageIndexes = new Set([
-    ...pageStoryboardByIndex.keys(),
-    ...pagePanelCountByIndex.keys(),
-    ...pageContentByIndex.keys()
-  ]);
-  pageIndexes.forEach((index) => {
-    const panel = storyboard.panels[index];
-    if (!panel) return;
-    const rawStoryboard = pageStoryboardByIndex.has(index)
-      ? pageStoryboardByIndex.get(index)
-      : panel.pageStoryboard;
-    if (!rawStoryboard && !pagePanelCountByIndex.has(index) && !pageContentByIndex.has(index)) {
-      delete panel.pageStoryboard;
-      return;
-    }
-
-    let pageStoryboard = normalizeComicPageStoryboard(rawStoryboard, index)
-      || normalizedOrFallbackPageStoryboard(panel, index);
-    if (pagePanelCountByIndex.has(index)) {
-      pageStoryboard.panelCount = pagePanelCountByIndex.get(index);
-    }
-    if (pageContentByIndex.has(index)) {
-      pageStoryboard.content = pageContentByIndex.get(index);
-    }
-    if (pagePanelCountByIndex.has(index) || pageContentByIndex.has(index)) {
-      pageStoryboard.subPanels = resizePageSubPanels(
-        pageStoryboard,
-        pageStoryboard.panelCount,
-        pageStoryboard.content
-      );
-    }
-    panel.pageStoryboard = pageStoryboard;
+  applyStoryboardEditorUpdates(storyboard, {
+    panelPrompts,
+    pageStoryboards: pageStoryboardByIndex,
+    pagePanelCounts: pagePanelCountByIndex,
+    pageContents: pageContentByIndex
   });
-
-  storyboard.pageCount = storyboard.panels.length;
-  storyboard.pageStoryboardEnabled = true;
 }
 
 function resolveProfileConfig(kind) {

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   ACTIVE_JOB_STATUSES,
+  applyStoryboardEditorUpdates,
   decodeEditorOriginalValue,
   encodeEditorOriginalValue,
   ensureStoryboardPageStoryboards,
@@ -90,4 +91,42 @@ test('comic model fills missing page storyboards and counts inner panels', () =>
   assert.equal(storyboard.pageCount, 2);
   assert.equal(storyboard.panels[0].pageStoryboard.panelCount, 1);
   assert.equal(totalPagePanelCount(storyboard), 3);
+});
+
+test('comic model applies storyboard editor updates', () => {
+  const storyboard = {
+    panels: [
+      {
+        beat: '第一页',
+        imagePrompt: '旧提示',
+        pageStoryboard: {
+          layoutType: '单格',
+          content: '旧内容',
+          panelCount: 1,
+          subPanels: [{ id: 'A', content: '旧内容' }]
+        }
+      },
+      {
+        beat: '第二页',
+        imagePrompt: '旧提示 2'
+      }
+    ]
+  };
+
+  applyStoryboardEditorUpdates(storyboard, {
+    panelPrompts: new Map([[0, '  新提示  ']]),
+    pagePanelCounts: new Map([[0, 2]]),
+    pageContents: new Map([[0, 'A 新内容\nB 新内容']]),
+    pageStoryboards: new Map([[1, null]])
+  });
+
+  assert.equal(storyboard.panels[0].imagePrompt, '新提示');
+  assert.equal(storyboard.panels[0].pageStoryboard.panelCount, 2);
+  assert.deepEqual(
+    storyboard.panels[0].pageStoryboard.subPanels.map((item) => item.content),
+    ['A 新内容', 'B 新内容']
+  );
+  assert.equal(storyboard.panels[1].pageStoryboard, undefined);
+  assert.equal(storyboard.pageCount, 2);
+  assert.equal(storyboard.pageStoryboardEnabled, true);
 });
