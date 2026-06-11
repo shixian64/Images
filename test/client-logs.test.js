@@ -198,6 +198,41 @@ test('client logs treat prototype-looking metadata keys as data', () => {
   assert.equal({}.polluted, undefined);
 });
 
+test('client log list responses cap oversized metadata previews', () => {
+  const user = auth.register({
+    username: 'log_large_meta_user',
+    email: 'log_large_meta_user@example.com',
+    password: 'longenough1'
+  });
+
+  const largeMeta = {
+    marker: 'client-log-list-budget-start',
+    blob: 'x'.repeat(clientLogService.CLIENT_LOG_LIST_META_MAX_JSON_CHARS + 1200),
+    tail: 'client-log-list-budget-end'
+  };
+  const result = clientLogService.recordClientLogs(reqFor(user), {
+    items: [{
+      id: 'local-log-large-meta',
+      level: 'warn',
+      message: 'large metadata for list budget',
+      meta: largeMeta
+    }]
+  });
+  assert.equal(result.inserted, 1);
+
+  const [row] = clientLogService.listClientLogsForAdmin({
+    userId: user.id,
+    search: 'large metadata for list budget',
+    limit: 5
+  });
+  assert.equal(row.metaTruncated, true);
+  assert.ok(row.metaLength > clientLogService.CLIENT_LOG_LIST_META_MAX_JSON_CHARS);
+  assert.equal(row.meta.originalJsonChars, row.metaLength);
+  assert.ok(JSON.stringify(row.meta).length <= clientLogService.CLIENT_LOG_LIST_META_MAX_JSON_CHARS);
+  assert.match(row.meta.preview, /client-log-list-budget-start/);
+  assert.doesNotMatch(row.meta.preview, /client-log-list-budget-end/);
+});
+
 test('client log route rate limits ingestion before accepting another batch', async (t) => {
   const prevMax = process.env.CLIENT_LOG_RATE_LIMIT_MAX_PER_MINUTE;
   const prevWindow = process.env.CLIENT_LOG_RATE_LIMIT_WINDOW_MS;

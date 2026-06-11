@@ -125,7 +125,7 @@ Prompt Square `meta.previewImages` 仅保留本地提示词示例图路径或无
 | POST/DELETE | `/api/admin/registration/invites/:code` | 管理员 | 停用邀请码。 |
 | POST/DELETE | `/api/admin/registration/redemptions/cleanup` | 管理员 | 清理邀请码兑换记录，可选同步停用未使用旧邀请码。 |
 | POST | `/api/client-logs` | 登录 | 同步前端客户端日志批次；服务端按用户和 IP 限流。 |
-| GET | `/api/admin/client-logs` | 管理员 | 查询前端同步的客户端日志。 |
+| GET | `/api/admin/client-logs` | 管理员 | 查询前端同步的客户端日志；列表响应会按预算裁剪超大 `meta`，并返回 `metaLength` / `metaTruncated` 标识。 |
 
 ## 常见错误码
 

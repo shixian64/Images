@@ -6,11 +6,13 @@ import { randomUUID } from 'node:crypto';
 import { clientLogs } from './db.js';
 import { clientIp, userAgent } from '../utils/request.js';
 import { redactSecrets } from '../utils/mask.js';
+import { compactJsonValueForBudget } from '../utils/json-budget.js';
 
 const VALID_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 const MAX_BATCH = 100;
 const MAX_MESSAGE_CHARS = 1200;
 const MAX_META_JSON_CHARS = 20_000;
+export const CLIENT_LOG_LIST_META_MAX_JSON_CHARS = 4_000;
 const MAX_TEXT_CHARS = 4000;
 const MAX_DEPTH = 6;
 const REDACTED = '[redacted]';
@@ -91,6 +93,25 @@ function metaWithTraceId(meta, traceId) {
   return { value: meta, traceId };
 }
 
+function capMetaForList(row) {
+  if (!row || row.meta === undefined || row.meta === null) {
+    return { ...row, metaLength: 0, metaTruncated: false };
+  }
+  const json = JSON.stringify(row.meta);
+  if (json.length <= CLIENT_LOG_LIST_META_MAX_JSON_CHARS) {
+    return { ...row, metaLength: json.length, metaTruncated: false };
+  }
+  return {
+    ...row,
+    meta: compactJsonValueForBudget(json, {
+      maxJsonChars: CLIENT_LOG_LIST_META_MAX_JSON_CHARS,
+      alreadyJson: true
+    }),
+    metaLength: json.length,
+    metaTruncated: true
+  };
+}
+
 function normalizeLogItem(raw = {}) {
   const context = raw.context && typeof raw.context === 'object' ? raw.context : {};
   const clientId = safeText(raw.clientId || raw.id || '', 160) || null;
@@ -142,7 +163,7 @@ export function listClientLogsForUser(userId, { limit = 100, level = '', search 
     limit: clampLimit(limit, 100, 500),
     level: VALID_LEVELS.has(String(level || '').toLowerCase()) ? String(level).toLowerCase() : '',
     search: truncate(search || '', 200)
-  });
+  }).map(capMetaForList);
 }
 
 export function listClientLogsForAdmin({ limit = 300, userId = '', level = '', search = '' } = {}) {
@@ -151,5 +172,5 @@ export function listClientLogsForAdmin({ limit = 300, userId = '', level = '', s
     userId: truncate(userId || '', 160),
     level: VALID_LEVELS.has(String(level || '').toLowerCase()) ? String(level).toLowerCase() : '',
     search: truncate(search || '', 200)
-  });
+  }).map(capMetaForList);
 }
