@@ -20,6 +20,8 @@ export function parseArgs(argv = []) {
     headed: boolEnv('E2E_HEADED'),
     skipIfMissing: boolEnv('E2E_SKIP_IF_BROWSER_MISSING'),
     screenshot: process.env.E2E_SCREENSHOT || '',
+    username: process.env.E2E_USERNAME || '',
+    password: process.env.E2E_PASSWORD || '',
     timeoutMs: Number(process.env.E2E_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -34,6 +36,10 @@ export function parseArgs(argv = []) {
       out.browser = argv[++i] || out.browser;
     } else if (arg === '--screenshot') {
       out.screenshot = argv[++i] || out.screenshot;
+    } else if (arg === '--username') {
+      out.username = argv[++i] || out.username;
+    } else if (arg === '--password') {
+      out.password = argv[++i] || out.password;
     } else if (arg === '--timeout-ms') {
       out.timeoutMs = Number(argv[++i]) || out.timeoutMs;
     } else if (arg === '--help' || arg === '-h') {
@@ -90,6 +96,7 @@ function printHelp() {
   npm run e2e:smoke -- [--base-url http://127.0.0.1:8787] [--browser chrome.exe] [--headed] [--screenshot out.png]
 
 Runs a dependency-light real-browser smoke test against an already running Image Studio server.
+Set E2E_USERNAME and E2E_PASSWORD, or pass --username/--password, to also verify login and the main app shell.
 Set E2E_SKIP_IF_BROWSER_MISSING=1 or pass --skip-if-missing to make missing Chrome/Edge a skip instead of a failure.`);
 }
 
@@ -227,10 +234,55 @@ async function evaluate(client, expression) {
   return result.result?.value;
 }
 
+async function waitForEvaluate(client, expression, timeoutMs, label = 'browser condition') {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const value = await evaluate(client, expression);
+      if (value) return value;
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+  throw lastError || new Error(`timed out waiting for ${label}`);
+}
+
 async function navigate(client, url, timeoutMs) {
   const loaded = client.waitFor('Page.loadEventFired', timeoutMs);
   await client.send('Page.navigate', { url });
   await loaded;
+}
+
+function hasLoginCredentials(opts = {}) {
+  return Boolean(opts.username && opts.password);
+}
+
+async function runLoginFlow(client, opts) {
+  await evaluate(client, `(() => {
+    const form = document.querySelector('#loginForm');
+    if (!form) throw new Error('login form not found before credential submit');
+    form.querySelector('[name="login"]').value = ${JSON.stringify(opts.username)};
+    form.querySelector('[name="password"]').value = ${JSON.stringify(opts.password)};
+    form.requestSubmit();
+    return true;
+  })()`);
+
+  return waitForEvaluate(client, `(() => {
+    const error = document.querySelector('#authError:not([hidden])')?.textContent?.trim();
+    if (error) throw new Error('login failed: ' + error);
+    const appReady = Boolean(document.querySelector('#studioPanel.active') && document.querySelector('#prompt') && document.querySelector('#userMenu'));
+    if (!appReady) return null;
+    return {
+      path: location.pathname,
+      title: document.title,
+      studioActive: Boolean(document.querySelector('#studioPanel.active')),
+      tabCount: document.querySelectorAll('[data-tab]').length,
+      promptField: Boolean(document.querySelector('#prompt')),
+      inlineScripts: document.querySelectorAll('script:not([src])').length
+    };
+  })()`, opts.timeoutMs, 'authenticated app shell');
 }
 
 async function runSmoke(opts) {
@@ -280,11 +332,27 @@ async function runSmoke(opts) {
     if (!page.registerHidden) throw new Error('register form should be hidden by default');
     if (page.inlineScripts !== 0) throw new Error(`expected no inline scripts, found ${page.inlineScripts}`);
 
+    const app = hasLoginCredentials(opts) ? await runLoginFlow(client, opts) : null;
+    if (app) {
+      if (app.path !== '/' && app.path !== '/index.html') throw new Error(`unexpected app path after login: ${app.path}`);
+      if (!app.studioActive) throw new Error('studio panel should be active after login');
+      if (!app.promptField) throw new Error('main prompt field not found after login');
+      if (app.tabCount < 4) throw new Error(`expected main navigation tabs after login, found ${app.tabCount}`);
+      if (app.inlineScripts !== 0) throw new Error(`expected no inline scripts in app shell, found ${app.inlineScripts}`);
+    }
+
     if (opts.screenshot) {
       const shot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       writeFileSync(resolve(opts.screenshot), Buffer.from(shot.data, 'base64'));
     }
-    console.log(JSON.stringify({ ok: true, browser, baseUrl: opts.baseUrl, title: page.title }, null, 2));
+    console.log(JSON.stringify({
+      ok: true,
+      browser,
+      baseUrl: opts.baseUrl,
+      title: page.title,
+      authenticated: Boolean(app),
+      appTitle: app?.title || ''
+    }, null, 2));
     return { ok: true };
   } finally {
     client?.close();

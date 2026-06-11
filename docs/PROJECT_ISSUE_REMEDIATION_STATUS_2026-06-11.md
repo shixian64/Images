@@ -59,7 +59,7 @@
 | 69 | 部分闭环 | 审计日志 metadata 与 generation job result / progress 已复用统一 JSON budget helper；client logs 也已有接入预算；Prompt Square 列表只返回裁剪后的 prompt 预览，漫画项目列表只返回故事 / 分镜预览且详情接口保留完整内容；系统配置脱敏导出会裁剪超大 value，含密钥的可恢复导出保持完整。剩余零散 JSON 响应仍需持续梳理。 |
 | 80 | 部分闭环 | 已建立前端 `i18n` / locale 基础模块，支持消息 key、插值、日期 / 数字 / 时长格式化，并接入队列管理视图的状态 / 时长文案与图库漫画项目状态 / 进度文案；大量既有页面文案仍需逐步迁移。 |
 | 86、87 | 部分闭环 | CI 已有 Windows、`check:js`、coverage；尚无完整 lint / typecheck / 容器矩阵。 |
-| 89 | 部分闭环 | 已新增无第三方依赖的真实浏览器 smoke：`npm run e2e:smoke` 会通过 Chrome / Edge / Chromium DevTools 打开 `/login.html` 并验证真实 DOM；`docs/E2E.md` 记录运行方式。仍缺登录态主流程覆盖、截图基线与视觉 diff。 |
+| 89 | 部分闭环 | 已新增无第三方依赖的真实浏览器 smoke：`npm run e2e:smoke` 会通过 Chrome / Edge / Chromium DevTools 打开 `/login.html` 并验证真实 DOM；设置 `E2E_USERNAME` / `E2E_PASSWORD` 后还会提交真实登录表单并校验主应用 shell；`docs/E2E.md` 记录运行方式。仍缺主要 tab 切换、截图基线与视觉 diff。 |
 | 92 | 部分闭环 | 已有 Node 运行时预检与测试，但依赖 `node:sqlite` experimental 的根风险仍存在。 |
 
 ## 仍未完成或属于架构 / 产品化决策的问题
@@ -74,6 +74,7 @@
 - `node --experimental-sqlite --test test\health.test.js`
 - `node --experimental-sqlite --test test\comic-projects.test.js`
 - `node --experimental-sqlite --test test\gallery-view.test.js test\i18n.test.js`
+- `node --experimental-sqlite --test test\e2e-smoke-script.test.js`
 - `git diff --check`
 - `npm test`
 - 建议后续继续按“一个问题 / 一类问题一个提交”的方式推进，并在关闭目标前逐项复核原始 95 项与当前代码 / 测试证据。

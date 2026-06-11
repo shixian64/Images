@@ -13,6 +13,8 @@ test('e2e smoke args use stable defaults and CLI overrides', () => {
     '--browser', 'chrome',
     '--headed',
     '--screenshot', 'out.png',
+    '--username', 'alice',
+    '--password', 'secret-password',
     '--timeout-ms', '3000',
     '--skip-if-missing'
   ]);
@@ -21,6 +23,8 @@ test('e2e smoke args use stable defaults and CLI overrides', () => {
   assert.equal(opts.browser, 'chrome');
   assert.equal(opts.headed, true);
   assert.equal(opts.screenshot, 'out.png');
+  assert.equal(opts.username, 'alice');
+  assert.equal(opts.password, 'secret-password');
   assert.equal(opts.timeoutMs, 3000);
   assert.equal(opts.skipIfMissing, true);
 });
