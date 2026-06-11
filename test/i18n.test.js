@@ -30,6 +30,7 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('admin.users.pager.info', { page: 2, totalPages: 3, pageSize: 50 }), 'Page 2 / 3 · 50 per page');
   assert.equal(t('admin.jobs.summary.successRate', { rate: '88%' }), 'Success rate 88%');
   assert.equal(t('jobs.queued.position', { count: 2 }), '2 ahead');
+  assert.equal(t('profiles.test.failed', { error: 'boom' }), 'Failed · boom');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');
   assert.equal(t('missing.key', {}, 'Fallback {name}'), 'Fallback ');
   assert.equal(t('missing.key', { name: 'Alice' }, 'Fallback {name}'), 'Fallback Alice');

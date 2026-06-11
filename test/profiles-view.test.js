@@ -8,8 +8,10 @@ import {
   profileSummaryHtml,
   systemDefaultCardHtml
 } from '../public/modules/profiles-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('profiles view formats key and endpoint test status', () => {
+  setLocale('zh-CN');
   assert.equal(profileKeyStatus({ hasApiKey: true }), '已配置');
   assert.equal(profileKeyStatus({ hasApiKey: false }), '未配置');
   assert.equal(profileKeyStatus({}), '读取中');
@@ -21,6 +23,7 @@ test('profiles view formats key and endpoint test status', () => {
 });
 
 test('profiles view renders escaped system default card', () => {
+  setLocale('zh-CN');
   const html = systemDefaultCardHtml({ name: '<system>', status: 'paused' }, {
     image: { baseUrl: 'https://image.test/?q=<bad>', defaultModel: 'img"><x>', hasApiKey: true },
     chat: { baseUrl: 'https://chat.test/?q=<bad>', defaultModel: 'chat"><x>', hasApiKey: false },
@@ -43,6 +46,7 @@ test('profiles view renders escaped system default card', () => {
 });
 
 test('profiles view renders escaped profile list', () => {
+  setLocale('zh-CN');
   const html = profileListHtml([
     { id: 'p"><script>', name: '<profile>' },
     { id: 'p2', name: 'Other' }
@@ -55,6 +59,7 @@ test('profiles view renders escaped profile list', () => {
 });
 
 test('profiles view renders escaped summary and masks custom keys', () => {
+  setLocale('zh-CN');
   const systemHtml = profileSummaryHtml([
     { status: 'active' },
     { status: 'draft' }
@@ -86,4 +91,47 @@ test('profiles view renders escaped summary and masks custom keys', () => {
   assert.match(customHtml, /sk-c••••cret/);
   assert.doesNotMatch(customHtml, /sk-image-secret/);
   assert.doesNotMatch(customHtml, /sk-chat-secret/);
+});
+
+test('profiles view uses locale messages for system and summary chrome', () => {
+  setLocale('en-US');
+
+  assert.equal(profileKeyStatus({ hasApiKey: true }), 'Configured');
+  assert.equal(profileKeyStatus({ hasApiKey: false }), 'Not configured');
+  assert.equal(profileKeyStatus({}), 'Loading');
+  assert.deepEqual(endpointTestResultView({ testStatus: 'unknown' }), { state: 'idle', text: 'Not tested' });
+  assert.deepEqual(endpointTestResultView({ testStatus: 'busy' }), { state: 'busy', text: 'Testing…' });
+  assert.deepEqual(endpointTestResultView({ testStatus: 'err' }), { state: 'err', text: 'Failed · Unknown error' });
+
+  const card = systemDefaultCardHtml({}, {
+    image: { baseUrl: 'https://image.test', defaultModel: 'img', hasApiKey: true },
+    chat: { baseUrl: 'https://chat.test', defaultModel: 'chat', hasApiKey: false },
+    systemMode: true,
+    loaded: false
+  });
+  assert.match(card, /System default interface/);
+  assert.match(card, /Disabled/);
+  assert.match(card, /Loading…/);
+  assert.match(card, /Currently active/);
+  assert.match(card, />Image<\/span>/);
+  assert.match(card, />Chat<\/span>/);
+  assert.match(card, /Configured/);
+  assert.match(card, /Not configured/);
+
+  assert.match(profileListHtml([{ id: 'p1' }]), /Untitled/);
+
+  const summary = profileSummaryHtml([{ status: 'active' }], {
+    effectiveProfile: {},
+    image: { defaultModel: 'img', hasApiKey: true },
+    chat: { defaultModel: 'chat', hasApiKey: false },
+    systemMode: false
+  });
+  assert.match(summary, /Effective mode<\/span><strong>Personal override/);
+  assert.match(summary, /Personal interfaces<\/span><strong>1/);
+  assert.match(summary, /Enabled interfaces<\/span><strong>1/);
+  assert.match(summary, /Current interface<\/span><strong>Untitled/);
+  assert.match(summary, /Image model/);
+  assert.match(summary, /Chat key/);
+
+  setLocale('zh-CN');
 });
