@@ -12,8 +12,10 @@ import {
   adminClientLogUserOptionsHtml,
   formatAdminClientLogTime
 } from '../public/modules/admin-client-logs-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('admin client logs view formats labels and filter options', () => {
+  setLocale('zh-CN');
   assert.equal(formatAdminClientLogTime('not-a-date'), '-');
   assert.equal(adminClientLogShortId('abcdefghi'), 'abcdefgh');
   assert.equal(adminClientLogShortId(''), '-');
@@ -40,6 +42,7 @@ test('admin client logs view formats labels and filter options', () => {
 });
 
 test('admin client logs view renders empty and escaped populated rows', () => {
+  setLocale('zh-CN');
   const empty = adminClientLogsTableView([]);
   assert.equal(empty.empty, true);
   assert.match(empty.html, /暂无匹配的客户端日志/);
@@ -72,6 +75,7 @@ test('admin client logs view renders empty and escaped populated rows', () => {
 });
 
 test('admin client logs view renders table with user fallback', () => {
+  setLocale('zh-CN');
   const view = adminClientLogsTableView([
     {
       userId: 'u123456789',
@@ -88,4 +92,28 @@ test('admin client logs view renders table with user fallback', () => {
   assert.match(view.html, /u@example\.test/);
   assert.match(view.html, /class="chip warn"/);
   assert.match(view.html, /hello/);
+});
+
+test('admin client logs view uses locale messages for table chrome', () => {
+  setLocale('en-US');
+  assert.equal(adminClientLogsSummaryText([{}, {}]), 'Showing 2');
+  assert.match(adminClientLogUserOptionsHtml([], ''), />All users</);
+
+  const empty = adminClientLogsTableView([]);
+  assert.match(empty.html, /No matching client logs\./);
+
+  const view = adminClientLogsTableView([{
+    userId: 'u123456789',
+    level: 'info',
+    message: 'hello',
+    receivedAt: 'bad-date',
+    clientTs: 'bad-date'
+  }]);
+  assert.match(view.html, /<th>Time<\/th>/);
+  assert.match(view.html, /<th>User<\/th>/);
+  assert.match(view.html, /<th>Level<\/th>/);
+  assert.match(view.html, /<th>Message \/ Context<\/th>/);
+  assert.match(view.html, /Client: -/);
+
+  setLocale('zh-CN');
 });

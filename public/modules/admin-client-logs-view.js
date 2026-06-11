@@ -1,10 +1,8 @@
 import { escapeHtml } from './dom.js';
+import { formatDateTime, formatNumber, t } from './i18n.js';
 
 export function formatAdminClientLogTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(iso);
 }
 
 export function adminClientLogShortId(id) {
@@ -28,18 +26,18 @@ export function adminClientLogLevelChipClass(level) {
 
 export function adminClientLogUserOptionsHtml(users = [], current = '') {
   const rows = Array.isArray(users) ? users : [];
-  return '<option value="">全部用户</option>' + rows.map((user) => {
-    const label = `${user?.username || user?.email || '-'} (${adminClientLogShortId(user?.id)})`;
+  return `<option value="">${escapeHtml(t('admin.clientLogs.filter.allUsers'))}</option>` + rows.map((user) => {
+    const label = `${user?.username || user?.email || t('common.empty')} (${adminClientLogShortId(user?.id)})`;
     return `<option value="${escapeHtml(user?.id || '')}" ${current === user?.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
   }).join('');
 }
 
 export function adminClientLogsSummaryText(logs = []) {
-  return `显示 ${Array.isArray(logs) ? logs.length : 0} 条`;
+  return t('admin.clientLogs.summary.count', { count: formatNumber(Array.isArray(logs) ? logs.length : 0) });
 }
 
-export function adminClientLogsErrorHtml(message = '加载失败') {
-  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+export function adminClientLogsErrorHtml(message = t('common.loadFailed')) {
+  return `<div class="error-banner">${escapeHtml(message || t('common.loadFailed'))}</div>`;
 }
 
 export function adminClientLogsTableView(logs = [], { users = [] } = {}) {
@@ -47,7 +45,7 @@ export function adminClientLogsTableView(logs = [], { users = [] } = {}) {
   if (!rows.length) {
     return {
       empty: true,
-      html: '<div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><p>暂无匹配的客户端日志。</p></div>'
+      html: `<div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><p>${escapeHtml(t('admin.clientLogs.empty'))}</p></div>`
     };
   }
   return {
@@ -56,10 +54,10 @@ export function adminClientLogsTableView(logs = [], { users = [] } = {}) {
     <table class="users-table admin-client-log-table">
       <thead>
         <tr>
-          <th>时间</th>
-          <th>用户</th>
-          <th>等级</th>
-          <th>消息 / 上下文</th>
+          <th>${escapeHtml(t('admin.clientLogs.header.time'))}</th>
+          <th>${escapeHtml(t('admin.clientLogs.header.user'))}</th>
+          <th>${escapeHtml(t('admin.clientLogs.header.level'))}</th>
+          <th>${escapeHtml(t('admin.clientLogs.header.messageContext'))}</th>
         </tr>
       </thead>
       <tbody>
@@ -78,7 +76,7 @@ export function adminClientLogRowHtml(log = {}, { users = [] } = {}) {
               <td>
                 <div class="management-file-cell">
                   <strong>${escapeHtml(formatAdminClientLogTime(log.receivedAt))}</strong>
-                  ${log.clientTs ? `<small>客户端：${escapeHtml(formatAdminClientLogTime(log.clientTs))}</small>` : ''}
+                  ${log.clientTs ? `<small>${escapeHtml(t('admin.clientLogs.clientTs', { time: formatAdminClientLogTime(log.clientTs) }))}</small>` : ''}
                 </div>
               </td>
               <td>
