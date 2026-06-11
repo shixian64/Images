@@ -1,6 +1,7 @@
 // SQLite repositories for lightweight event/log tables.
 
 import { randomUUID } from 'node:crypto';
+import { normalizeAuditMeta } from './audit-meta.js';
 
 function parseClientLog(row) {
   if (!row) return null;
@@ -117,7 +118,7 @@ export function createAuditLogRepository({ open, nowIso }) {
         targetId || null,
         ip || null,
         userAgent || null,
-        meta ? JSON.stringify(meta) : null
+        meta === undefined || meta === null ? null : JSON.stringify(normalizeAuditMeta(meta))
       );
       return { id, createdAt: now };
     },

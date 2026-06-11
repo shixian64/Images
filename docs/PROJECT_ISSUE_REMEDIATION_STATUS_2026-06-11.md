@@ -52,6 +52,7 @@
 | 41、42 | 部分闭环 | 个人 Key 不落库，已有普通用户确认与管理 runtime 说明；根因仍是“进程内易失密钥”。 |
 | 55、58 | 部分闭环 | 上游响应和内存默认值已收紧，URL / 上传路径也更流式；仍需要长期容量压测验证峰值。 |
 | 67、71 | 进行中 | 已大量拆 `*-view.js` 并补转义测试，但大前端模块与 HTML 模板治理仍需持续推进。 |
+| 69 | 部分闭环 | 审计日志 metadata 已统一脱敏、裁剪字符串 / 深度 / 数组 / 对象规模，并限制落库 JSON 体积；client logs 也已有接入预算。job result、prompt square 等跨响应预算仍需继续梳理。 |
 | 86、87 | 部分闭环 | CI 已有 Windows、`check:js`、coverage；尚无完整 lint / typecheck / 容器矩阵。 |
 | 92 | 部分闭环 | 已有 Node 运行时预检与测试，但依赖 `node:sqlite` experimental 的根风险仍存在。 |
 
@@ -62,7 +63,6 @@
 | 33 | 未完成 | 若要统一 REST 风格，需要兼容旧前端 / 脚本，建议另开 API versioning 任务。 |
 | 40、43 | 未完成 | running job 重启恢复与 SSE 订阅持久化需要更完整的 worker / 通知模型。 |
 | 68 | 未完成 | `DatabaseSync` 阻塞事件循环的问题需要 worker thread、异步 DB 层或外部数据库方案。 |
-| 69 | 未完成 | 需要统一跨表 / 跨响应 payload budget 与审计策略。 |
 | 80 | 未完成 | i18n / locale 层尚未建立。 |
 | 89 | 未完成 | 仍缺真实浏览器 E2E / 视觉回归。 |
 | 94 | 未完成 | `docs/PRODUCT_DESIGN.md` 仍混合当前自托管与未来 SaaS / 商业化设想，后续应拆成“当前产品说明”和“未来路线图”。 |
