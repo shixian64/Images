@@ -20,7 +20,8 @@ const implementation = [
   'routes/users.js',
   'routes/quota.js',
   'routes/registration.js',
-  'routes/client-logs.js'
+  'routes/client-logs.js',
+  'utils/api-version.js'
 ].map((file) => readFileSync(file, 'utf8')).join('\n');
 
 const API_CONTRACT = [
@@ -165,4 +166,10 @@ test('route implementation still exposes the documented tricky endpoints', () =>
     .filter(([pattern]) => !pattern.test(implementation))
     .map(([, label]) => label);
   assert.deepEqual(missing, []);
+});
+
+test('docs/API.md documents the /api/v1 compatibility alias', () => {
+  assert.match(docs, /\/api\/v1\/\*/);
+  assert.match(implementation, /normalizeApiPathname/);
+  assert.match(implementation, /\/api\/v1/);
 });

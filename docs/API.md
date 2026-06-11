@@ -5,6 +5,7 @@
 ## 通用约定
 
 - 所有响应默认为 JSON，错误形态通常为 `{ "error": "message" }`；SSE、204 空响应和静态文件路由除外。
+- 当前 canonical 路径仍是 `/api/*`；`/api/v1/*` 是兼容别名，会在服务端分发前规范化到对应 `/api/*` 路径，便于外部脚本固定主版本。
 - 除 `GET` / `HEAD` / `OPTIONS` 外，所有 `/api/*` 请求都需要：
   - `X-Requested-With: fetch`
   - `Origin` 或 `Referer` 与当前 `Host` 同源

@@ -36,6 +36,7 @@ import { positiveIntFromEnv, validateEnvConfig } from './utils/config.js';
 import { attachTraceId, runWithRequestContext } from './utils/request-context.js';
 import { parseRequestUrl } from './utils/request-url.js';
 import { matchesRoutePrefix } from './utils/route-match.js';
+import { normalizeApiPathname } from './utils/api-version.js';
 import { runtimeHealthSnapshot } from './services/health.js';
 
 validateEnvConfig({ logger });
@@ -96,6 +97,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 400, { error: 'bad request' });
   }
   const pathname = url.pathname;
+  const apiPathname = normalizeApiPathname(pathname);
 
   if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/healthz') {
     const health = await runtimeHealthSnapshot();
@@ -103,8 +105,9 @@ async function handleRequest(req, res) {
   }
 
   // ---- /api/* 路由 ----
-  if (pathname.startsWith('/api/')) {
-    return dispatchApiRoute(req, res, pathname, url);
+  if (apiPathname === '/api' || apiPathname.startsWith('/api/')) {
+    if (apiPathname !== pathname) url.pathname = apiPathname;
+    return dispatchApiRoute(req, res, apiPathname, url);
   }
 
   // ---- 静态文件 ----
