@@ -2,7 +2,7 @@
 
 Image Studio 是一个依赖极少的本地 / 自托管 Web 工作站，用于管理 OpenAI-compatible 图片生成与对话接口、提交图片生成任务、管理用户额度和本地图库。当前实现基于 Node.js 原生 HTTP、SQLite、浏览器端 ES Modules 与本地文件存储，默认运行在 `http://localhost:8787`。
 
-完整商业化演进方案见 [`docs/PRODUCT_DESIGN.md`](docs/PRODUCT_DESIGN.md)；系统默认 API Key 的当前存储决策见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。
+完整商业化演进方案见 [`docs/PRODUCT_DESIGN.md`](docs/PRODUCT_DESIGN.md)；生产部署、反向代理、备份恢复和容量规划见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)；系统默认 API Key 的当前存储决策见 [`docs/API_KEY_STORAGE_DECISION.md`](docs/API_KEY_STORAGE_DECISION.md)。
 
 本项目采用 MIT License 完整开源，感谢 [LINUX DO](https://linux.do/) 社区对开源项目推广与交流的支持。
 
@@ -209,6 +209,8 @@ docs/                     # 产品、安全与决策文档
 | `/api/admin/*` | 管理员接口：用户、额度、队列、日志、接口、图库 |
 
 ## Docker 部署
+
+更完整的生产部署、反向代理、升级和回滚说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 项目提供 `Dockerfile`、`.dockerignore`、`docker-compose.yml` 与 `.env.example`。运行时数据写入容器内 `/app/generated`，compose 默认使用命名卷 `image-studio-generated` 持久化 SQLite 数据库、WAL 文件和生成图片。
 

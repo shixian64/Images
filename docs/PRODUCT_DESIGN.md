@@ -3,7 +3,7 @@
 > 基于当前仓库（Node.js 原生 HTTP + SQLite + 本地文件存储 + 浏览器 ES Modules，适配 OpenAI-compatible 图片生成与 Chat Completions）的现状与演进版本。
 > 当前项目已从早期“单用户 localStorage 工具”演进为支持登录、管理员、额度、队列、图库、Prompt Square 和漫画工作流的小团队自托管应用。
 > 目标：继续从“可自托管的小团队工具”演进到“可托管、可付费、可协作”的在线生图产品。
-> 版本：v1.1 路线图　|　负责人：hmt　|　最后更新：2026-06-01
+> 版本：v1.1 路线图　|　负责人：hmt　|　最后更新：2026-06-11
 
 ---
 
@@ -676,7 +676,7 @@ W13+    巡航：Enterprise 私有化、LoRA 对接、移动端原生
 ### 13.2 自托管稳定版优先级
 
 - [x] 把当前 `/api/*` 路由整理成 `docs/API.md`，明确请求体、响应体、权限和错误码。
-- [ ] 把部署说明从 README 拆到 `docs/DEPLOYMENT.md`，覆盖反向代理、HTTPS、备份、恢复、升级和容量规划。
+- [x] 把部署说明从 README 拆到 `docs/DEPLOYMENT.md`，覆盖反向代理、HTTPS、备份、恢复、升级和容量规划。
 - [x] 为系统默认 API Key 引入 `services/secrets.js`，用 Node 内置 `crypto` 做 AES-256-GCM 加密存储。
 - [x] 增加数据库迁移版本表，避免后续 schema 变更只依赖 ad-hoc `ALTER TABLE`。
 - [ ] 增加图库缩略图 / 预览图生成管线，避免前端直接加载过大的原图。
@@ -705,7 +705,7 @@ W13+    巡航：Enterprise 私有化、LoRA 对接、移动端原生
 ### 13.5 破坏性注意
 
 - 当前个人接口 Key 不持久化；迁移到 SaaS 时需要设计“个人密钥托管 / 浏览器解锁 / 团队共享密钥”三种路径。
-- 当前系统默认 API Key 明文存 SQLite；公网或多租户前必须先完成加密迁移。
+- 当前系统默认 API Key 支持 `IMAGE_STUDIO_SECRET_KEY` 加密落库；公网或多租户前仍需统一 KMS/Vault、密钥版本、轮换、销毁和审计策略。
 - 当前 `generated/` 同时存数据库、WAL、图片、示例图和临时参考图；迁移对象存储前必须明确文件归属和清理策略。
 - Base URL 当前接受 `https://host` 或 `https://host/v1`，迁移后仍需保持兼容，并在数据库中存规范化形式。
 - 当前队列是单进程可控模型；迁移到分布式 worker 后要重新设计取消、重试、幂等、进度事件和临时文件生命周期。
