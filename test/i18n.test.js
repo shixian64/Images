@@ -36,6 +36,8 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('logs.summary.count', { total: 3, shown: 1 }), '3 total · 1 shown');
   assert.equal(t('promptHistory.summary.count', { total: 3, shown: 1 }), '3 total · 1 shown');
   assert.equal(t('promptHistory.examples.previewAria', { index: 1 }), 'Preview example image 1');
+  assert.equal(t('promptSquare.summary.count', { total: 3, shown: 1 }), 'Square 3 total · 1 shown');
+  assert.equal(t('promptSquare.preview.openAria', { title: 'Demo' }), 'Open Demo example image');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');
   assert.equal(t('missing.key', {}, 'Fallback {name}'), 'Fallback ');
   assert.equal(t('missing.key', { name: 'Alice' }, 'Fallback {name}'), 'Fallback Alice');

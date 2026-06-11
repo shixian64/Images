@@ -1,18 +1,22 @@
-﻿import { escapeHtml } from './dom.js';
+import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 import {
   promptSquareSummaryStats,
   promptSquareTags
 } from './prompt-square-model.js';
 import {
-  formatTime,
-  sourceLabel
+  formatTime
 } from './prompt-utils.js';
+
+function promptSquareSourceLabel(source) {
+  return t(`prompt.source.${source}`, {}, t('prompt.source.manual'));
+}
 
 export function promptSquareTagCloudHtml(items = [], { selectedTag = 'all' } = {}) {
   const tags = promptSquareTags(items);
   const selected = selectedTag !== 'all' && tags.includes(selectedTag) ? selectedTag : 'all';
   return [
-    `<button class="prompt-square-tag ${selected === 'all' ? 'active' : ''}" type="button" data-square-tag="all">所有风格</button>`,
+    `<button class="prompt-square-tag ${selected === 'all' ? 'active' : ''}" type="button" data-square-tag="all">${escapeHtml(t('promptSquare.tag.all'))}</button>`,
     ...tags.map((tag) => (
       `<button class="prompt-square-tag ${selected === tag ? 'active' : ''}" type="button" data-square-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`
     ))
@@ -22,10 +26,10 @@ export function promptSquareTagCloudHtml(items = [], { selectedTag = 'all' } = {
 export function promptSquareSummaryHtml(items = [], filtered = [], { currentUserId = '' } = {}) {
   const stats = promptSquareSummaryStats(items, currentUserId);
   return `
-    <span class="chip">广场共 ${items.length} 条 · 当前显示 ${filtered.length}</span>
-    <span class="chip info">我的公开 ${stats.mine}</span>
-    <span class="chip">累计使用 ${stats.totalUses}</span>
-    <span class="chip pin">风格标签 / 热度排序</span>
+    <span class="chip">${escapeHtml(t('promptSquare.summary.count', { total: items.length, shown: filtered.length }))}</span>
+    <span class="chip info">${escapeHtml(t('promptSquare.summary.mine', { count: stats.mine }))}</span>
+    <span class="chip">${escapeHtml(t('promptSquare.summary.totalUses', { count: stats.totalUses }))}</span>
+    <span class="chip pin">${escapeHtml(t('promptSquare.summary.sortHint'))}</span>
   `;
 }
 
@@ -39,8 +43,8 @@ export function promptSquareListState(filtered = [], {
       empty: true,
       html: `
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">⌁</div>
-        <p>正在加载提示词广场…</p>
+        <div class="empty-icon" aria-hidden="true">\u2301</div>
+        <p>${escapeHtml(t('promptSquare.empty.loading'))}</p>
       </div>`
     };
   }
@@ -50,8 +54,8 @@ export function promptSquareListState(filtered = [], {
       empty: true,
       html: `
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">✦</div>
-        <p>还没有匹配的公开提示词。可以先去“历史提示词管理”公开一条。</p>
+        <div class="empty-icon" aria-hidden="true">\u2726</div>
+        <p>${escapeHtml(t('promptSquare.empty.noMatches'))}</p>
       </div>`
     };
   }
@@ -65,51 +69,52 @@ export function promptSquareListState(filtered = [], {
 export function promptSquareCardHtml(item = {}, index = 0, { currentUserId = '' } = {}) {
   const tags = item.tags?.length
     ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
-    : '<span>未标记</span>';
+    : `<span>${escapeHtml(t('promptSquare.untagged'))}</span>`;
   const meta = [
     item.meta?.sref ? `SREF ${item.meta.sref}` : '',
-    item.meta?.sourceHot ? `来源热度 ${item.meta.sourceHot}` : '',
+    item.meta?.sourceHot ? t('promptSquare.meta.sourceHot', { value: item.meta.sourceHot }) : '',
     item.meta?.model,
     item.meta?.size,
     item.meta?.quality
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(' \u00b7 ');
   const mine = item.owner?.id === currentUserId;
   const previewUrl = Array.isArray(item.meta?.previewImages)
     ? item.meta.previewImages[0]
     : item.meta?.previewImage || '';
+  const title = item.title || t('promptSquare.untitled');
   const preview = previewUrl
-    ? `<button class="prompt-square-preview" type="button" data-square-preview="${escapeHtml(previewUrl)}" aria-label="打开 ${escapeHtml(item.title)} 示例图">
-          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(`${item.title} 示例图`)}" loading="lazy" referrerpolicy="no-referrer" />
+    ? `<button class="prompt-square-preview" type="button" data-square-preview="${escapeHtml(previewUrl)}" aria-label="${escapeHtml(t('promptSquare.preview.openAria', { title }))}">
+          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(t('promptSquare.preview.alt', { title }))}" loading="lazy" referrerpolicy="no-referrer" />
         </button>`
-    : '<div class="prompt-square-preview prompt-square-preview-placeholder" aria-hidden="true"><span>暂无示例图</span></div>';
+    : `<div class="prompt-square-preview prompt-square-preview-placeholder" aria-hidden="true"><span>${escapeHtml(t('promptSquare.preview.none'))}</span></div>`;
   const truncation = item.promptTruncated
-    ? `<span title="操作时会自动加载完整提示词">预览已截断 · 完整 ${Number(item.promptLength) || 0} 字</span>`
+    ? `<span title="${escapeHtml(t('promptSquare.truncation.title'))}">${escapeHtml(t('promptSquare.truncation.text', { count: Number(item.promptLength) || 0 }))}</span>`
     : '';
   return `
       <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
         <div class="prompt-square-rank">#${index + 1}</div>
         <div class="prompt-square-main">
           <div class="prompt-history-titleline">
-            <strong>${escapeHtml(item.title)}</strong>
-            <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(sourceLabel(item.source))}</span>
-            ${mine ? '<span class="prompt-public">我的公开</span>' : ''}
+            <strong>${escapeHtml(title)}</strong>
+            <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(promptSquareSourceLabel(item.source))}</span>
+            ${mine ? `<span class="prompt-public">${escapeHtml(t('promptSquare.badge.mine'))}</span>` : ''}
           </div>
           <p>${escapeHtml(item.prompt)}</p>
           <div class="prompt-history-tags">${tags}</div>
         </div>
         <div class="prompt-square-side">
-          <span>作者 ${escapeHtml(item.owner?.username || 'unknown')}</span>
-          <span>发布 ${escapeHtml(formatTime(item.publishedAt))}</span>
-          <span>使用 ${Number(item.useCount) || 0} 次</span>
+          <span>${escapeHtml(t('promptSquare.side.author', { name: item.owner?.username || t('promptSquare.owner.unknown') }))}</span>
+          <span>${escapeHtml(t('promptSquare.side.published', { time: formatTime(item.publishedAt) }))}</span>
+          <span>${escapeHtml(t('promptSquare.side.usage', { count: Number(item.useCount) || 0 }))}</span>
           ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
           ${truncation}
         </div>
         ${preview}
         <div class="prompt-history-buttons">
-          <button data-action="use-square" type="button">使用</button>
-          <button data-action="copy-square" type="button">复制</button>
-          <button data-action="save-square" type="button">保存到历史</button>
-          ${mine ? '<button data-action="unpublish-square" class="danger" type="button">取消公开</button>' : ''}
+          <button data-action="use-square" type="button">${escapeHtml(t('promptSquare.action.use'))}</button>
+          <button data-action="copy-square" type="button">${escapeHtml(t('promptSquare.action.copy'))}</button>
+          <button data-action="save-square" type="button">${escapeHtml(t('promptSquare.action.save'))}</button>
+          ${mine ? `<button data-action="unpublish-square" class="danger" type="button">${escapeHtml(t('promptSquare.action.unpublish'))}</button>` : ''}
         </div>
       </article>`;
 }
@@ -118,6 +123,6 @@ export function promptSquareErrorHtml(error) {
   return `
         <div class="empty-state">
           <div class="empty-icon" aria-hidden="true">!</div>
-          <p>提示词广场加载失败：${escapeHtml(error?.message || String(error))}</p>
+          <p>${escapeHtml(t('promptSquare.error.loadFailed', { error: error?.message || String(error) }))}</p>
         </div>`;
 }
