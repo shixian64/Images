@@ -43,6 +43,29 @@ export function galleryEmptyHtml(message = '还没有本地图片。生成成功
     </div>`;
 }
 
+export function galleryScopeEmptyHtml(scope = 'mine') {
+  if (scope === 'public') {
+    return galleryEmptyHtml('还没有公开图片。可以先在“我的图库”中公开一张生成图。');
+  }
+  if (scope === 'comic') {
+    return galleryEmptyHtml('还没有漫画项目。请到“漫画”页输入小故事并点击“生成页分镜”。');
+  }
+  return galleryEmptyHtml();
+}
+
+export function comicProjectImagesEmptyHtml() {
+  return galleryEmptyHtml('这个漫画项目还没有生成图片。可导入到漫画菜单继续生成。');
+}
+
+export function galleryLoadingHtml(scope = 'mine') {
+  return galleryEmptyHtml(scope === 'comic' ? '正在加载漫画项目…' : '正在加载本地图库…');
+}
+
+export function galleryErrorHtml(scope = 'mine', message = '加载失败') {
+  const prefix = scope === 'comic' ? '漫画项目' : '图库';
+  return galleryEmptyHtml(`${prefix}加载失败：${message || '加载失败'}`);
+}
+
 export function galleryImageCardHtml(item = {}, index = 0, {
   scope = 'mine',
   totalCount = 1,

@@ -9,8 +9,11 @@ import { createImagePreviewController } from './image-preview.js';
 import {
   comicProjectCardsHtml,
   comicProjectDetailHtml,
-  galleryEmptyHtml,
+  comicProjectImagesEmptyHtml,
+  galleryErrorHtml,
   galleryImageCardsHtml,
+  galleryLoadingHtml,
+  galleryScopeEmptyHtml,
   getImagePrompt,
   previewSrcFromGalleryItem
 } from './gallery-view.js';
@@ -108,10 +111,6 @@ function renderSummary(data = {}) {
   hideGallerySummary();
 }
 
-function emptyHtml(message = '还没有本地图片。生成成功后会自动保存并显示在这里。') {
-  return galleryEmptyHtml(message);
-}
-
 function renderImageCards(items = galleryItems) {
   return galleryImageCardsHtml(items, {
     scope: galleryScope,
@@ -136,7 +135,7 @@ function renderComicProjects() {
   galleryItems = [];
   if (!comicProjects.length) {
     list.dataset.empty = 'true';
-    list.innerHTML = emptyHtml('还没有漫画项目。请到“漫画”页输入小故事并点击“生成页分镜”。');
+    list.innerHTML = galleryScopeEmptyHtml('comic');
     return;
   }
   list.dataset.empty = 'false';
@@ -152,7 +151,7 @@ function renderComicProjectDetail() {
   list.dataset.empty = 'false';
   list.innerHTML = comicProjectDetailHtml(project, images, {
     imageCardsHtml: renderImageCards(images),
-    emptyImagesHtml: emptyHtml('这个漫画项目还没有生成图片。可导入到漫画菜单继续生成。')
+    emptyImagesHtml: comicProjectImagesEmptyHtml()
   });
 }
 
@@ -165,9 +164,7 @@ function renderGallery() {
   }
   if (!galleryItems.length) {
     list.dataset.empty = 'true';
-    list.innerHTML = galleryScope === 'public'
-      ? emptyHtml('还没有公开图片。可以先在“我的图库”中公开一张生成图。')
-      : emptyHtml();
+    list.innerHTML = galleryScopeEmptyHtml(galleryScope);
     return;
   }
 
@@ -182,7 +179,7 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
     if (!silent) {
       hideGallerySummary();
       list.dataset.empty = 'true';
-      list.innerHTML = emptyHtml(galleryScope === 'comic' ? '正在加载漫画项目…' : '正在加载本地图库…');
+      list.innerHTML = galleryLoadingHtml(galleryScope);
     }
 
     if (galleryScope === 'comic') {
@@ -212,7 +209,7 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
     const message = err.message || String(err);
     hideGallerySummary();
     list.dataset.empty = 'true';
-    list.innerHTML = emptyHtml(`${galleryScope === 'comic' ? '漫画项目' : '图库'}加载失败：${message}`);
+    list.innerHTML = galleryErrorHtml(galleryScope, message);
     setStatus(`${galleryScope === 'comic' ? '漫画项目' : '图库'}加载失败`, 'err', 1800);
   }
 }

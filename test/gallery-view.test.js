@@ -5,14 +5,18 @@ import {
   comicProjectCardHtml,
   comicProjectCardsHtml,
   comicProjectDetailHtml,
+  comicProjectImagesEmptyHtml,
   comicProjectProgress,
   comicProjectProgressText,
   comicProjectStatusLabel,
   downloadSrcFromGalleryItem,
   formatBytes,
   galleryEmptyHtml,
+  galleryErrorHtml,
   galleryImageCardHtml,
   galleryImageCardsHtml,
+  galleryLoadingHtml,
+  galleryScopeEmptyHtml,
   getImagePrompt,
   previewSrcFromGalleryItem,
   thumbnailSrcFromGalleryItem
@@ -63,6 +67,18 @@ test('gallery view renders escaped empty state and private card controls', () =>
   assert.match(html, /取消公开/);
   assert.match(html, /1.5 KB/);
   assert.doesNotMatch(html, /<b>prompt<\/b>/);
+});
+
+test('gallery view renders scoped empty, loading, and error states', () => {
+  assert.match(galleryScopeEmptyHtml('public'), /还没有公开图片/);
+  assert.match(galleryScopeEmptyHtml('comic'), /还没有漫画项目/);
+  assert.match(comicProjectImagesEmptyHtml(), /这个漫画项目还没有生成图片/);
+  assert.match(galleryLoadingHtml('comic'), /正在加载漫画项目/);
+
+  const html = galleryErrorHtml('public', '<script>alert(1)</script> "><bad>');
+  assert.match(html, /图库加载失败：&lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<bad>/);
 });
 
 test('gallery view renders public cards with like limits', () => {
