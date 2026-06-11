@@ -53,3 +53,7 @@ export function globalInterfaceSummaryHtml(globalInterface = null) {
     <span class="chip">对话模型：${escapeHtml(chat.defaultModel || '-')}</span>
   `;
 }
+
+export function globalInterfaceErrorHtml(message) {
+  return `<span class="chip error">加载失败：${escapeHtml(message || '未知错误')}</span>`;
+}

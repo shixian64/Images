@@ -5,6 +5,7 @@ import {
   DEFAULT_INTERFACE_BASE_URL,
   globalEndpointConfig,
   globalEndpointTestView,
+  globalInterfaceErrorHtml,
   globalInterfaceSummaryHtml,
   interfaceKeyState
 } from '../public/modules/admin-interfaces-view.js';
@@ -60,4 +61,13 @@ test('admin interfaces view renders escaped summary', () => {
   assert.match(html, /&lt;chat-model&gt;/);
   assert.doesNotMatch(html, /<name>/);
   assert.doesNotMatch(html, /<image-model>/);
+});
+
+test('admin interfaces view renders escaped error chip', () => {
+  const html = globalInterfaceErrorHtml('上游异常 <script>alert(1)</script> "><bad>');
+
+  assert.match(html, /class="chip error"/);
+  assert.match(html, /上游异常 &lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<bad>/);
 });

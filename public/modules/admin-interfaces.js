@@ -1,11 +1,12 @@
 // 管理后台：系统默认接口配置。
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import {
   DEFAULT_INTERFACE_BASE_URL,
   globalEndpointConfig,
   globalEndpointTestView,
+  globalInterfaceErrorHtml,
   globalInterfaceSummaryHtml
 } from './admin-interfaces-view.js';
 
@@ -73,7 +74,7 @@ export async function refreshGlobalInterface({ silent = false } = {}) {
     if (!silent) setStatus('全局默认接口已刷新', 'ok', 1400);
   } catch (err) {
     const host = $('globalInterfaceSummary');
-    if (host) host.innerHTML = `<span class="chip error">加载失败：${escapeHtml(err?.message || String(err))}</span>`;
+    if (host) host.innerHTML = globalInterfaceErrorHtml(err?.message || String(err));
     setStatus(`加载接口配置失败：${err?.message || err}`, 'err', 2400);
   }
 }
