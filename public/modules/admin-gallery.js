@@ -4,6 +4,19 @@ import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as drawer from './drawer.js';
 import * as dialog from './dialog.js';
+import {
+  adminGalleryFilterSummaryText,
+  adminGalleryImageDetailView,
+  adminGalleryModelFilterOptionsHtml,
+  adminGalleryOrphanScanHtml,
+  adminGalleryPagerView,
+  adminGalleryShortId,
+  adminGalleryStatsHtml,
+  adminGallerySummaryHtml,
+  adminGalleryTableView,
+  adminGalleryUserFilterOptionsHtml,
+  adminGalleryUserLabel
+} from './admin-gallery-view.js';
 
 let galleryItems = [];
 let galleryStorage = '';
@@ -34,75 +47,18 @@ export function setAdminGalleryUsers(users = []) {
   syncFilterOptions();
 }
 
-function formatTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (!value) return '-';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
 function shortId(id) {
-  const text = String(id || '');
-  return text ? text.slice(0, 8) : '-';
+  return adminGalleryShortId(id);
 }
 
 function userLabel(userId) {
-  const user = adminGalleryUsers.find((item) => item.id === userId);
-  if (!user) return shortId(userId);
-  return user.username || user.email || shortId(userId);
-}
-
-function knownUsers() {
-  return [...adminGalleryUsers].sort((a, b) => {
-    const left = String(a?.username || a?.email || a?.id || '');
-    const right = String(b?.username || b?.email || b?.id || '');
-    return left.localeCompare(right, 'zh-CN');
-  });
+  return adminGalleryUserLabel(userId, adminGalleryUsers);
 }
 
 function renderAdminGalleryStats() {
   const host = $('adminGalleryStats');
   if (!host) return;
-  if (!galleryStats) {
-    host.innerHTML = '';
-    return;
-  }
-  const topUsers = (galleryStats.topUsers || []).slice(0, 3);
-  const topModels = (galleryStats.topModels || []).slice(0, 3);
-  host.innerHTML = `
-    <div class="stat-card"><span>总图数</span><strong>${galleryStats.total || 0}</strong></div>
-    <div class="stat-card"><span>今日新增</span><strong>${galleryStats.savedToday || 0}</strong></div>
-    <div class="stat-card"><span>总容量</span><strong>${formatBytes(galleryStats.totalBytes)}</strong></div>
-    <div class="stat-card stat-card-list">
-      <span>用户容量 Top</span>
-      <ul>
-        ${topUsers.length ? topUsers.map((u) => `
-          <li><span>${escapeHtml(userLabel(u.userId))}</span><strong>${formatBytes(u.bytes)}</strong></li>
-        `).join('') : '<li class="hint">无数据</li>'}
-      </ul>
-    </div>
-    <div class="stat-card stat-card-list">
-      <span>模型分布 Top</span>
-      <ul>
-        ${topModels.length ? topModels.map((m) => `
-          <li><span>${escapeHtml(m.model || '-')}</span><strong>${m.count}</strong></li>
-        `).join('') : '<li class="hint">无数据</li>'}
-      </ul>
-    </div>
-  `;
+  host.innerHTML = adminGalleryStatsHtml(galleryStats, { users: adminGalleryUsers });
 }
 
 function syncBulkBar() {
@@ -128,82 +84,32 @@ export function renderAdminGallery() {
   const totalAll = galleryView.totalAll;
 
   if (summary) {
-    summary.innerHTML = `
-      <span class="chip">命中 ${total} / ${totalAll || items.length} 张</span>
-      <span class="chip">目录 ${escapeHtml(galleryStorage || 'generated/users/*')}</span>
-    `;
+    summary.innerHTML = adminGallerySummaryHtml({
+      total,
+      totalAll,
+      itemCount: items.length,
+      storage: galleryStorage
+    });
   }
   if (filterSummary) {
-    filterSummary.textContent = total ? `第 ${galleryFilter.page} 页 · 每页 ${galleryFilter.pageSize}` : '';
+    filterSummary.textContent = adminGalleryFilterSummaryText({
+      total,
+      page: galleryFilter.page,
+      pageSize: galleryFilter.pageSize
+    });
   }
 
   renderAdminGalleryPager();
 
-  if (!items.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无符合条件的图片</p></div>`;
+  const table = adminGalleryTableView(items, {
+    selectedIds: gallerySelected,
+    users: adminGalleryUsers
+  });
+  wrap.innerHTML = table.html;
+  if (table.empty) {
     syncBulkBar();
     return;
   }
-
-  wrap.innerHTML = `
-    <table class="users-table management-table admin-gallery-table">
-      <thead>
-        <tr>
-          <th class="admin-gallery-check"><input type="checkbox" data-bulk-toggle aria-label="全选" /></th>
-          <th>缩略图</th>
-          <th>用户</th>
-          <th>文件</th>
-          <th>模型 / 尺寸</th>
-          <th>大小</th>
-          <th>创建时间</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items.map((item) => {
-          const missing = item.fileMissing === true;
-          const src = missing ? '' : (item.thumbnailUrl || item.previewUrl || item.url || item.downloadUrl || '');
-          const prompt = item.revisedPrompt || item.prompt || item.filename || '图库图片';
-          const isChecked = gallerySelected.has(item.id);
-          return `
-            <tr data-image-id="${escapeHtml(item.id || '')}" class="${[isChecked ? 'selected' : '', missing ? 'is-missing-file' : ''].filter(Boolean).join(' ')}">
-              <td class="admin-gallery-check">
-                <input type="checkbox" data-row-check ${isChecked ? 'checked' : ''} />
-              </td>
-              <td>
-                ${src ? `<img class="admin-gallery-thumb" src="${escapeHtml(src)}" alt="${escapeHtml(String(prompt).slice(0, 80))}" loading="lazy" />` : '-'}
-              </td>
-              <td>
-                <div class="management-user-cell">
-                  <strong>${escapeHtml(userLabel(item.userId))}</strong>
-                  <small>${escapeHtml(shortId(item.userId))}</small>
-                </div>
-              </td>
-              <td>
-                <div class="management-file-cell">
-                  <strong>${escapeHtml(item.filename || '-')}</strong>
-                  <small>${escapeHtml(item.path || '')}</small>
-                  ${missing ? `<small class="muted-text">missing: ${escapeHtml(item.missingReason || 'missing_file')}</small>` : ''}
-                </div>
-              </td>
-              <td>
-                <div class="management-file-cell">
-                  <strong>${escapeHtml(item.model || '-')}</strong>
-                  <small>${escapeHtml([item.size, item.quality, item.outputFormat].filter(Boolean).join(' · ') || '-')}</small>
-                </div>
-              </td>
-              <td>${formatBytes(item.bytes)}</td>
-              <td>${escapeHtml(formatTime(item.createdAt))}</td>
-              <td class="users-actions-cell"><div class="actions-wrap">
-                <button class="ghost small" data-act="view">查看</button>
-                <button class="danger ghost small" data-act="delete">删除</button>
-              </div></td>
-            </tr>
-          `;
-        }).join('')}
-      </tbody>
-    </table>
-  `;
 
   // 同步全选 checkbox
   const allChecked = items.every((it) => gallerySelected.has(it.id));
@@ -215,20 +121,13 @@ export function renderAdminGallery() {
 function renderAdminGalleryPager() {
   const pager = $('adminGalleryPager');
   if (!pager) return;
-  const total = galleryView.total;
-  const pageSize = galleryFilter.pageSize;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (total <= pageSize) {
-    pager.hidden = true;
-    pager.innerHTML = '';
-    return;
-  }
-  pager.hidden = false;
-  pager.innerHTML = `
-    <button class="ghost small" data-pager="prev" ${galleryFilter.page <= 1 ? 'disabled' : ''}>上一页</button>
-    <span>第 ${galleryFilter.page} / ${totalPages} 页</span>
-    <button class="ghost small" data-pager="next" ${galleryFilter.page >= totalPages ? 'disabled' : ''}>下一页</button>
-  `;
+  const view = adminGalleryPagerView({
+    total: galleryView.total,
+    pageSize: galleryFilter.pageSize,
+    page: galleryFilter.page
+  });
+  pager.hidden = view.hidden;
+  pager.innerHTML = view.html;
 }
 
 function syncFilterOptions() {
@@ -236,19 +135,14 @@ function syncFilterOptions() {
   const modelSel = $('adminGalleryModelFilter');
   if (userSel) {
     const current = galleryFilter.userId;
-    userSel.innerHTML = `<option value="">全部用户</option>` + knownUsers().map((u) => {
-      const label = `${u.username || '-'} (${shortId(u.id)})`;
-      return `<option value="${escapeHtml(u.id)}" ${current === u.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-    }).join('');
+    userSel.innerHTML = adminGalleryUserFilterOptionsHtml(adminGalleryUsers, current);
   }
   if (modelSel) {
     const current = galleryFilter.model;
     const models = new Set();
     galleryView.items.forEach((it) => { if (it.model) models.add(it.model); });
     galleryItems.forEach((it) => { if (it.model) models.add(it.model); });
-    modelSel.innerHTML = `<option value="">全部模型</option>` + [...models].sort().map((m) => `
-      <option value="${escapeHtml(m)}" ${current === m ? 'selected' : ''}>${escapeHtml(m)}</option>
-    `).join('');
+    modelSel.innerHTML = adminGalleryModelFilterOptionsHtml(models, current);
   }
 }
 
@@ -361,35 +255,8 @@ async function bulkDeleteImages() {
 }
 
 function openImageDetail(item) {
-  const src = item.fileMissing === true ? '' : (item.previewUrl || item.url || item.downloadUrl || '');
-  const originalSrc = item.fileMissing === true ? '' : (item.downloadUrl || item.url || src);
-  const html = `
-    <div class="image-detail">
-      ${src ? `<a href="${escapeHtml(originalSrc)}" target="_blank" rel="noreferrer"><img class="image-detail-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.filename || '')}" /></a>` : ''}
-      <dl class="user-detail-grid">
-        <dt>用户</dt><dd>${escapeHtml(userLabel(item.userId))}</dd>
-        <dt>文件</dt><dd><code>${escapeHtml(item.path || '')}</code></dd>
-        <dt>模型</dt><dd>${escapeHtml(item.model || '-')}</dd>
-        <dt>尺寸</dt><dd>${escapeHtml(item.size || '-')}</dd>
-        <dt>质量</dt><dd>${escapeHtml(item.quality || '-')}</dd>
-        <dt>格式</dt><dd>${escapeHtml(item.outputFormat || '-')}</dd>
-        <dt>大小</dt><dd>${escapeHtml(formatBytes(item.bytes))}</dd>
-        <dt>来源</dt><dd>${escapeHtml(item.profileName || '-')}</dd>
-        <dt>创建时间</dt><dd>${escapeHtml(formatTime(item.createdAt))}</dd>
-      </dl>
-      <section class="user-detail-block">
-        <h3>提示词</h3>
-        <p class="prompt-preview-detail">${escapeHtml(item.prompt || '-')}</p>
-      </section>
-      ${item.revisedPrompt ? `
-        <section class="user-detail-block">
-          <h3>Revised Prompt</h3>
-          <p class="prompt-preview-detail">${escapeHtml(item.revisedPrompt)}</p>
-        </section>
-      ` : ''}
-    </div>
-  `;
-  drawer.open({ eyebrow: '图库详情', title: item.filename || '图片', body: html, unsafeHtml: true });
+  const detail = adminGalleryImageDetailView(item, { users: adminGalleryUsers });
+  drawer.open({ eyebrow: '图库详情', title: detail.title, body: detail.html, unsafeHtml: true });
 }
 
 async function runOrphanScan() {
@@ -402,45 +269,7 @@ async function runOrphanScan() {
     const dangling = Array.isArray(data.danglingFiles) ? data.danglingFiles : [];
     setStatus('孤儿扫描完成', 'ok', 1400);
 
-    const html = `
-      <div class="orphan-detail">
-        <p class="hint">missingFiles：DB 行存在但磁盘文件缺失。danglingFiles：磁盘有文件但 DB 没记录。</p>
-
-        <section class="user-detail-block">
-          <h3>缺失文件 · ${missing.length}</h3>
-          ${missing.length ? `
-            <ul class="orphan-list">
-              ${missing.map((m) => `
-                <li>
-                  <div><strong>${escapeHtml(m.path)}</strong></div>
-                  <small>用户：${escapeHtml(userLabel(m.userId))} · ID：${escapeHtml(shortId(m.id))} · ${escapeHtml(formatTime(m.createdAt))}</small>
-                  <div class="orphan-actions">
-                    <button class="danger ghost small" data-orphan-act="delete-row" data-id="${escapeHtml(m.id)}">删除 DB 行</button>
-                  </div>
-                </li>
-              `).join('')}
-            </ul>
-          ` : '<p class="hint">无</p>'}
-        </section>
-
-        <section class="user-detail-block">
-          <h3>未挂接文件 · ${dangling.length}</h3>
-          ${dangling.length ? `
-            <ul class="orphan-list">
-              ${dangling.map((d) => `
-                <li>
-                  <div><strong>${escapeHtml(d.path)}</strong></div>
-                  <small>用户：${escapeHtml(userLabel(d.userId))} · ${escapeHtml(formatBytes(d.bytes))} · ${escapeHtml(formatTime(d.mtime))}</small>
-                  <div class="orphan-actions">
-                    <button class="danger ghost small" data-orphan-act="delete-file" data-path="${escapeHtml(d.path)}">删除磁盘文件</button>
-                  </div>
-                </li>
-              `).join('')}
-            </ul>
-          ` : '<p class="hint">无</p>'}
-        </section>
-      </div>
-    `;
+    const html = adminGalleryOrphanScanHtml({ missing, dangling }, { users: adminGalleryUsers });
     drawer.open({ eyebrow: '图库管理', title: '孤儿扫描', body: html, unsafeHtml: true });
   } catch (err) {
     setStatus(`孤儿扫描失败：${err?.message || err}`, 'err', 2400);
