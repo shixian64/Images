@@ -1,6 +1,6 @@
 // 漫画工作流面板：故事 → 页分镜 → 逐页生图。
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES } from '../../shared/constants.js';
 import { getChatConfig, getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
 import { apiFetch } from './auth.js';
@@ -43,6 +43,7 @@ import {
   comicStoryboardView,
   comicStyleGuideHtml
 } from './comic-storyboard-view.js';
+import { selectOptionsHtml } from './select-options-view.js';
 
 const COMIC_STORY_DRAFT_KEY = 'image-studio.comicStoryDraft.v1';
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
@@ -58,14 +59,7 @@ let currentProjectStory = '';
 function renderSelect(id, items, selectedValue = '') {
   const el = $(id);
   if (!el) return;
-  el.innerHTML = items
-    .map((it) => {
-      const value = it.value ?? it.id;
-      const label = it.label ?? value;
-      const selected = selectedValue && selectedValue === value ? ' selected' : '';
-      return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(label)}</option>`;
-    })
-    .join('');
+  el.innerHTML = selectOptionsHtml(items, { selectedValue });
 }
 
 function normalizeProjectStory(value = '') {

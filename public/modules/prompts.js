@@ -37,6 +37,7 @@ import {
   promptSquareSummaryHtml,
   promptSquareTagCloudHtml
 } from './prompt-square-view.js';
+import { selectOptionsHtml } from './select-options-view.js';
 
 // why：延迟到 mount 阶段再按用户 scope 加载历史，避免 import 期拿到 guest 数据。
 let history = [];
@@ -267,9 +268,10 @@ function renderTagFilter() {
   if (!select) return;
   const previous = select.value || 'all';
   const tags = Array.from(new Set(history.flatMap((item) => item.tags))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-  select.innerHTML = '<option value="all">全部标签</option>' + tags
-    .map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
-    .join('');
+  select.innerHTML = selectOptionsHtml([
+    { value: 'all', label: '全部标签' },
+    ...tags.map((tag) => ({ value: tag, label: tag }))
+  ]);
   select.value = tags.includes(previous) ? previous : 'all';
 }
 

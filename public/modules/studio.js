@@ -26,6 +26,7 @@ import {
   referenceListView,
   studioGalleryView
 } from './studio-view.js';
+import { selectOptionsHtml } from './select-options-view.js';
 
 const PROMPT_OPTIMIZE_TIMEOUT_MS = 3 * 60 * 1000;
 const PROMPT_SOURCE = Object.freeze({
@@ -164,9 +165,7 @@ function buildGenerationRequestBody(payload) {
 function renderSelect(id, items) {
   const el = $(id);
   if (!el) return;
-  el.innerHTML = items
-    .map((it) => `<option value="${it.value}">${it.label}</option>`)
-    .join('');
+  el.innerHTML = selectOptionsHtml(items);
 }
 
 function populateOptions() {
