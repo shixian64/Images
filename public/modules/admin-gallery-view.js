@@ -1,10 +1,12 @@
 import { escapeHtml } from './dom.js';
+import { formatDateTime, t } from './i18n.js';
+
+function galleryText(key, params = {}) {
+  return t(`admin.gallery.${key}`, params);
+}
 
 export function formatAdminGalleryTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(iso);
 }
 
 export function formatAdminGalleryBytes(bytes) {
@@ -49,23 +51,23 @@ export function adminGalleryStatsHtml(stats = null, { users = [] } = {}) {
   const topUsers = (Array.isArray(stats.topUsers) ? stats.topUsers : []).slice(0, 3);
   const topModels = (Array.isArray(stats.topModels) ? stats.topModels : []).slice(0, 3);
   return `
-    <div class="stat-card"><span>总图数</span><strong>${safeCount(stats.total)}</strong></div>
-    <div class="stat-card"><span>今日新增</span><strong>${safeCount(stats.savedToday)}</strong></div>
-    <div class="stat-card"><span>总容量</span><strong>${escapeHtml(formatAdminGalleryBytes(stats.totalBytes))}</strong></div>
+    <div class="stat-card"><span>${escapeHtml(galleryText('stats.total'))}</span><strong>${safeCount(stats.total)}</strong></div>
+    <div class="stat-card"><span>${escapeHtml(galleryText('stats.savedToday'))}</span><strong>${safeCount(stats.savedToday)}</strong></div>
+    <div class="stat-card"><span>${escapeHtml(galleryText('stats.totalBytes'))}</span><strong>${escapeHtml(formatAdminGalleryBytes(stats.totalBytes))}</strong></div>
     <div class="stat-card stat-card-list">
-      <span>用户容量 Top</span>
+      <span>${escapeHtml(galleryText('stats.topUsers'))}</span>
       <ul>
         ${topUsers.length ? topUsers.map((userStat) => `
           <li><span>${escapeHtml(adminGalleryUserLabel(userStat.userId, users))}</span><strong>${escapeHtml(formatAdminGalleryBytes(userStat.bytes))}</strong></li>
-        `).join('') : '<li class="hint">无数据</li>'}
+        `).join('') : `<li class="hint">${escapeHtml(galleryText('stats.noData'))}</li>`}
       </ul>
     </div>
     <div class="stat-card stat-card-list">
-      <span>模型分布 Top</span>
+      <span>${escapeHtml(galleryText('stats.topModels'))}</span>
       <ul>
         ${topModels.length ? topModels.map((modelStat) => `
           <li><span>${escapeHtml(modelStat.model || '-')}</span><strong>${safeCount(modelStat.count)}</strong></li>
-        `).join('') : '<li class="hint">无数据</li>'}
+        `).join('') : `<li class="hint">${escapeHtml(galleryText('stats.noData'))}</li>`}
       </ul>
     </div>
   `;
@@ -73,29 +75,29 @@ export function adminGalleryStatsHtml(stats = null, { users = [] } = {}) {
 
 export function adminGallerySummaryHtml({ total = 0, totalAll = 0, itemCount = 0, storage = '' } = {}) {
   return `
-      <span class="chip">命中 ${safeCount(total)} / ${safeCount(totalAll) || safeCount(itemCount)} 张</span>
-      <span class="chip">目录 ${escapeHtml(storage || 'generated/users/*')}</span>
+      <span class="chip">${escapeHtml(galleryText('summary.hits', { total: safeCount(total), totalAll: safeCount(totalAll) || safeCount(itemCount) }))}</span>
+      <span class="chip">${escapeHtml(galleryText('summary.storage', { storage: storage || 'generated/users/*' }))}</span>
     `;
 }
 
 export function adminGalleryLoadingSummaryHtml() {
-  return '<span class="chip">正在加载图库…</span>';
+  return `<span class="chip">${escapeHtml(galleryText('loading'))}</span>`;
 }
 
 export function adminGalleryLoadingTableHtml() {
-  return '<div class="empty-state"><div class="empty-icon" aria-hidden="true">▧</div><p>正在加载图库…</p></div>';
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">▧</div><p>${escapeHtml(galleryText('loading'))}</p></div>`;
 }
 
-export function adminGalleryErrorSummaryHtml(message = '加载失败') {
-  return `<span class="chip error">加载失败：${escapeHtml(message || '加载失败')}</span>`;
+export function adminGalleryErrorSummaryHtml(message = t('common.loadFailed')) {
+  return `<span class="chip error">${escapeHtml(galleryText('error.summary', { error: message || t('common.loadFailed') }))}</span>`;
 }
 
-export function adminGalleryErrorTableHtml(message = '加载失败') {
-  return `<div class="error-banner">加载图库失败：${escapeHtml(message || '加载失败')}</div>`;
+export function adminGalleryErrorTableHtml(message = t('common.loadFailed')) {
+  return `<div class="error-banner">${escapeHtml(galleryText('error.table', { error: message || t('common.loadFailed') }))}</div>`;
 }
 
 export function adminGalleryFilterSummaryText({ total = 0, page = 1, pageSize = 50 } = {}) {
-  return safeCount(total) ? `第 ${safeCount(page)} 页 · 每页 ${safeCount(pageSize)}` : '';
+  return safeCount(total) ? galleryText('filter.pageSummary', { page: safeCount(page), pageSize: safeCount(pageSize) }) : '';
 }
 
 export function adminGalleryTableView(items = [], { selectedIds = new Set(), users = [] } = {}) {
@@ -104,7 +106,7 @@ export function adminGalleryTableView(items = [], { selectedIds = new Set(), use
   if (!rows.length) {
     return {
       empty: true,
-      html: '<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无符合条件的图片</p></div>'
+      html: `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>${escapeHtml(galleryText('empty.noImages'))}</p></div>`
     };
   }
   return {
@@ -113,14 +115,14 @@ export function adminGalleryTableView(items = [], { selectedIds = new Set(), use
     <table class="users-table management-table admin-gallery-table">
       <thead>
         <tr>
-          <th class="admin-gallery-check"><input type="checkbox" data-bulk-toggle aria-label="全选" /></th>
-          <th>缩略图</th>
-          <th>用户</th>
-          <th>文件</th>
-          <th>模型 / 尺寸</th>
-          <th>大小</th>
-          <th>创建时间</th>
-          <th>操作</th>
+          <th class="admin-gallery-check"><input type="checkbox" data-bulk-toggle aria-label="${escapeHtml(galleryText('table.selectAll'))}" /></th>
+          <th>${escapeHtml(galleryText('table.thumbnail'))}</th>
+          <th>${escapeHtml(galleryText('table.user'))}</th>
+          <th>${escapeHtml(galleryText('table.file'))}</th>
+          <th>${escapeHtml(galleryText('table.modelSize'))}</th>
+          <th>${escapeHtml(galleryText('table.bytes'))}</th>
+          <th>${escapeHtml(galleryText('table.createdAt'))}</th>
+          <th>${escapeHtml(galleryText('table.actions'))}</th>
         </tr>
       </thead>
       <tbody>
@@ -135,7 +137,7 @@ export function adminGalleryTableRowHtml(item = {}, { selectedIds = new Set(), u
   const selected = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || []);
   const missing = item.fileMissing === true;
   const src = missing ? '' : (item.thumbnailUrl || item.previewUrl || item.url || item.downloadUrl || '');
-  const prompt = item.revisedPrompt || item.prompt || item.filename || '图库图片';
+  const prompt = item.revisedPrompt || item.prompt || item.filename || galleryText('image.fallback');
   const isChecked = selected.has(item.id);
   return `
             <tr data-image-id="${escapeHtml(item.id || '')}" class="${[isChecked ? 'selected' : '', missing ? 'is-missing-file' : ''].filter(Boolean).join(' ')}">
@@ -155,7 +157,7 @@ export function adminGalleryTableRowHtml(item = {}, { selectedIds = new Set(), u
                 <div class="management-file-cell">
                   <strong>${escapeHtml(item.filename || '-')}</strong>
                   <small>${escapeHtml(item.path || '')}</small>
-                  ${missing ? `<small class="muted-text">missing: ${escapeHtml(item.missingReason || 'missing_file')}</small>` : ''}
+                  ${missing ? `<small class="muted-text">${escapeHtml(galleryText('missing.reason', { reason: item.missingReason || 'missing_file' }))}</small>` : ''}
                 </div>
               </td>
               <td>
@@ -167,8 +169,8 @@ export function adminGalleryTableRowHtml(item = {}, { selectedIds = new Set(), u
               <td>${escapeHtml(formatAdminGalleryBytes(item.bytes))}</td>
               <td>${escapeHtml(formatAdminGalleryTime(item.createdAt))}</td>
               <td class="users-actions-cell"><div class="actions-wrap">
-                <button class="ghost small" data-act="view">查看</button>
-                <button class="danger ghost small" data-act="delete">删除</button>
+                <button class="ghost small" data-act="view">${escapeHtml(galleryText('action.view'))}</button>
+                <button class="danger ghost small" data-act="delete">${escapeHtml(galleryText('action.delete'))}</button>
               </div></td>
             </tr>
           `;
@@ -186,22 +188,22 @@ export function adminGalleryPagerView({ total = 0, pageSize = 50, page = 1 } = {
     hidden: false,
     totalPages,
     html: `
-    <button class="ghost small" data-pager="prev" ${pageValue <= 1 ? 'disabled' : ''}>上一页</button>
-    <span>第 ${pageValue} / ${totalPages} 页</span>
-    <button class="ghost small" data-pager="next" ${pageValue >= totalPages ? 'disabled' : ''}>下一页</button>
+    <button class="ghost small" data-pager="prev" ${pageValue <= 1 ? 'disabled' : ''}>${escapeHtml(galleryText('pager.prev'))}</button>
+    <span>${escapeHtml(galleryText('pager.info', { page: pageValue, totalPages }))}</span>
+    <button class="ghost small" data-pager="next" ${pageValue >= totalPages ? 'disabled' : ''}>${escapeHtml(galleryText('pager.next'))}</button>
   `
   };
 }
 
 export function adminGalleryUserFilterOptionsHtml(users = [], current = '') {
-  return '<option value="">全部用户</option>' + adminGalleryKnownUsers(users).map((user) => {
+  return `<option value="">${escapeHtml(galleryText('filter.allUsers'))}</option>` + adminGalleryKnownUsers(users).map((user) => {
     const label = `${user?.username || '-'} (${adminGalleryShortId(user?.id)})`;
     return `<option value="${escapeHtml(user?.id || '')}" ${current === user?.id ? 'selected' : ''}>${escapeHtml(label)}</option>`;
   }).join('');
 }
 
 export function adminGalleryModelFilterOptionsHtml(models = [], current = '') {
-  return '<option value="">全部模型</option>' + [...models].sort().map((model) => `
+  return `<option value="">${escapeHtml(galleryText('filter.allModels'))}</option>` + [...models].sort().map((model) => `
       <option value="${escapeHtml(model)}" ${current === model ? 'selected' : ''}>${escapeHtml(model)}</option>
     `).join('');
 }
@@ -212,31 +214,31 @@ export function adminGalleryImageDetailView(item = {}, { users = [] } = {}) {
   const promptTruncated = item.promptTruncated === true;
   const revisedPromptTruncated = item.revisedPromptTruncated === true;
   return {
-    title: item.filename || '图片',
+    title: item.filename || galleryText('detail.title.default'),
     html: `
     <div class="image-detail">
       ${src ? `<a href="${escapeHtml(originalSrc)}" target="_blank" rel="noreferrer"><img class="image-detail-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.filename || '')}" /></a>` : ''}
       <dl class="user-detail-grid">
-        <dt>用户</dt><dd>${escapeHtml(adminGalleryUserLabel(item.userId, users))}</dd>
-        <dt>文件</dt><dd><code>${escapeHtml(item.path || '')}</code></dd>
-        <dt>模型</dt><dd>${escapeHtml(item.model || '-')}</dd>
-        <dt>尺寸</dt><dd>${escapeHtml(item.size || '-')}</dd>
-        <dt>质量</dt><dd>${escapeHtml(item.quality || '-')}</dd>
-        <dt>格式</dt><dd>${escapeHtml(item.outputFormat || '-')}</dd>
-        <dt>大小</dt><dd>${escapeHtml(formatAdminGalleryBytes(item.bytes))}</dd>
-        <dt>来源</dt><dd>${escapeHtml(item.profileName || '-')}</dd>
-        <dt>创建时间</dt><dd>${escapeHtml(formatAdminGalleryTime(item.createdAt))}</dd>
+        <dt>${escapeHtml(galleryText('detail.user'))}</dt><dd>${escapeHtml(adminGalleryUserLabel(item.userId, users))}</dd>
+        <dt>${escapeHtml(galleryText('detail.file'))}</dt><dd><code>${escapeHtml(item.path || '')}</code></dd>
+        <dt>${escapeHtml(galleryText('detail.model'))}</dt><dd>${escapeHtml(item.model || '-')}</dd>
+        <dt>${escapeHtml(galleryText('detail.size'))}</dt><dd>${escapeHtml(item.size || '-')}</dd>
+        <dt>${escapeHtml(galleryText('detail.quality'))}</dt><dd>${escapeHtml(item.quality || '-')}</dd>
+        <dt>${escapeHtml(galleryText('detail.format'))}</dt><dd>${escapeHtml(item.outputFormat || '-')}</dd>
+        <dt>${escapeHtml(galleryText('detail.bytes'))}</dt><dd>${escapeHtml(formatAdminGalleryBytes(item.bytes))}</dd>
+        <dt>${escapeHtml(galleryText('detail.source'))}</dt><dd>${escapeHtml(item.profileName || '-')}</dd>
+        <dt>${escapeHtml(galleryText('detail.createdAt'))}</dt><dd>${escapeHtml(formatAdminGalleryTime(item.createdAt))}</dd>
       </dl>
       <section class="user-detail-block">
-        <h3>提示词</h3>
+        <h3>${escapeHtml(galleryText('detail.prompt'))}</h3>
         <p class="prompt-preview-detail">${escapeHtml(item.prompt || '-')}</p>
-        ${promptTruncated ? '<p class="hint">提示词已按管理员列表预算裁剪，完整内容未随列表响应返回。</p>' : ''}
+        ${promptTruncated ? `<p class="hint">${escapeHtml(galleryText('detail.promptTruncated'))}</p>` : ''}
       </section>
       ${item.revisedPrompt ? `
         <section class="user-detail-block">
           <h3>Revised Prompt</h3>
           <p class="prompt-preview-detail">${escapeHtml(item.revisedPrompt)}</p>
-          ${revisedPromptTruncated ? '<p class="hint">Revised Prompt 已按管理员列表预算裁剪，完整内容未随列表响应返回。</p>' : ''}
+          ${revisedPromptTruncated ? `<p class="hint">${escapeHtml(galleryText('detail.revisedPromptTruncated'))}</p>` : ''}
         </section>
       ` : ''}
     </div>
@@ -249,40 +251,48 @@ export function adminGalleryOrphanScanHtml({ missing = [], dangling = [] } = {},
   const danglingRows = Array.isArray(dangling) ? dangling : [];
   return `
       <div class="orphan-detail">
-        <p class="hint">missingFiles：DB 行存在但磁盘文件缺失。danglingFiles：磁盘有文件但 DB 没记录。</p>
+        <p class="hint">${escapeHtml(galleryText('orphan.hint'))}</p>
 
         <section class="user-detail-block">
-          <h3>缺失文件 · ${missingRows.length}</h3>
+          <h3>${escapeHtml(galleryText('orphan.missingTitle', { count: missingRows.length }))}</h3>
           ${missingRows.length ? `
             <ul class="orphan-list">
               ${missingRows.map((item) => `
                 <li>
                   <div><strong>${escapeHtml(item.path)}</strong></div>
-                  <small>用户：${escapeHtml(adminGalleryUserLabel(item.userId, users))} · ID：${escapeHtml(adminGalleryShortId(item.id))} · ${escapeHtml(formatAdminGalleryTime(item.createdAt))}</small>
+                  <small>${escapeHtml(galleryText('orphan.missingMeta', {
+                    user: adminGalleryUserLabel(item.userId, users),
+                    id: adminGalleryShortId(item.id),
+                    time: formatAdminGalleryTime(item.createdAt)
+                  }))}</small>
                   <div class="orphan-actions">
-                    <button class="danger ghost small" data-orphan-act="delete-row" data-id="${escapeHtml(item.id)}">删除 DB 行</button>
+                    <button class="danger ghost small" data-orphan-act="delete-row" data-id="${escapeHtml(item.id)}">${escapeHtml(galleryText('orphan.deleteRow'))}</button>
                   </div>
                 </li>
               `).join('')}
             </ul>
-          ` : '<p class="hint">无</p>'}
+          ` : `<p class="hint">${escapeHtml(galleryText('orphan.none'))}</p>`}
         </section>
 
         <section class="user-detail-block">
-          <h3>未挂接文件 · ${danglingRows.length}</h3>
+          <h3>${escapeHtml(galleryText('orphan.danglingTitle', { count: danglingRows.length }))}</h3>
           ${danglingRows.length ? `
             <ul class="orphan-list">
               ${danglingRows.map((item) => `
                 <li>
                   <div><strong>${escapeHtml(item.path)}</strong></div>
-                  <small>用户：${escapeHtml(adminGalleryUserLabel(item.userId, users))} · ${escapeHtml(formatAdminGalleryBytes(item.bytes))} · ${escapeHtml(formatAdminGalleryTime(item.mtime))}</small>
+                  <small>${escapeHtml(galleryText('orphan.danglingMeta', {
+                    user: adminGalleryUserLabel(item.userId, users),
+                    bytes: formatAdminGalleryBytes(item.bytes),
+                    time: formatAdminGalleryTime(item.mtime)
+                  }))}</small>
                   <div class="orphan-actions">
-                    <button class="danger ghost small" data-orphan-act="delete-file" data-path="${escapeHtml(item.path)}">删除磁盘文件</button>
+                    <button class="danger ghost small" data-orphan-act="delete-file" data-path="${escapeHtml(item.path)}">${escapeHtml(galleryText('orphan.deleteFile'))}</button>
                   </div>
                 </li>
               `).join('')}
             </ul>
-          ` : '<p class="hint">无</p>'}
+          ` : `<p class="hint">${escapeHtml(galleryText('orphan.none'))}</p>`}
         </section>
       </div>
     `;

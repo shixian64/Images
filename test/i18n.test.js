@@ -30,6 +30,8 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('dialog.confirm.title'), 'Confirm action');
   assert.equal(t('dialog.info.ok'), 'Got it');
   assert.equal(t('dialog.form.title'), 'Fill in information');
+  assert.equal(t('admin.gallery.summary.hits', { total: 2, totalAll: 5 }), 'Hits 2 / 5 images');
+  assert.equal(t('admin.gallery.table.thumbnail'), 'Thumbnail');
   assert.equal(t('admin.interfaces.summary.imageKey', { state: 'Configured' }), 'Image key: Configured');
   assert.equal(t('admin.registration.summary.defaultTtl', { days: 7 }), 'Default TTL: 7 days');
   assert.equal(t('admin.quota.header.usage'), 'Usage (today / month / storage)');
