@@ -1,11 +1,16 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { setLocale } from '../public/modules/i18n.js';
 import {
   comicStoryboardPanelHtml,
   comicStoryboardView,
   comicStyleGuideHtml
 } from '../public/modules/comic-storyboard-view.js';
+
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
 
 test('comic storyboard view renders escaped style guide cards', () => {
   const html = comicStyleGuideHtml([
@@ -102,4 +107,53 @@ test('comic storyboard panel view supports legacy non-page mode', () => {
   assert.match(html, /本格生图提示词/);
   assert.match(html, /&lt;legacy prompt&gt;/);
   assert.doesNotMatch(html, /comic-page-editor/);
+});
+
+test('comic storyboard view uses locale messages for storyboard chrome', () => {
+  setLocale('en-US');
+
+  const empty = comicStoryboardView(null);
+  assert.match(empty.html, /Enter a short story/);
+
+  const storyboard = {
+    title: 'Demo',
+    styleBible: 'Clean lines',
+    characters: [],
+    panels: [{
+      beat: '',
+      shot: '',
+      camera: '',
+      composition: '',
+      setting: '',
+      action: '',
+      emotion: '',
+      continuityNotes: '',
+      imagePrompt: '',
+      pageStoryboard: {
+        layoutType: 'single',
+        content: 'Page content',
+        panelCount: 1,
+        subPanels: [{ id: 'A', content: 'Page content' }]
+      }
+    }]
+  };
+
+  const view = comicStoryboardView(storyboard);
+  assert.equal(view.empty, false);
+  assert.match(view.html, /Page storyboard generated/);
+  assert.match(view.html, /The model chose 1 comic pages/);
+  assert.match(view.html, /Character consistency/);
+  assert.match(view.html, /Style bible/);
+  assert.match(view.html, /The model did not extract explicit characters/);
+  assert.match(view.html, /Page 1 \(page storyboard\)/);
+  assert.match(view.html, /1 inner panels · model generated, editable/);
+  assert.match(view.html, /Panel count for this page/);
+  assert.match(view.html, /Advanced: view\/edit page storyboard JSON/);
+  assert.match(view.html, /Whole-page image prompt \(editable\)/);
+
+  const legacy = comicStoryboardPanelHtml({}, 2, { showPageStoryboards: false });
+  assert.match(legacy, /Storyboard 3/);
+  assert.match(legacy, /Shot\/composition can be filled in manually/);
+  assert.match(legacy, />Setting</);
+  assert.match(legacy, /Panel image prompt \(editable\)/);
 });
