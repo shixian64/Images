@@ -1,10 +1,11 @@
 // 日志面板：分级 / 搜索 / 导出 / 清空 / 复制 / 错误徽章。
 // 实现 README 承诺但旧 JS 缺失的功能；对应 docs §5.6 状态与反馈 + §13.1。
 
-import { $, escapeHtml, maskKey, setStatus } from './dom.js';
+import { $, maskKey, setStatus } from './dom.js';
 import { apiFetch, getLastRequestTraceId } from './auth.js';
 import { copyText } from './clipboard.js';
 import { redactSecrets } from '../../shared/redaction.js';
+import { logListHtml, logSummaryHtml } from './logs-view.js';
 import {
   KEYS,
   readJsonScoped,
@@ -339,37 +340,13 @@ function filterLogs(level, keyword) {
 
 function renderSummary(filtered, activeLevel = 'all') {
   ensureSyncQueueLoaded();
-  const counts = { debug: 0, info: 0, warn: 0, error: 0 };
-  for (const l of logs) counts[l.level] = (counts[l.level] || 0) + 1;
-  const syncEnabled = isClientLogSyncEnabled();
-  const syncQueueHint = syncEnabled && syncQueue.length ? ` · 待同步 ${syncQueue.length}` : '';
-  const levelChip = (level, label) => `
-    <button
-      type="button"
-      class="chip ${level} level-chip${activeLevel === level ? ' active' : ''}"
-      data-level-filter="${level}"
-      aria-pressed="${activeLevel === level ? 'true' : 'false'}"
-      title="筛选 ${label} 日志；再次点击取消筛选"
-    >${label} ${counts[level]}</button>`;
-
-  $('logSummary').innerHTML = `
-    <span class="chip">共 ${logs.length} 条 · 显示 ${filtered.length}</span>
-    ${levelChip('info', 'Info')}
-    ${levelChip('warn', 'Warn')}
-    ${levelChip('error', 'Error')}
-    <label
-      class="chip log-sync-toggle ${syncEnabled ? 'info' : 'warn'}"
-      title="关闭后新日志仅保留在此浏览器，不再上报页面 URL、User-Agent、窗口大小和错误上下文；待同步队列会清空。"
-    >
-      <input
-        id="clientLogSyncToggle"
-        type="checkbox"
-        aria-label="同步客户端日志到服务器"
-        ${syncEnabled ? 'checked' : ''}
-      />
-      <span>服务端同步：${syncEnabled ? '开' : '关'}${syncQueueHint}</span>
-    </label>
-  `;
+  $('logSummary').innerHTML = logSummaryHtml({
+    logs,
+    filtered,
+    activeLevel,
+    syncEnabled: isClientLogSyncEnabled(),
+    syncQueueLength: syncQueue.length
+  });
 
   const badge = $('logErrorBadge');
   if (badge) {
@@ -390,30 +367,11 @@ function renderList(filtered) {
   const list = $('logList');
   if (!filtered.length) {
     list.dataset.empty = 'true';
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">▤</div>
-        <p>没有匹配的日志。试试切换等级或清空搜索。</p>
-      </div>`;
+    list.innerHTML = logListHtml(filtered);
     return;
   }
   list.dataset.empty = 'false';
-
-  list.innerHTML = filtered.map((log) => {
-    const metaText = log.meta && Object.keys(log.meta).length
-      ? `<span class="log-meta">${escapeHtml(JSON.stringify(log.meta))}</span>`
-      : '';
-    const shortTs = log.ts.slice(11, 19);
-    return `
-      <article class="log-item" data-level="${escapeHtml(log.level)}" data-id="${escapeHtml(log.id)}">
-        <span class="log-ts">${escapeHtml(shortTs)}</span>
-        <span class="log-level">${escapeHtml(log.level)}</span>
-        <span class="log-msg">${escapeHtml(log.message)}${metaText}</span>
-        <span class="log-actions">
-          <button data-action="copy" data-id="${escapeHtml(log.id)}">复制</button>
-        </span>
-      </article>`;
-  }).join('');
+  list.innerHTML = logListHtml(filtered);
 
   list.onclick = async (ev) => {
     const btn = ev.target.closest('button[data-action]');
