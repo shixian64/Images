@@ -6,7 +6,7 @@
 ## 当前结论
 
 - **没有全部处理完。** 原始 95 项中，大量安全、文档漂移、配置、测试、队列统计、图库维护和前端模板问题已经通过后续提交修复或显著降低风险。
-- **仍需继续处理的主线**：队列横向扩展 / 订阅状态、同步 SQLite 的事件循环阻塞、i18n、真实浏览器 E2E / 可视化回归、产品设计文档中未来 SaaS 架构与当前自托管形态的拆分。
+- **仍需继续处理的主线**：队列横向扩展 / 订阅状态、同步 SQLite 的事件循环阻塞、i18n、真实浏览器 E2E / 可视化回归，以及 Prompt Square 等剩余跨响应 payload 预算。
 - **问题 67/71 仍是进行中**：前端大模块和 `innerHTML` 模板已经大量拆分到 `*-view.js` 并补了转义测试，但这属于持续治理项，不能按“全部完成”关闭。
 
 ## 已闭环或有明确验证证据的项目
@@ -40,6 +40,7 @@
 | 81–85 | 已闭环 | `.env.example`、compose、代码默认值对齐；本地 `npm start` 自动加载 `.env`；私网上游必须显式 opt-in；`test/docker-compose.test.js`、`test/env-file.test.js`、`test/upstream.test.js`。 |
 | 88、90、91 | 已闭环 | coverage gate、Docker base image pin digest、Trivy 扫描；`.github/workflows/test.yml`、`Dockerfile`、`test/docker-compose.test.js`、`test/security-workflow.test.js`。 |
 | 93 | 已闭环 | 安全头表述已补充 SSE / 204 等当前响应路径。 |
+| 94 | 已闭环 | `docs/PRODUCT_DESIGN.md` 已改为入口页，当前自托管产品说明拆到 `docs/PRODUCT_CURRENT.md`，未来 SaaS / 商业化路线图拆到 `docs/PRODUCT_ROADMAP.md`。 |
 
 ## 已降低风险但不应直接关闭的项目
 
@@ -65,7 +66,6 @@
 | 68 | 未完成 | `DatabaseSync` 阻塞事件循环的问题需要 worker thread、异步 DB 层或外部数据库方案。 |
 | 80 | 未完成 | i18n / locale 层尚未建立。 |
 | 89 | 未完成 | 仍缺真实浏览器 E2E / 视觉回归。 |
-| 94 | 未完成 | `docs/PRODUCT_DESIGN.md` 仍混合当前自托管与未来 SaaS / 商业化设想，后续应拆成“当前产品说明”和“未来路线图”。 |
 
 ## 本次更新的验证方式
 

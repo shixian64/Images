@@ -1,5 +1,5 @@
 // 前后端共享的常量。浏览器与 Node.js 18+ 都能直接以 ESM 引入，无需打包。
-// 对应 docs/PRODUCT_DESIGN.md §13.1 第 4 条：把尺寸/质量等选项抽成常量。
+// 对应 docs/PRODUCT_CURRENT.md：尺寸/质量等选项作为前后端共享常量。
 
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const DEFAULT_CHAT_MODEL = 'gpt-5.5';
