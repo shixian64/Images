@@ -9,6 +9,13 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { positiveIntFromEnv } from '../utils/config.js';
 import { images as imagesTable, imageLikes, comicProjects, dbPaths } from './db.js';
 import { assetFromItem, cleanupTempFile } from './gallery-assets.js';
+import {
+  GALLERY_ROOT,
+  galleryFileUrl,
+  isTrustedStoredImagePath,
+  resolveStoredAbs,
+  storedPathSegments
+} from './gallery-paths.js';
 import { createGalleryImageVariants } from './image-variants.js';
 import { tryReserveStorageBytes } from './quota.js';
 import {
@@ -19,7 +26,6 @@ import {
   isUnderUserImages
 } from './path-guard.js';
 
-const GALLERY_ROOT = guardPaths.generatedRoot;
 const DEFAULT_DAILY_PUBLIC_LIKE_LIMIT = 10;
 const DEFAULT_GALLERY_STAT_CONCURRENCY = 16;
 const DEFAULT_MAINTENANCE_SCAN_PAGE_SIZE = 500;
@@ -77,17 +83,7 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
-// relPath 形如 users/<uid>/images/<date>/<file> 或旧路径 images/<date>/<file>。
-// 按 / 分段后对每段 encodeURIComponent，再用 / 拼接。
-function toPublicUrl(relPath) {
-  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
-  if (!segments.length || segments.some((part) => part === '.' || part === '..')) return '';
-  return `/gallery-files/${segments.map(encodeURIComponent).join('/')}`;
-}
-
-export function galleryFileUrl(relPath) {
-  return toPublicUrl(relPath);
-}
+export { galleryFileUrl } from './gallery-paths.js';
 
 function buildFileName(createdAt, index, ext) {
   const safeTs = createdAt.replace(/[:.]/g, '-');
@@ -137,38 +133,6 @@ function comicProjectIdForUser(projectId, userId) {
 function comicPageIndexFromContext(context = {}) {
   const n = Number(context.comicPageIndex ?? context.comicPanelIndex);
   return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-function storedPathSegments(relPath) {
-  const segments = String(relPath || '').split(/[\\/]+/).filter(Boolean);
-  if (!segments.length) return null;
-  if (segments.some((part) => part === '.' || part === '..')) return null;
-  return segments;
-}
-
-function isTrustedStoredImagePath(segments, userId) {
-  if (!Array.isArray(segments) || !segments.length) return false;
-  // Current format: generated/users/<uid>/images/...
-  if (segments[0] === 'users') {
-    return Boolean(userId) && segments[1] === userId && segments[2] === 'images' && segments.length >= 4;
-  }
-  // Legacy migration format: generated/images/<date>/<file>
-  if (segments[0] === 'images') {
-    return segments.length >= 3;
-  }
-  return false;
-}
-
-// Convert a DB images.path value to an absolute path only when it is one of the
-// gallery-owned layouts. Legacy gallery.json and SQLite runtime state are
-// treated as untrusted input, so callers must not blindly join arbitrary rows.
-function resolveStoredAbs(relPath, { userId = '' } = {}) {
-  const segments = storedPathSegments(relPath);
-  if (!isTrustedStoredImagePath(segments, userId)) return null;
-  const abs = resolve(GALLERY_ROOT, ...segments);
-  const root = resolve(GALLERY_ROOT) + sep;
-  if (abs !== resolve(GALLERY_ROOT) && !abs.startsWith(root)) return null;
-  return abs;
 }
 
 // 保存上游返回的图片到当前用户目录，并写入 SQLite。
@@ -270,9 +234,9 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         comicProjects.touch(comicProjectId, { status: context.comicProjectStatus || null });
       }
 
-      const publicUrl = toPublicUrl(relPath);
-      const thumbnailUrl = variants.thumbnailPath ? toPublicUrl(variants.thumbnailPath) : '';
-      const previewUrl = variants.previewPath ? toPublicUrl(variants.previewPath) : '';
+      const publicUrl = galleryFileUrl(relPath);
+      const thumbnailUrl = variants.thumbnailPath ? galleryFileUrl(variants.thumbnailPath) : '';
+      const previewUrl = variants.previewPath ? galleryFileUrl(variants.previewPath) : '';
       const meta = {
         id,
         userId,
@@ -347,9 +311,9 @@ async function itemsFromRows(rows, { viewerId = null } = {}) {
     try {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return null;
-      const publicUrl = toPublicUrl(item.path);
-      const thumbnailUrl = item.thumbnailPath ? toPublicUrl(item.thumbnailPath) : '';
-      const previewUrl = item.previewPath ? toPublicUrl(item.previewPath) : '';
+      const publicUrl = galleryFileUrl(item.path);
+      const thumbnailUrl = item.thumbnailPath ? galleryFileUrl(item.thumbnailPath) : '';
+      const previewUrl = item.previewPath ? galleryFileUrl(item.previewPath) : '';
       return {
         ...item,
         url: publicUrl,
@@ -499,9 +463,9 @@ async function adminItemsFromRows(rows = []) {
           missingReason: 'not_file'
         };
       }
-      const publicUrl = toPublicUrl(item.path);
-      const thumbnailUrl = item.thumbnailPath ? toPublicUrl(item.thumbnailPath) : '';
-      const previewUrl = item.previewPath ? toPublicUrl(item.previewPath) : '';
+      const publicUrl = galleryFileUrl(item.path);
+      const thumbnailUrl = item.thumbnailPath ? galleryFileUrl(item.thumbnailPath) : '';
+      const previewUrl = item.previewPath ? galleryFileUrl(item.previewPath) : '';
       return {
         ...item,
         url: publicUrl,
