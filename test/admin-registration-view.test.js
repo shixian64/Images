@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   formatRegistrationInviteExpiry,
   formatRegistrationTime,
+  registrationErrorHtml,
   registrationInviteRowHtml,
   registrationInviteStatus,
   registrationInviteUsersHtml,
@@ -57,6 +58,15 @@ test('admin registration summary and empty tables render expected states', () =>
   assert.match(html, /默认次数：5/);
   assert.match(html, /可用邀请码：1 个 \/ 剩余 2 次/);
   assert.match(html, /当前来自环境变量/);
+});
+
+test('admin registration error chip escapes dynamic message', () => {
+  const html = registrationErrorHtml('注册配置异常 <script>alert(1)</script> "><bad>');
+
+  assert.match(html, /class="chip error"/);
+  assert.match(html, /注册配置异常 &lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<bad>/);
 });
 
 test('admin registration invite table escapes dynamic fields', () => {

@@ -1,9 +1,10 @@
 // ????????????????????????
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import {
+  registrationErrorHtml,
   registrationInvitesHtml,
   registrationRedemptionsHtml,
   registrationSettings as viewRegistrationSettings,
@@ -68,7 +69,7 @@ export async function refreshRegistration({ silent = false } = {}) {
     if (!silent) setStatus('注册设置已刷新', 'ok', 1400);
   } catch (err) {
     const host = $('registrationSummary');
-    if (host) host.innerHTML = `<span class="chip error">加载失败：${escapeHtml(err?.message || String(err))}</span>`;
+    if (host) host.innerHTML = registrationErrorHtml(err?.message || String(err));
     setStatus(`加载注册设置失败：${err?.message || err}`, 'err', 2400);
   }
 }

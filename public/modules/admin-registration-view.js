@@ -94,6 +94,10 @@ export function registrationSummaryHtml(admin = null) {
   `;
 }
 
+export function registrationErrorHtml(message) {
+  return `<span class="chip error">加载失败：${escapeHtml(message || '未知错误')}</span>`;
+}
+
 export function registrationInvitesHtml(admin = null) {
   if (!admin) {
     return '<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>正在等待注册配置加载。</p></div>';
