@@ -1,11 +1,12 @@
 // ???????????????????????????
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
 import {
   adminJobSettingsHtml,
   adminJobShortId,
+  adminJobsErrorHtml,
   adminJobsSummaryHtml,
   adminJobsTableView
 } from './admin-jobs-view.js';
@@ -68,7 +69,7 @@ export async function refreshAdminJobs({ silent = false } = {}) {
   } catch (err) {
     setStatus(`加载队列失败：${err?.message || err}`, 'err', 2400);
     const wrap = $('adminJobsTableWrap');
-    if (wrap) wrap.innerHTML = `<div class="error-banner">${escapeHtml(err?.message || '加载失败')}</div>`;
+    if (wrap) wrap.innerHTML = adminJobsErrorHtml(err?.message || '加载失败');
   }
 }
 

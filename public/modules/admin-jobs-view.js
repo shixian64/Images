@@ -110,6 +110,10 @@ export function adminJobSettingsHtml(settings = null) {
   `;
 }
 
+export function adminJobsErrorHtml(message) {
+  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+}
+
 export function adminJobsTableView(jobs = [], { users = [], nowMs = Date.now() } = {}) {
   const rows = Array.isArray(jobs) ? jobs : [];
   if (!rows.length) {

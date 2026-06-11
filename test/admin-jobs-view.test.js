@@ -9,6 +9,7 @@ import {
   adminJobStatusChipClass,
   adminJobStatusText,
   adminJobUserLabel,
+  adminJobsErrorHtml,
   adminJobsSummaryHtml,
   adminJobsTableView,
   formatAdminJobDuration,
@@ -100,6 +101,15 @@ test('admin jobs view renders empty and escaped job rows', () => {
   assert.match(html, /disabled/);
   assert.doesNotMatch(html, /<alice>/);
   assert.doesNotMatch(html, /<prompt>/);
+  assert.doesNotMatch(html, /<bad>/);
+});
+
+test('admin jobs view renders escaped error banner', () => {
+  const html = adminJobsErrorHtml('加载失败 <script>alert(1)</script> "><bad>');
+
+  assert.match(html, /class="error-banner"/);
+  assert.match(html, /加载失败 &lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;&gt;&lt;bad&gt;/);
+  assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<bad>/);
 });
 
