@@ -57,6 +57,7 @@
 | 55、58 | 部分闭环 | 上游响应和内存默认值已收紧，URL / 上传路径也更流式；仍需要长期容量压测验证峰值。 |
 | 67、71 | 进行中 | 已大量拆 `*-view.js` 并补转义测试，但大前端模块与 HTML 模板治理仍需持续推进。 |
 | 69 | 部分闭环 | 审计日志 metadata 与 generation job result / progress 已复用统一 JSON budget helper；client logs 也已有接入预算；Prompt Square 列表只返回裁剪后的 prompt 预览，详情接口保留完整内容；系统配置脱敏导出会裁剪超大 value，含密钥的可恢复导出保持完整。剩余零散 JSON 响应仍需持续梳理。 |
+| 80 | 部分闭环 | 已建立前端 `i18n` / locale 基础模块，支持消息 key、插值、日期 / 数字 / 时长格式化，并接入队列管理视图的状态与时长文案；大量既有页面文案仍需逐步迁移。 |
 | 86、87 | 部分闭环 | CI 已有 Windows、`check:js`、coverage；尚无完整 lint / typecheck / 容器矩阵。 |
 | 92 | 部分闭环 | 已有 Node 运行时预检与测试，但依赖 `node:sqlite` experimental 的根风险仍存在。 |
 
@@ -65,7 +66,6 @@
 | 原始编号 | 当前状态 | 下一步建议 |
 | --- | --- | --- |
 | 68 | 未完成 | `DatabaseSync` 阻塞事件循环的问题需要 worker thread、异步 DB 层或外部数据库方案。 |
-| 80 | 未完成 | i18n / locale 层尚未建立。 |
 | 89 | 未完成 | 仍缺真实浏览器 E2E / 视觉回归。 |
 
 ## 本次更新的验证方式

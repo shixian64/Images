@@ -15,6 +15,7 @@ import {
   formatAdminJobDuration,
   formatAdminJobTime
 } from '../public/modules/admin-jobs-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('admin jobs view formats common labels and durations', () => {
   assert.equal(formatAdminJobTime('not-a-date'), '-');
@@ -32,6 +33,9 @@ test('admin jobs view formats common labels and durations', () => {
   assert.equal(adminJobStatusChipClass('failed'), 'err');
   assert.equal(adminJobStatusChipClass('running'), 'info');
   assert.equal(adminJobLogLevelChipClass('warn'), 'warn');
+  setLocale('en-US');
+  assert.equal(adminJobStatusText('running'), 'Running');
+  setLocale('zh-CN');
 });
 
 test('admin jobs view renders escaped summary and settings', () => {

@@ -1,10 +1,8 @@
 import { escapeHtml } from './dom.js';
+import { formatDateTime, formatDuration, t } from './i18n.js';
 
 export function formatAdminJobTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(iso);
 }
 
 export function adminJobShortId(id) {
@@ -19,14 +17,7 @@ export function adminJobUserLabel(userId, users = []) {
 }
 
 export function adminJobStatusText(status) {
-  return {
-    queued: '排队',
-    running: '执行中',
-    succeeded: '成功',
-    failed: '失败',
-    cancelled: '已取消',
-    timeout: '超时'
-  }[status] || status || '-';
+  return t(`job.status.${status}`, {}, status || t('common.empty'));
 }
 
 export function adminJobStatusChipClass(status) {
@@ -45,12 +36,7 @@ export function adminJobLogLevelChipClass(level) {
 }
 
 export function formatAdminJobDuration(ms) {
-  const n = Number(ms);
-  if (!Number.isFinite(n) || n <= 0) return '-';
-  if (n < 1000) return `${Math.round(n)}ms`;
-  const sec = Math.round(n / 1000);
-  if (sec < 60) return `${sec}s`;
-  return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  return formatDuration(ms);
 }
 
 function safeNumber(value, fallback = 0) {
