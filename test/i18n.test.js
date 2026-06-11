@@ -45,6 +45,8 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('studio.reference.removeAria', { index: 1 }), 'Remove reference image 1');
   assert.equal(t('theme.toggle.title', { mode: t('theme.mode.dark') }), 'Theme: Dark (click to switch)');
   assert.equal(t('imagePreview.closeLabel'), 'Close image preview');
+  assert.equal(t('clipboard.manual.title'), 'Manual copy');
+  assert.equal(t('clipboard.error.empty'), 'No text to copy.');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');
   assert.equal(t('missing.key', {}, 'Fallback {name}'), 'Fallback ');
   assert.equal(t('missing.key', { name: 'Alice' }, 'Fallback {name}'), 'Fallback Alice');

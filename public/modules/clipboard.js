@@ -1,8 +1,10 @@
 const MANUAL_COPY_ID = 'clipboardManualCopy';
 
+import { t } from './i18n.js';
+
 function assertCopyableText(text) {
   const value = String(text ?? '');
-  if (!value) throw new Error('没有可复制的文本。');
+  if (!value) throw new Error(t('clipboard.error.empty'));
   return value;
 }
 
@@ -12,12 +14,12 @@ export function dismissManualCopyFallback(doc = globalThis.document) {
 
 export function showManualCopyFallback(text, {
   doc = globalThis.document,
-  title = '手动复制',
-  message = '浏览器拒绝自动复制，请手动选择下方文本复制。'
+  title = t('clipboard.manual.title'),
+  message = t('clipboard.manual.message')
 } = {}) {
   const value = assertCopyableText(text);
   if (!doc?.body || typeof doc.createElement !== 'function') {
-    throw new Error('当前环境不支持手动复制兜底。');
+    throw new Error(t('clipboard.error.manualUnsupported'));
   }
 
   dismissManualCopyFallback(doc);
@@ -37,7 +39,7 @@ export function showManualCopyFallback(text, {
   const close = doc.createElement('button');
   close.type = 'button';
   close.className = 'ghost small';
-  close.textContent = '关闭';
+  close.textContent = t('clipboard.manual.close');
   close.addEventListener('click', () => wrap.remove());
 
   const hint = doc.createElement('p');
@@ -46,7 +48,7 @@ export function showManualCopyFallback(text, {
   const textarea = doc.createElement('textarea');
   textarea.value = value;
   textarea.setAttribute('readonly', '');
-  textarea.setAttribute('aria-label', '需要手动复制的文本');
+  textarea.setAttribute('aria-label', t('clipboard.manual.textareaAria'));
 
   head.appendChild(titleEl);
   head.appendChild(close);
@@ -69,13 +71,13 @@ export async function copyText(text, options = {}) {
       await clipboard.writeText(value);
       return { copied: true, manual: false, method: 'clipboard' };
     } catch {
-      // 继续走传统复制与手动选择兜底。
+      // Continue to the legacy copy path and manual selection fallback.
     }
   }
 
   const doc = options.doc || globalThis.document;
   if (!doc?.body || typeof doc.createElement !== 'function') {
-    throw new Error('当前环境不支持复制。');
+    throw new Error(t('clipboard.error.unsupported'));
   }
 
   const textarea = doc.createElement('textarea');

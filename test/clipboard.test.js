@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { setLocale } from '../public/modules/i18n.js';
 import { copyText, dismissManualCopyFallback } from '../public/modules/clipboard.js';
 
 class FakeElement {
@@ -94,6 +95,10 @@ function installFakeDom(t, { execResult = false } = {}) {
   return { doc, calls };
 }
 
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
+
 test('copyText prefers navigator.clipboard when available', async (t) => {
   const { calls } = installFakeDom(t, { execResult: true });
   const written = [];
@@ -130,7 +135,32 @@ test('copyText leaves a selected manual fallback when automatic copy fails', asy
   assert.equal(result.textarea.focused, true);
   assert.equal(result.textarea.selected, true);
   assert.equal(doc.getElementById('clipboardManualCopy'), result.element);
+  assert.equal(result.element.children[0].children[0].textContent, '手动复制');
+  assert.equal(result.element.children[0].children[1].textContent, '关闭');
+  assert.match(result.element.children[1].textContent, /浏览器拒绝自动复制/);
+  assert.equal(result.textarea.attributes['aria-label'], '需要手动复制的文本');
 
   dismissManualCopyFallback(doc);
   assert.equal(doc.getElementById('clipboardManualCopy'), null);
+});
+
+test('copyText manual fallback follows English locale', async (t) => {
+  setLocale('en-US');
+  const { doc } = installFakeDom(t, { execResult: false });
+
+  const result = await copyText('manual secret');
+
+  assert.equal(result.method, 'manual');
+  assert.equal(result.element.children[0].children[0].textContent, 'Manual copy');
+  assert.equal(result.element.children[0].children[1].textContent, 'Close');
+  assert.match(result.element.children[1].textContent, /browser blocked automatic copy/i);
+  assert.equal(result.textarea.attributes['aria-label'], 'Text that must be copied manually');
+});
+
+test('copyText errors use localized messages', async (t) => {
+  installFakeDom(t);
+  await assert.rejects(() => copyText(''), /没有可复制的文本/);
+
+  setLocale('en-US');
+  await assert.rejects(() => copyText(''), /No text to copy/);
 });
