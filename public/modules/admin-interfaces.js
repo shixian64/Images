@@ -2,32 +2,20 @@
 
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
+import {
+  DEFAULT_INTERFACE_BASE_URL,
+  globalEndpointConfig,
+  globalEndpointTestView,
+  globalInterfaceSummaryHtml
+} from './admin-interfaces-view.js';
 
-const DEFAULT_BASE_URL = 'https://api.openai.com';
+const DEFAULT_BASE_URL = DEFAULT_INTERFACE_BASE_URL;
 
 let globalInterface = null;
 let globalInterfaceLoaded = false;
 
 function globalEndpoint(kind) {
-  const endpoint = globalInterface?.[kind] || {};
-  return {
-    baseUrl: endpoint.baseUrl || DEFAULT_BASE_URL,
-    apiKey: '',
-    hasApiKey: endpoint.hasApiKey === undefined ? null : Boolean(endpoint.hasApiKey),
-    maskedApiKey: endpoint.maskedApiKey || '',
-    defaultModel: endpoint.defaultModel || (kind === 'chat' ? 'gpt-5.5' : 'gpt-image-2'),
-    testStatus: endpoint.testStatus || 'unknown',
-    testLatencyMs: endpoint.testLatencyMs ?? null,
-    testedAt: endpoint.testedAt || null,
-    testError: endpoint.testError || '',
-    secretError: endpoint.secretError || ''
-  };
-}
-
-function keyState(endpoint) {
-  if (endpoint.hasApiKey === true) return '已配置';
-  if (endpoint.hasApiKey === false) return '未配置';
-  return '未知';
+  return globalEndpointConfig(globalInterface, kind);
 }
 
 function renderGlobalEndpointTest(kind) {
@@ -35,38 +23,15 @@ function renderGlobalEndpointTest(kind) {
   const endpoint = globalEndpoint(kind);
   const el = $(`${prefix}TestResult`);
   if (!el) return;
-  if (!endpoint.testStatus || endpoint.testStatus === 'unknown') {
-    el.dataset.state = 'idle';
-    el.textContent = '未测试';
-  } else if (endpoint.testStatus === 'ok') {
-    el.dataset.state = 'ok';
-    el.textContent = `OK · ${endpoint.testLatencyMs ?? '?'}ms`;
-  } else if (endpoint.testStatus === 'busy') {
-    el.dataset.state = 'busy';
-    el.textContent = '测试中…';
-  } else {
-    el.dataset.state = 'err';
-    el.textContent = `失败 · ${endpoint.secretError || endpoint.testError || '未知错误'}`;
-  }
+  const view = globalEndpointTestView(endpoint);
+  el.dataset.state = view.state;
+  el.textContent = view.text;
 }
 
 function renderGlobalInterfaceSummary() {
   const host = $('globalInterfaceSummary');
   if (!host) return;
-  if (!globalInterface) {
-    host.innerHTML = '<span class="chip">尚未加载</span>';
-    return;
-  }
-  const image = globalEndpoint('image');
-  const chat = globalEndpoint('chat');
-  host.innerHTML = `
-    <span class="chip ${globalInterface.enabled === false ? 'error' : 'ok'}">${globalInterface.enabled === false ? '停用' : '启用'}</span>
-    <span class="chip info">${escapeHtml(globalInterface.name || '系统默认')}</span>
-    <span class="chip">生图 Key：${keyState(image)}</span>
-    <span class="chip">对话 Key：${keyState(chat)}</span>
-    <span class="chip">生图模型：${escapeHtml(image.defaultModel || '-')}</span>
-    <span class="chip">对话模型：${escapeHtml(chat.defaultModel || '-')}</span>
-  `;
+  host.innerHTML = globalInterfaceSummaryHtml(globalInterface);
 }
 
 function renderGlobalInterfaceForm() {
