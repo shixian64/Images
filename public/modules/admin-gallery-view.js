@@ -78,6 +78,22 @@ export function adminGallerySummaryHtml({ total = 0, totalAll = 0, itemCount = 0
     `;
 }
 
+export function adminGalleryLoadingSummaryHtml() {
+  return '<span class="chip">正在加载图库…</span>';
+}
+
+export function adminGalleryLoadingTableHtml() {
+  return '<div class="empty-state"><div class="empty-icon" aria-hidden="true">▧</div><p>正在加载图库…</p></div>';
+}
+
+export function adminGalleryErrorSummaryHtml(message = '加载失败') {
+  return `<span class="chip error">加载失败：${escapeHtml(message || '加载失败')}</span>`;
+}
+
+export function adminGalleryErrorTableHtml(message = '加载失败') {
+  return `<div class="error-banner">加载图库失败：${escapeHtml(message || '加载失败')}</div>`;
+}
+
 export function adminGalleryFilterSummaryText({ total = 0, page = 1, pageSize = 50 } = {}) {
   return safeCount(total) ? `第 ${safeCount(page)} 页 · 每页 ${safeCount(pageSize)}` : '';
 }

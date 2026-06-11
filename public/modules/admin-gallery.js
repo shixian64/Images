@@ -1,12 +1,16 @@
 // ??????????????????????????????
 
-import { $, escapeHtml, setStatus } from './dom.js';
+import { $, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as drawer from './drawer.js';
 import * as dialog from './dialog.js';
 import {
   adminGalleryFilterSummaryText,
+  adminGalleryErrorSummaryHtml,
+  adminGalleryErrorTableHtml,
   adminGalleryImageDetailView,
+  adminGalleryLoadingSummaryHtml,
+  adminGalleryLoadingTableHtml,
   adminGalleryModelFilterOptionsHtml,
   adminGalleryOrphanScanHtml,
   adminGalleryPagerView,
@@ -174,8 +178,8 @@ async function fetchAdminGalleryStats() {
 export async function refreshAdminGallery({ silent = false } = {}) {
   const summary = $('adminGallerySummary');
   const wrap = $('adminGalleryTableWrap');
-  if (summary) summary.innerHTML = '<span class="chip">正在加载图库…</span>';
-  if (wrap && !silent) wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">▧</div><p>正在加载图库…</p></div>`;
+  if (summary) summary.innerHTML = adminGalleryLoadingSummaryHtml();
+  if (wrap && !silent) wrap.innerHTML = adminGalleryLoadingTableHtml();
 
   try {
     const qs = buildAdminGalleryQuery();
@@ -201,8 +205,8 @@ export async function refreshAdminGallery({ silent = false } = {}) {
     if (!silent) setStatus(`图库列表已刷新 · ${galleryView.total} 张命中`, 'ok', 1400);
   } catch (err) {
     const message = err?.message || String(err);
-    if (summary) summary.innerHTML = `<span class="chip error">加载失败：${escapeHtml(message)}</span>`;
-    if (wrap) wrap.innerHTML = `<div class="error-banner">加载图库失败：${escapeHtml(message)}</div>`;
+    if (summary) summary.innerHTML = adminGalleryErrorSummaryHtml(message);
+    if (wrap) wrap.innerHTML = adminGalleryErrorTableHtml(message);
     setStatus('加载图库失败', 'err', 2000);
   }
 }

@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  adminGalleryErrorSummaryHtml,
+  adminGalleryErrorTableHtml,
   adminGalleryFilterSummaryText,
   adminGalleryImageDetailView,
   adminGalleryKnownUsers,
+  adminGalleryLoadingSummaryHtml,
+  adminGalleryLoadingTableHtml,
   adminGalleryModelFilterOptionsHtml,
   adminGalleryOrphanScanHtml,
   adminGalleryPagerView,
@@ -37,6 +41,18 @@ test('admin gallery view formats common labels and summaries', () => {
   assert.match(adminGallerySummaryHtml({ total: 2, totalAll: 5, storage: 'x"><bad>' }), /x&quot;&gt;&lt;bad&gt;/);
   assert.equal(adminGalleryFilterSummaryText({ total: 2, page: 3, pageSize: 20 }), '第 3 页 · 每页 20');
   assert.equal(adminGalleryFilterSummaryText({ total: 0, page: 3, pageSize: 20 }), '');
+});
+
+test('admin gallery loading and error templates are centralized and escaped', () => {
+  assert.match(adminGalleryLoadingSummaryHtml(), /正在加载图库/);
+  assert.match(adminGalleryLoadingTableHtml(), /empty-state/);
+
+  const summary = adminGalleryErrorSummaryHtml('bad <script>alert(1)</script>');
+  const table = adminGalleryErrorTableHtml('bad <script>alert(1)</script>');
+  assert.match(summary, /bad &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(table, /bad &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(summary, /<script>/);
+  assert.doesNotMatch(table, /<script>/);
 });
 
 test('admin gallery stats escape dynamic fields', () => {
