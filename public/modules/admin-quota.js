@@ -3,10 +3,10 @@
 import { $, escapeHtml, setStatus } from './dom.js';
 import { apiFetch } from './auth.js';
 import * as dialog from './dialog.js';
-
-function statusLabel(status) {
-  return status === 'active' ? '启用' : '停用';
-}
+import {
+  quotaDefaultsCardHtml,
+  quotaTableView
+} from './admin-quota-view.js';
 
 // ---------- 额度管理 ----------
 
@@ -28,166 +28,21 @@ const QUOTA_FIELD_LABEL = {
   concurrent_limit: '并发上限'
 };
 
-function fmtLimit(value) {
-  if (value === null || value === undefined) return '不限';
-  return String(value);
-}
-
-function fmtMb(bytes) {
-  const v = Number(bytes) || 0;
-  if (!v) return '0 MB';
-  const mb = v / (1024 * 1024);
-  return `${mb >= 100 ? mb.toFixed(0) : mb.toFixed(1)} MB`;
-}
-
-function pct(used, limit) {
-  if (!limit) return null;
-  return Math.min(100, Math.round((Number(used) || 0) / limit * 100));
-}
-
-function miniBar(used, limit) {
-  const p = pct(used, limit);
-  if (p === null) return '<span class="quota-mini quota-mini-unlim" aria-hidden="true"></span>';
-  const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
-  return `<progress class="quota-mini ${cls}" value="${p}" max="100" aria-hidden="true"></progress>`;
-}
-
-function miniStorageBar(usedBytes, limitMb) {
-  if (!limitMb) return '<span class="quota-mini quota-mini-unlim" aria-hidden="true"></span>';
-  const usedMb = (Number(usedBytes) || 0) / (1024 * 1024);
-  const p = Math.min(100, Math.round(usedMb / limitMb * 100));
-  const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
-  return `<progress class="quota-mini ${cls}" value="${p}" max="100" aria-hidden="true"></progress>`;
-}
-
 export function renderDefaultsCard() {
   const host = $('quotaDefaultsCard');
   if (!host) return;
-  if (!quotaDefaults) { host.innerHTML = ''; return; }
-  const card = (key, label, suffix) => {
-    const v = quotaDefaults[key];
-    return `
-      <div class="stat-card quota-default-card">
-        <span>${label}</span>
-        <div class="quota-default-input">
-          <input type="number" min="0" step="1"
-            data-default-key="${key}"
-            value="${v === null || v === undefined ? '' : v}"
-            placeholder="不限" />
-          <em>${suffix}</em>
-        </div>
-      </div>
-    `;
-  };
-  host.innerHTML = `
-    ${card('daily_limit', '系统默认每日调用上限', '次/天')}
-    ${card('monthly_limit', '系统默认每月调用上限', '次/月')}
-    ${card('storage_limit_mb', '存储上限', 'MB')}
-    ${card('concurrent_limit', '并发上限', '次')}
-  `;
-}
-
-function inlineQuotaCell(userId, field, value) {
-  const overridden = value !== null && value !== undefined;
-  return `
-    <td class="quota-inline-cell ${overridden ? 'overridden' : ''}">
-      <input type="number" min="0" step="1"
-        class="quota-inline-input ${overridden ? 'overridden' : ''}"
-        data-quota-field="${field}"
-        data-user-id="${escapeHtml(userId)}"
-        value="${overridden ? value : ''}"
-        placeholder="跟随" />
-    </td>
-  `;
+  host.innerHTML = quotaDefaultsCardHtml(quotaDefaults);
 }
 
 export function renderQuotaTable() {
   const wrap = $('quotaTableWrap');
   if (!wrap) return;
-  if (!quotaItems.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无数据</p></div>`;
+  const view = quotaTableView(quotaItems, { selectedIds: quotaSelected });
+  wrap.innerHTML = view.html;
+  if (view.empty) {
     syncQuotaBulkBar();
     return;
   }
-
-  wrap.innerHTML = `
-    <table class="users-table management-table quota-table">
-      <thead>
-        <tr>
-          <th class="quota-check"><input type="checkbox" data-quota-bulk-toggle aria-label="全选" /></th>
-          <th>用户</th>
-          <th>状态</th>
-          <th>日额度</th>
-          <th>月额度</th>
-          <th>存储 (MB)</th>
-          <th>并发</th>
-          <th>用量（今 / 月 / 存储）</th>
-          <th aria-label="操作"></th>
-        </tr>
-      </thead>
-      <tbody>
-        ${quotaItems.map((row) => {
-          const u = row.user || {};
-          const q = row.quota || {};
-          const raw = q.raw || {};
-          const usage = row.usage || {};
-          const today = usage.today || {};
-          const month = usage.month || {};
-          const storage = usage.storage || {};
-          const todayPromptOptimizations = Number(today.promptOptimizations || 0);
-          const monthPromptOptimizations = Number(month.promptOptimizations || 0);
-          const id = u.id || '';
-          const isChecked = quotaSelected.has(id);
-          const promptOptimizeChip = (todayPromptOptimizations || monthPromptOptimizations)
-            ? `<small class="quota-extra-chip" title="提示词优化今日 ${todayPromptOptimizations} / 本月 ${monthPromptOptimizations}">优化 ${todayPromptOptimizations}/${monthPromptOptimizations}</small>`
-            : '';
-          const failChip = (today.fails || month.fails)
-            ? `<small class="quota-fail-chip" title="今日失败 ${today.fails || 0} / 本月失败 ${month.fails || 0}">失败 ${today.fails || 0}/${month.fails || 0}</small>`
-            : '';
-          return `
-            <tr data-quota-user-id="${escapeHtml(id)}" class="${isChecked ? 'selected' : ''}">
-              <td class="quota-check">
-                <input type="checkbox" data-quota-row-check ${isChecked ? 'checked' : ''} aria-label="选中 ${escapeHtml(u.username || '')}" />
-              </td>
-              <td>
-                <div class="management-user-cell">
-                  <strong>${escapeHtml(u.username || '-')}</strong>
-                  <small>${escapeHtml(u.email || '-')}</small>
-                </div>
-              </td>
-              <td>
-                <span class="chip ${u.status === 'active' ? 'ok' : 'err'}">${statusLabel(u.status)}</span>
-                ${u.role === 'admin' ? '<span class="chip info">管理员</span>' : ''}
-              </td>
-              ${inlineQuotaCell(id, 'daily_limit', raw.daily_limit ?? null)}
-              ${inlineQuotaCell(id, 'monthly_limit', raw.monthly_limit ?? null)}
-              ${inlineQuotaCell(id, 'storage_limit_mb', raw.storage_limit_mb ?? null)}
-              ${inlineQuotaCell(id, 'concurrent_limit', raw.concurrent_limit ?? null)}
-              <td class="quota-usage-summary">
-                <div class="quota-usage-line">
-                  <span>今</span>${miniBar(today.calls || 0, q.daily_limit)}
-                  <small title="今日系统默认接口调用总数（含生图与提示词优化）">${today.calls || 0}/${fmtLimit(q.daily_limit)}</small>
-                </div>
-                <div class="quota-usage-line">
-                  <span>月</span>${miniBar(month.calls || 0, q.monthly_limit)}
-                  <small title="本月系统默认接口调用总数（含生图与提示词优化）">${month.calls || 0}/${fmtLimit(q.monthly_limit)}</small>
-                </div>
-                <div class="quota-usage-line">
-                  <span>存</span>${miniStorageBar(storage.bytes || 0, q.storage_limit_mb)}
-                  <small>${fmtMb(storage.bytes || 0)}${q.storage_limit_mb ? ` / ${q.storage_limit_mb}MB` : ''}</small>
-                </div>
-                ${promptOptimizeChip}
-                ${failChip}
-              </td>
-              <td class="quota-row-action">
-                <button class="ghost small icon-only" data-quota-act="menu" aria-label="更多操作" title="更多操作">⋯</button>
-              </td>
-            </tr>
-          `;
-        }).join('')}
-      </tbody>
-    </table>
-  `;
 
   const allChecked = quotaItems.every((r) => quotaSelected.has(r.user?.id));
   const toggle = wrap.querySelector('[data-quota-bulk-toggle]');
@@ -599,4 +454,3 @@ export function bindQuotaPanel() {
   $('quotaBulkResetMonth')?.addEventListener('click', () => bulkResetUsage('month'));
   $('quotaBulkRestore')?.addEventListener('click', bulkRestoreDefault);
 }
-
