@@ -30,6 +30,11 @@ test('runtime health reports database, disk, and queue status', async () => {
   assert.equal(snapshot.uptimeSec, 12);
   assert.equal(snapshot.db.ok, true);
   assert.match(snapshot.db.path, /app\.db$/);
+  assert.equal(snapshot.db.runtime.driver, 'node:sqlite DatabaseSync');
+  assert.equal(snapshot.db.runtime.blocking, true);
+  assert.equal(snapshot.db.runtime.workerOffloaded, false);
+  assert.equal(Number.isInteger(snapshot.db.runtime.busyTimeoutMs), true);
+  assert.equal(Number.isInteger(snapshot.db.runtime.walAutocheckpointPages), true);
   assert.equal(snapshot.disk.ok, true);
   assert.equal(snapshot.disk.writable, true);
   assert.equal(snapshot.queue.ok, true);
@@ -49,6 +54,7 @@ test('runtime health becomes unhealthy when a required dependency fails', async 
 
   assert.equal(snapshot.ok, false);
   assert.equal(snapshot.db.error, 'db unavailable');
+  assert.equal(snapshot.db.runtime.driver, 'node:sqlite DatabaseSync');
 });
 
 test('runtime health reports event-loop lag as unhealthy', async () => {

@@ -29,6 +29,14 @@ const LEGACY_GALLERY = join(DB_DIR, 'gallery.json');
 const LEGACY_GALLERY_DONE = join(DB_DIR, 'gallery.json.migrated');
 
 let _db = null;
+let _connectionPragmas = null;
+
+function connectionPragmaConfig() {
+  return {
+    busyTimeoutMs: positiveIntFromEnv('SQLITE_BUSY_TIMEOUT_MS', 5_000, { allowZero: true }),
+    walAutocheckpointPages: positiveIntFromEnv('SQLITE_WAL_AUTOCHECKPOINT_PAGES', 1_000, { allowZero: true })
+  };
+}
 
 function open() {
   if (_db) return _db;
@@ -39,13 +47,29 @@ function open() {
 }
 
 function applyConnectionPragmas(db) {
-  const busyTimeoutMs = positiveIntFromEnv('SQLITE_BUSY_TIMEOUT_MS', 5_000, { allowZero: true });
-  const walAutocheckpointPages = positiveIntFromEnv('SQLITE_WAL_AUTOCHECKPOINT_PAGES', 1_000, { allowZero: true });
+  const { busyTimeoutMs, walAutocheckpointPages } = connectionPragmaConfig();
+  _connectionPragmas = { busyTimeoutMs, walAutocheckpointPages };
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA synchronous = NORMAL;');
   db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs};`);
   db.exec(`PRAGMA wal_autocheckpoint = ${walAutocheckpointPages};`);
   db.exec('PRAGMA foreign_keys = ON;');
+}
+
+export function dbRuntimeInfo() {
+  const { busyTimeoutMs, walAutocheckpointPages } = _connectionPragmas || connectionPragmaConfig();
+  return {
+    driver: 'node:sqlite DatabaseSync',
+    module: 'node:sqlite',
+    blocking: true,
+    workerOffloaded: false,
+    connectionScope: 'single-process shared synchronous connection',
+    journalMode: 'WAL',
+    synchronous: 'NORMAL',
+    busyTimeoutMs,
+    walAutocheckpointPages,
+    foreignKeys: true
+  };
 }
 
 function nowIso() {
@@ -130,9 +154,9 @@ export const promptSquare = createPromptSquareRepository({ open, nowIso });
 export function healthCheck() {
   try {
     const row = open().prepare('SELECT 1 AS ok').get();
-    return { ok: row?.ok === 1, path: DB_PATH };
+    return { ok: row?.ok === 1, path: DB_PATH, runtime: dbRuntimeInfo() };
   } catch (err) {
-    return { ok: false, path: DB_PATH, error: err?.message || String(err) };
+    return { ok: false, path: DB_PATH, runtime: dbRuntimeInfo(), error: err?.message || String(err) };
   }
 }
 

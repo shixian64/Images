@@ -18,7 +18,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET/HEAD | `/healthz` | 公开 | 返回 `{ ok, uptimeSec, db, disk, queue }`；DB、运行目录可写或队列状态检查失败时返回 503。 |
+| GET/HEAD | `/healthz` | 公开 | 返回 `{ ok, uptimeSec, db, disk, queue, eventLoop }`；DB、运行目录可写、队列或事件循环检查失败时返回 503。`db.runtime` 会暴露当前 SQLite 驱动边界，例如 `driver: "node:sqlite DatabaseSync"`、`blocking: true`、`workerOffloaded: false`、`busyTimeoutMs`、`walAutocheckpointPages`，用于部署侧识别同步数据库风险。 |
 
 ## Auth
 

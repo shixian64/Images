@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
-import { dbPaths, healthCheck as dbHealthCheck } from './db.js';
+import { dbPaths, dbRuntimeInfo, healthCheck as dbHealthCheck } from './db.js';
 import { getQueueSettings, queueRuntimeInfo } from './job-queue.js';
 
 async function diskHealthCheck(dir = dbPaths.dir) {
@@ -48,11 +48,15 @@ async function eventLoopHealthCheck({ thresholdMs = 250 } = {}) {
 export async function runtimeHealthSnapshot({
   uptimeSec = Math.round(process.uptime()),
   dbCheck = dbHealthCheck,
+  dbRuntime = dbRuntimeInfo,
   diskCheck = diskHealthCheck,
   queueCheck = queueHealthCheck,
   eventLoopCheck = eventLoopHealthCheck
 } = {}) {
-  const db = dbCheck();
+  const dbProbe = dbCheck();
+  const db = dbProbe?.runtime
+    ? dbProbe
+    : { ...(dbProbe || { ok: false }), runtime: dbRuntime() };
   const disk = await diskCheck();
   const queue = queueCheck();
   const eventLoop = await eventLoopCheck();

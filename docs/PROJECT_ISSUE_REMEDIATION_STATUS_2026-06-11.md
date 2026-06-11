@@ -6,7 +6,7 @@
 ## 当前结论
 
 - **没有全部处理完。** 原始 95 项中，大量安全、文档漂移、配置、测试、队列统计、图库维护和前端模板问题已经通过后续提交修复或显著降低风险。
-- **仍需继续处理的主线**：队列横向扩展 / 完整通知模型、同步 SQLite 的事件循环阻塞、i18n 全量迁移、完整真实浏览器 E2E / 可视化回归，以及 Prompt Square 等剩余跨响应 payload 预算。
+- **仍需继续处理的主线**：队列横向扩展 / 完整通知模型、同步 SQLite 的架构改造（本轮已补运行时可观测边界）、i18n 全量迁移、完整真实浏览器 E2E / 可视化回归，以及 Prompt Square 等剩余跨响应 payload 预算。
 - **问题 67/71 仍是进行中**：前端大模块和 `innerHTML` 模板已经大量拆分到 `*-view.js` 并补了转义测试，但这属于持续治理项，不能按“全部完成”关闭。
 
 ## 已闭环或有明确验证证据的项目
@@ -66,9 +66,12 @@
 
 | 原始编号 | 当前状态 | 下一步建议 |
 | --- | --- | --- |
-| 68 | 未完成 | `DatabaseSync` 阻塞事件循环的问题需要 worker thread、异步 DB 层或外部数据库方案。 |
+| 68 | 部分治理，仍需架构改造 | 已在 `/healthz` 的 `db.runtime` 暴露 `node:sqlite DatabaseSync`、`blocking`、`workerOffloaded`、`busyTimeoutMs`、`walAutocheckpointPages`，并在部署文档中要求同时监控 `eventLoop.lagMs`；真正消除同步 SQL 对事件循环的阻塞仍需要 worker thread、异步 DB 层或外部数据库方案。 |
 
 ## 本次更新的验证方式
 
-- 本次为文档和状态跟踪更新；没有启动服务、没有运行构建命令。
+- `npm run check:js`
+- `node --experimental-sqlite --test test\health.test.js`
+- `git diff --check`
+- `npm test`
 - 建议后续继续按“一个问题 / 一类问题一个提交”的方式推进，并在关闭目标前逐项复核原始 95 项与当前代码 / 测试证据。

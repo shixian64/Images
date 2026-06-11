@@ -91,10 +91,11 @@ npm run config:import -- backups/system-config/prod-config.json --yes --replace
 ## 6. 容量规划与运行边界
 
 - 当前队列是单进程调度；不要把同一个 SQLite/`generated/` 卷挂给多个写入实例。
+- 当前数据库层使用 `node:sqlite DatabaseSync`，SQL 调用会在主线程同步执行；CPU 较慢、磁盘抖动、长事务或高并发管理查询都可能放大事件循环延迟。生产侧应持续监控 `/healthz` 的 `eventLoop.lagMs` 和 `db.runtime`，并把 worker thread、异步数据库层或外部数据库作为横向扩展前置改造。
 - `GLOBAL_CONCURRENT_GENERATIONS`、`DEFAULT_CONCURRENT_LIMIT`、`IMAGE_GENERATION_BATCH_CONCURRENCY` 会共同影响上游压力、内存和本地 IO。
 - multipart 上传、上游响应、URL 图片下载和参考图暂存都会占用 Buffer/native 内存；容器内存应明显大于这些上限之和。
 - 管理员孤儿扫描有行数、文件数、目录数和超时上限；大图库建议低峰期执行。
-- `/healthz` 会检查数据库、磁盘、队列和事件循环延迟，可作为容器或反代健康检查入口。
+- `/healthz` 会检查数据库、磁盘、队列和事件循环延迟，可作为容器或反代健康检查入口；其中 `db.runtime` 会明确标出同步 SQLite 驱动、是否 worker offload、busy timeout 与 WAL autocheckpoint 配置。
 
 ## 7. 升级与回滚
 
