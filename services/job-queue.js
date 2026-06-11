@@ -33,6 +33,12 @@ import { emitJob, emitQueueRefresh } from './queue-events.js';
 import { queueStats as queueStatsSnapshot } from './queue-read-model.js';
 import { compactGenerationResult, serializeJob } from './queue-serialization.js';
 import { isTerminalJobStatus } from './queue-status.js';
+import {
+  forgetTransientSecret,
+  getTransientSecret,
+  rememberTransientSecret,
+  runtimeBodyForJob
+} from './queue-transient-secrets.js';
 import { logger } from '../utils/logger.js';
 
 const TICK_MS = 5_000;
@@ -42,7 +48,6 @@ let kicking = false;
 let stopped = false;
 
 const activeJobs = new Map();
-const transientJobSecrets = new Map();
 
 export { getQueueSettings, normalizeQueueSettings } from './queue-settings.js';
 export { onJobUpdate, subscribeAdminJobs, subscribeJob, subscribeUserJobs } from './queue-events.js';
@@ -90,11 +95,6 @@ function emitJobStatus(job, event = 'job') {
   syncComicProjectStatusForJob(job);
 }
 
-function rememberTransientSecret(jobId, secret) {
-  if (!secret?.apiKey) return;
-  transientJobSecrets.set(jobId, { ...secret });
-}
-
 function timeoutMsForJob(job, settings = getQueueSettings()) {
   if (settings.execution_timeout_ms) return settings.execution_timeout_ms;
   return isComicStoryboardPayload(job?.payload)
@@ -104,30 +104,6 @@ function timeoutMsForJob(job, settings = getQueueSettings()) {
 
 function compactJobResult(job, body = {}) {
   return isComicStoryboardPayload(job?.payload) ? (body || {}) : compactGenerationResult(body);
-}
-
-function runtimeBodyForJob(job) {
-  const payload = { ...(job.payload || {}) };
-  if (payload.useSystemDefault === true || payload.interfaceMode === 'system') {
-    return { ...payload, useSystemDefault: true, interfaceMode: 'system' };
-  }
-  const secret = transientJobSecrets.get(job.id);
-  if (!secret?.apiKey) {
-    throw httpError(
-      400,
-      '个人接口密钥只保存在当前进程内存中；服务重启或任务完成后该任务无法继续，请从 Studio 重新提交。',
-      'transient_secret_missing'
-    );
-  }
-  return {
-    ...payload,
-    useSystemDefault: false,
-    interfaceMode: 'custom',
-    baseUrl: secret.baseUrl || secret.imageBaseUrl || payload.baseUrl || payload.imageBaseUrl,
-    imageBaseUrl: secret.imageBaseUrl || secret.baseUrl || payload.imageBaseUrl || payload.baseUrl,
-    apiKey: secret.apiKey,
-    imageApiKey: secret.apiKey
-  };
 }
 
 function checkQueueCapacity(userInfo, settings) {
@@ -359,7 +335,7 @@ async function executeJob(job, slot, userInfo) {
     };
     const result = isComicStoryboardPayload(running.payload)
       ? await runComicStoryboardJob(running.payload, userInfo, {
-        transientSecret: transientJobSecrets.get(running.id),
+        transientSecret: getTransientSecret(running.id),
         signal: controller.signal,
         timeoutMs,
         onProgress
@@ -451,7 +427,7 @@ async function executeJob(job, slot, userInfo) {
     if (timeoutId) clearTimeout(timeoutId);
     activeJobs.delete(job.id);
     slot.release?.();
-    if (!requeued) transientJobSecrets.delete(job.id);
+    if (!requeued) forgetTransientSecret(job.id);
     if (!requeued) cleanupReferenceJobFiles(job.id).catch((err) => {
       logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
     });
@@ -475,7 +451,7 @@ function queuedWaitCleanup(settings = getQueueSettings()) {
       progress: { stage: 'cancelled', message: '队列等待超时，任务已取消' },
       cancelRequested: true
     });
-    transientJobSecrets.delete(job.id);
+    forgetTransientSecret(job.id);
     cleanupReferenceJobFiles(job.id).catch((err) => {
       logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
     });
@@ -581,7 +557,7 @@ export function stopJobQueue() {
         errorMessage: 'server_shutdown',
         progress: { stage: 'failed', message: '服务正在停止，运行中的任务已中止' }
       });
-      transientJobSecrets.delete(jobId);
+      forgetTransientSecret(jobId);
       cleanupReferenceJobFiles(jobId).catch((err) => {
         logger.warn('job.reference_cleanup_failed', { jobId, error: err?.message || String(err) });
       });
@@ -610,7 +586,7 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
       progress: { stage: 'cancelled', message: '任务已取消' },
       cancelRequested: true
     });
-    transientJobSecrets.delete(job.id);
+    forgetTransientSecret(job.id);
     cleanupReferenceJobFiles(job.id).catch((err) => {
       logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
     });
