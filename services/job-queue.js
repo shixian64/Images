@@ -16,7 +16,6 @@ import {
 import {
   cleanupExpiredReferenceJobFiles,
   cleanupReferenceJobFiles,
-  publicReferencePayload,
   stageReferenceImages
 } from './reference-images.js';
 import {
@@ -30,6 +29,7 @@ import {
   persistQueueSettings,
   priorityForUser
 } from './queue-settings.js';
+import { compactGenerationResult, serializeJob } from './queue-serialization.js';
 import { logger } from '../utils/logger.js';
 
 const TICK_MS = 5_000;
@@ -61,6 +61,7 @@ const adminSubscribers = new Set();
 const jobListeners = new Map();
 
 export { getQueueSettings, normalizeQueueSettings } from './queue-settings.js';
+export { compactGenerationResult, serializeJob } from './queue-serialization.js';
 
 export function setQueueSettings(patch = {}, updatedBy = null) {
   const next = persistQueueSettings(patch, updatedBy);
@@ -73,74 +74,6 @@ function httpError(statusCode, message, code) {
   err.statusCode = statusCode;
   if (code) err.code = code;
   return err;
-}
-
-export function compactGenerationResult(body = {}) {
-  const out = { ...(body || {}) };
-  if (Array.isArray(out.data)) {
-    out.data = out.data.map((item) => {
-      if (!item || typeof item !== 'object') return item;
-      const next = { ...item };
-      // Never persist inline image payloads in the job table.  A failed save can
-      // still leave save_error next to the original b64_json item, and storing
-      // that blob would inflate SQLite/SSE payloads dramatically.
-      delete next.b64_json;
-      // Upstream URL outputs can be temporary/signed and can also bypass local
-      // storage/quota boundaries when mirroring failed. Keep only local_url /
-      // localUrl from the gallery mirror; failed saves retain save_error.
-      delete next.url;
-      return next;
-    });
-  }
-  return out;
-}
-
-function publicJob(job, { includeUser = false } = {}) {
-  if (!job) return null;
-  const result = job.result ?? null;
-  const payload = publicPayload(job.payload || {});
-  const out = {
-    id: job.id,
-    userId: job.user_id,
-    status: job.status,
-    priority: Number(job.priority) || 0,
-    promptPreview: job.prompt_preview || '',
-    profileName: job.profile_name || '',
-    model: job.model || '',
-    n: Number(job.n) || 1,
-    payload,
-    result,
-    error: job.error_message || '',
-    progress: job.progress || null,
-    createdAt: Number(job.created_at) || null,
-    startedAt: Number(job.started_at) || null,
-    finishedAt: Number(job.finished_at) || null,
-    updatedAt: Number(job.updated_at) || null,
-    attempts: Number(job.attempts) || 0,
-    cancelRequested: Boolean(job.cancel_requested),
-    position: job.status === 'queued' ? generationJobs.queuePosition(job.id) : null
-  };
-  if (includeUser) {
-    out.user = {
-      id: job.user_id,
-      username: job.user_username || '',
-      email: job.user_email || '',
-      role: job.user_role || ''
-    };
-  }
-  return out;
-}
-
-function publicPayload(payload = {}) {
-  const out = { ...(payload || {}) };
-  if (Array.isArray(out.referenceImages)) {
-    out.referenceImages = publicReferencePayload(out.referenceImages);
-  }
-  return out;
-}
-
-export function serializeJob(job, options = {}) {
-  return publicJob(job, options);
 }
 
 function safeWriteSse(res, event, data = {}) {
@@ -194,11 +127,11 @@ function emitTo(set, event, data) {
 }
 
 function emitJob(job, event = 'job') {
-  const payload = publicJob(job, { includeUser: false });
+  const payload = serializeJob(job, { includeUser: false });
   if (!payload) return;
   emitTo(userSubscribers.get(job.user_id), event, payload);
   emitTo(jobSubscribers.get(job.id), event, payload);
-  const adminPayload = publicJob(job, { includeUser: true });
+  const adminPayload = serializeJob(job, { includeUser: true });
   emitTo(adminSubscribers, event, adminPayload);
   for (const handler of [...(jobListeners.get(job.id) || [])]) {
     try { handler(payload, event); } catch { /* listener errors must not break scheduler */ }
@@ -343,7 +276,7 @@ export async function enqueueImageGeneration(body, userInfo) {
   emitJob(job, 'job');
   syncComicProjectStatusForJob(job);
   kickScheduler();
-  return publicJob(job);
+  return serializeJob(job);
 }
 
 export async function enqueueComicStoryboard(body, userInfo) {
@@ -402,7 +335,7 @@ export async function enqueueComicStoryboard(body, userInfo) {
   });
   emitJob(job, 'job');
   kickScheduler();
-  return publicJob(job);
+  return serializeJob(job);
 }
 
 function acquireSlotsForJob(job, userInfo) {
@@ -733,25 +666,25 @@ export function stopJobQueue() {
 }
 
 export function getUserJobs(userId, opts = {}) {
-  return generationJobs.listByUser(userId, opts).map((job) => publicJob(job));
+  return generationJobs.listByUser(userId, opts).map((job) => serializeJob(job));
 }
 
 export function getJobForUser(jobId, userInfo, { allowAdmin = false } = {}) {
   const job = generationJobs.findById(jobId);
   if (!job) throw httpError(404, 'job not found');
   if (!allowAdmin && job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
-  return publicJob(job, { includeUser: allowAdmin });
+  return serializeJob(job, { includeUser: allowAdmin });
 }
 
 export function getAdminJobs({ limit = 200, status = '', userId = '' } = {}) {
-  return generationJobs.listAll({ limit, status, userId }).map((job) => publicJob(job, { includeUser: true }));
+  return generationJobs.listAll({ limit, status, userId }).map((job) => serializeJob(job, { includeUser: true }));
 }
 
 export function getAdminJob(jobId) {
   const job = generationJobs.findById(jobId);
   if (!job) return null;
   const user = job.user_id ? users.findById(job.user_id) : null;
-  return publicJob({
+  return serializeJob({
     ...job,
     user_username: user?.username || '',
     user_email: user?.email || '',
@@ -785,7 +718,7 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
   const job = generationJobs.findById(jobId);
   if (!job) throw httpError(404, 'job not found');
   if (!admin && job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
-  if (TERMINAL_STATUSES.has(job.status)) return publicJob(job, { includeUser: admin });
+  if (TERMINAL_STATUSES.has(job.status)) return serializeJob(job, { includeUser: admin });
 
   if (job.status === 'queued') {
     const cancelled = generationJobs.updateStatus(job.id, 'cancelled', {
@@ -801,7 +734,7 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
     logger.info('job.cancelled', { jobId: job.id, userId: job.user_id, running: false, by: userInfo?.id });
     emitJobStatus(cancelled, 'job');
     kickScheduler();
-    return publicJob(cancelled, { includeUser: admin });
+    return serializeJob(cancelled, { includeUser: admin });
   }
 
   if (job.status === 'running') {
@@ -819,11 +752,11 @@ export function cancelJob(jobId, userInfo, { admin = false } = {}) {
         logger.warn('job.reference_cleanup_failed', { jobId: job.id, error: err?.message || String(err) });
       });
       emitJobStatus(cancelled, 'job');
-      return publicJob(cancelled, { includeUser: admin });
+      return serializeJob(cancelled, { includeUser: admin });
     }
     logger.info('job.cancel_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
     emitJobStatus(requested, 'job');
-    return publicJob(requested, { includeUser: admin });
+    return serializeJob(requested, { includeUser: admin });
   }
 
   throw httpError(409, 'job is not cancellable');
@@ -883,7 +816,7 @@ export async function retryJob(jobId, userInfo) {
   logger.info('job.retry_requested', { jobId: job.id, userId: job.user_id, by: userInfo?.id });
   emitJobStatus(updated, 'job');
   kickScheduler();
-  return publicJob(updated);
+  return serializeJob(updated);
 }
 
 export function updateJobPriority(jobId, priority, userInfo) {
@@ -893,7 +826,7 @@ export function updateJobPriority(jobId, priority, userInfo) {
   logger.info('job.priority_updated', { jobId, priority: updated.priority, by: userInfo?.id });
   emitJob(updated, 'job');
   kickScheduler();
-  return publicJob(updated, { includeUser: true });
+  return serializeJob(updated, { includeUser: true });
 }
 
 export function isActiveStatus(status) {
