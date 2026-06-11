@@ -5,6 +5,10 @@ import {
   customSelectMenuHtml,
   selectOptionLabel
 } from '../public/modules/selects-view.js';
+import {
+  customSelectAriaFallback,
+  customSelectPlaceholderLabel
+} from '../public/modules/selects.js';
 import { setLocale } from '../public/modules/i18n.js';
 
 test('selects view resolves option label fallbacks', () => {
@@ -63,6 +67,15 @@ test('selects view uses locale messages for fallback chrome', () => {
 
   assert.equal(selectOptionLabel({}), 'Untitled');
   assert.equal(customSelectMenuHtml([]), '<div class="custom-select-empty">No options</div>');
+  assert.equal(customSelectPlaceholderLabel(), 'Select an option');
+  assert.equal(customSelectAriaFallback(), 'Dropdown select');
 
   setLocale('zh-CN');
+});
+
+test('select enhancement helper labels use Chinese locale defaults', () => {
+  setLocale('zh-CN');
+
+  assert.equal(customSelectPlaceholderLabel(), '请选择');
+  assert.equal(customSelectAriaFallback(), '下拉选择');
 });

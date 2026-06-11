@@ -1,5 +1,6 @@
-// 全局下拉增强：保留原生 select 作为数据源，额外渲染统一视觉的弹层。
+// Global select enhancement: keep the native select as data source and render a unified visual menu.
 
+import { t } from './i18n.js';
 import { customSelectMenuHtml, selectOptionLabel } from './selects-view.js';
 
 const instances = new WeakMap();
@@ -19,6 +20,14 @@ function isEnhanceable(select) {
 
 function optionLabel(option) {
   return selectOptionLabel(option);
+}
+
+export function customSelectPlaceholderLabel() {
+  return t('selects.placeholder');
+}
+
+export function customSelectAriaFallback() {
+  return t('selects.ariaFallback');
 }
 
 function flattenOptions(select) {
@@ -130,7 +139,7 @@ export function syncSelect(select) {
 
   buildMenu(instance);
   const option = selectedOption(select);
-  const label = option ? optionLabel(option) : '请选择';
+  const label = option ? optionLabel(option) : customSelectPlaceholderLabel();
   instance.label.textContent = label;
   instance.trigger.title = label;
   instance.trigger.tabIndex = select.disabled ? -1 : 0;
@@ -203,7 +212,7 @@ function enhanceSelect(select) {
   const labelText = select.getAttribute('aria-label')
     || select.closest('label')?.querySelector('span')?.textContent?.trim()
     || select.name
-    || '下拉选择';
+    || customSelectAriaFallback();
   trigger.setAttribute('aria-label', labelText);
 
   const label = document.createElement('span');

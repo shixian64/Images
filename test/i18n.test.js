@@ -33,6 +33,7 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('profiles.test.failed', { error: 'boom' }), 'Failed · boom');
   assert.equal(t('profile.usage.periodHint', { promptOptimizations: 1, fails: 2, images: 3 }), 'Prompt optimizations 1 · failures 2 · saved 3 images');
   assert.equal(t('selects.empty'), 'No options');
+  assert.equal(t('selects.placeholder'), 'Select an option');
   assert.equal(t('logs.summary.count', { total: 3, shown: 1 }), '3 total · 1 shown');
   assert.equal(t('promptHistory.summary.count', { total: 3, shown: 1 }), '3 total · 1 shown');
   assert.equal(t('promptHistory.examples.previewAria', { index: 1 }), 'Preview example image 1');
