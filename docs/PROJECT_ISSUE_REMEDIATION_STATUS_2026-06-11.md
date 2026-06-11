@@ -55,7 +55,7 @@
 | 41、42 | 部分闭环 | 个人 Key 不落库，已有普通用户确认与管理 runtime 说明；根因仍是“进程内易失密钥”。 |
 | 55、58 | 部分闭环 | 上游响应和内存默认值已收紧，URL / 上传路径也更流式；仍需要长期容量压测验证峰值。 |
 | 67、71 | 进行中 | 已大量拆 `*-view.js` 并补转义测试，但大前端模块与 HTML 模板治理仍需持续推进。 |
-| 69 | 部分闭环 | 审计日志 metadata 已统一脱敏、裁剪字符串 / 深度 / 数组 / 对象规模，并限制落库 JSON 体积；client logs 也已有接入预算；generation job 的 result / progress 已增加落库 JSON 预算；Prompt Square 列表只返回裁剪后的 prompt 预览，详情接口保留完整内容。剩余零散 JSON 响应 / 导出仍需持续梳理。 |
+| 69 | 部分闭环 | 审计日志 metadata 与 generation job result / progress 已复用统一 JSON budget helper；client logs 也已有接入预算；Prompt Square 列表只返回裁剪后的 prompt 预览，详情接口保留完整内容；系统配置脱敏导出会裁剪超大 value，含密钥的可恢复导出保持完整。剩余零散 JSON 响应仍需持续梳理。 |
 | 86、87 | 部分闭环 | CI 已有 Windows、`check:js`、coverage；尚无完整 lint / typecheck / 容器矩阵。 |
 | 92 | 部分闭环 | 已有 Node 运行时预检与测试，但依赖 `node:sqlite` experimental 的根风险仍存在。 |
 

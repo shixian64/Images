@@ -1,6 +1,7 @@
 // SQLite repository for generation job queue rows.
 
 import { randomUUID } from 'node:crypto';
+import { compactJsonValueForBudget } from '../utils/json-budget.js';
 
 const JOB_JSON_FIELDS = new Set(['payload_json', 'result_json', 'progress_json']);
 export const JOB_RESULT_MAX_JSON_CHARS = 80_000;
@@ -25,26 +26,8 @@ function parseJob(row) {
   return out;
 }
 
-function truncateJsonText(value, maxChars) {
-  const text = String(value ?? '');
-  const max = Math.max(0, Math.floor(Number(maxChars) || 0));
-  if (text.length <= max) return text;
-  if (max <= 3) return '.'.repeat(max);
-  return `${text.slice(0, max - 3)}...`;
-}
-
 function compactJsonString(json, maxChars) {
-  const out = {
-    truncated: true,
-    originalJsonChars: json.length,
-    preview: ''
-  };
-  const overhead = JSON.stringify(out).length;
-  out.preview = truncateJsonText(json, Math.max(0, maxChars - overhead - 1));
-  while (JSON.stringify(out).length > maxChars && out.preview.length > 0) {
-    out.preview = truncateJsonText(out.preview, Math.max(0, out.preview.length - 256));
-  }
-  return JSON.stringify(out);
+  return JSON.stringify(compactJsonValueForBudget(json, { maxJsonChars: maxChars, alreadyJson: true }));
 }
 
 function jobPayload(value, fallback = null, { maxJsonChars = null } = {}) {

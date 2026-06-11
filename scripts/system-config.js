@@ -5,11 +5,13 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { maskApiKey, redactSecrets } from '../utils/mask.js';
+import { compactJsonValueForBudget } from '../utils/json-budget.js';
 
 const DEFAULT_DB = join('generated', 'app.db');
 const DEFAULT_OUTPUT = join('backups', 'system-config');
 const DEFAULT_EXPORT_PREFIX = 'image-studio-system-config';
 const EXPORT_KIND = 'system-config-export';
+export const SYSTEM_CONFIG_REDACTED_VALUE_MAX_JSON_CHARS = 50_000;
 
 const SYSTEM_SETTINGS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -46,6 +48,21 @@ function redactConfigValue(value, key = '') {
     );
   }
   return value;
+}
+
+function redactedExportValue(value) {
+  const redacted = redactConfigValue(value);
+  const json = JSON.stringify(redacted);
+  if (!json || json.length <= SYSTEM_CONFIG_REDACTED_VALUE_MAX_JSON_CHARS) {
+    return { value: redacted };
+  }
+  return {
+    value: compactJsonValueForBudget(json, {
+      maxJsonChars: SYSTEM_CONFIG_REDACTED_VALUE_MAX_JSON_CHARS,
+      alreadyJson: true
+    }),
+    valueTruncated: true
+  };
 }
 
 function tableExists(db, name) {
@@ -96,9 +113,10 @@ export function exportSystemConfig({
       : [];
     const entries = rows.map((row) => {
       const value = parseStoredValue(row.value);
+      const exported = includeSecrets ? { value } : redactedExportValue(value);
       return {
         key: row.key,
-        value: includeSecrets ? value : redactConfigValue(value),
+        ...exported,
         updatedAt: row.updated_at,
         updatedBy: row.updated_by || null
       };

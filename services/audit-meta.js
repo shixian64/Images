@@ -1,4 +1,5 @@
 import { redactSecrets } from '../utils/mask.js';
+import { compactJsonValueForBudget, truncateJsonText } from '../utils/json-budget.js';
 
 export const AUDIT_META_MAX_JSON_CHARS = 20_000;
 const AUDIT_META_MAX_TEXT_CHARS = 4_000;
@@ -10,11 +11,7 @@ const REDACTED = '[redacted]';
 const SENSITIVE_KEY_RE = /(?:api[-_ ]?key|authorization|bearer|token|password|passwd|secret|credential)/i;
 
 function truncateText(value, maxChars = AUDIT_META_MAX_TEXT_CHARS) {
-  const text = String(value ?? '');
-  const max = Math.max(0, Math.floor(Number(maxChars) || 0));
-  if (text.length <= max) return text;
-  if (max <= 3) return '.'.repeat(max);
-  return `${text.slice(0, max - 3)}...`;
+  return truncateJsonText(value, maxChars);
 }
 
 function isSensitiveKey(key) {
@@ -70,26 +67,10 @@ function normalizeValue(value, depth, seen) {
   }
 }
 
-function buildTruncatedMeta(json, maxChars) {
-  const originalJsonChars = json.length;
-  const out = {
-    truncated: true,
-    originalJsonChars,
-    preview: ''
-  };
-  const overhead = JSON.stringify(out).length;
-  out.preview = truncateText(json, Math.max(0, maxChars - overhead - 1));
-
-  while (JSON.stringify(out).length > maxChars && out.preview.length > 0) {
-    out.preview = truncateText(out.preview, Math.max(0, out.preview.length - 256));
-  }
-  return out;
-}
-
 export function normalizeAuditMeta(meta, { maxJsonChars = AUDIT_META_MAX_JSON_CHARS } = {}) {
   if (meta === undefined || meta === null) return null;
   const normalized = normalizeValue(meta, 0, new WeakSet());
   const json = JSON.stringify(normalized);
   if (json.length <= maxJsonChars) return normalized;
-  return buildTruncatedMeta(json, maxJsonChars);
+  return compactJsonValueForBudget(json, { maxJsonChars, alreadyJson: true });
 }
