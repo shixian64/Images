@@ -172,11 +172,11 @@ function renderQueue() {
   if (badge) badge.textContent = String(queued.length + running.length);
 
   const runningEl = $('jobQueueRunning');
-  if (runningEl) runningEl.innerHTML = renderJobListSection(running, 'running', '当前没有执行中的任务。', { nowMs });
+  if (runningEl) runningEl.innerHTML = renderJobListSection(running, 'running', { nowMs });
   const queuedEl = $('jobQueueQueued');
-  if (queuedEl) queuedEl.innerHTML = renderJobListSection(queued, 'queued', '队列为空。', { nowMs });
+  if (queuedEl) queuedEl.innerHTML = renderJobListSection(queued, 'queued', { nowMs });
   const recentEl = $('jobQueueRecent');
-  if (recentEl) recentEl.innerHTML = renderJobListSection(recent, 'recent', '暂无完成记录。', { nowMs });
+  if (recentEl) recentEl.innerHTML = renderJobListSection(recent, 'recent', { nowMs });
 
   updateQueueVisibility();
 }

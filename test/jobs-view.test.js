@@ -8,6 +8,7 @@ import {
   jobMeta,
   jobProgressInfo,
   jobQueueEmptyLine,
+  jobQueueEmptyText,
   jobQueueSummaryHtml,
   jobStatusLabel,
   jobStatusTone,
@@ -43,12 +44,17 @@ test('jobs view formats status, durations, image sources and metadata', () => {
 
 test('jobs view renders queue summaries and empty lines', () => {
   assert.match(jobQueueSummaryHtml({ queuedCount: 2, runningCount: 1 }), /<strong>2<\/strong> 排队/);
+  assert.equal(jobQueueEmptyText('running'), '当前没有执行中的任务。');
+  assert.equal(jobQueueEmptyText('queued'), '队列为空。');
+  assert.equal(jobQueueEmptyText('recent'), '暂无完成记录。');
+  assert.equal(jobQueueEmptyText('other'), '暂无任务。');
   const empty = jobQueueEmptyLine('<empty>');
   assert.match(empty, /&lt;empty&gt;/);
   assert.doesNotMatch(empty, /<empty>/);
 
   const section = renderJobListSection([], 'queued', '<none>');
   assert.match(section, /&lt;none&gt;/);
+  assert.match(renderJobListSection([], 'recent'), /暂无完成记录。/);
 });
 
 test('jobs view escapes dynamic job card fields', () => {

@@ -66,6 +66,14 @@ export function jobQueueEmptyLine(text) {
   return `<div class="job-queue-empty">${escapeHtml(text)}</div>`;
 }
 
+export function jobQueueEmptyText(kind = '') {
+  return {
+    running: '当前没有执行中的任务。',
+    queued: '队列为空。',
+    recent: '暂无完成记录。'
+  }[kind] || '暂无任务。';
+}
+
 export function jobQueueSummaryHtml({ queuedCount = 0, runningCount = 0 } = {}) {
   const queued = Number(queuedCount) || 0;
   const running = Number(runningCount) || 0;
@@ -114,8 +122,12 @@ export function renderJobCard(job = {}, kind = '', { nowMs = Date.now() } = {}) 
 }
 
 export function renderJobListSection(jobs = [], kind = '', emptyText = '', { nowMs = Date.now() } = {}) {
+  if (emptyText && typeof emptyText === 'object') {
+    ({ nowMs = Date.now() } = emptyText);
+    emptyText = '';
+  }
   const rows = Array.isArray(jobs) ? jobs : [];
   return rows.length
     ? rows.map((job) => renderJobCard(job, kind, { nowMs })).join('')
-    : jobQueueEmptyLine(emptyText);
+    : jobQueueEmptyLine(emptyText || jobQueueEmptyText(kind));
 }
