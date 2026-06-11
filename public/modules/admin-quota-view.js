@@ -1,11 +1,12 @@
 ﻿import { escapeHtml } from './dom.js';
+import { formatNumber, t } from './i18n.js';
 
 export function quotaStatusLabel(status) {
-  return status === 'active' ? '启用' : '停用';
+  return status === 'active' ? t('admin.quota.status.active') : t('admin.quota.status.disabled');
 }
 
 export function formatQuotaLimit(value) {
-  if (value === null || value === undefined) return '不限';
+  if (value === null || value === undefined) return t('admin.quota.limit.unlimited');
   return String(value);
 }
 
@@ -54,7 +55,7 @@ function defaultQuotaCardHtml(defaults = {}, key, label, suffix) {
           <input type="number" min="0" step="1"
             data-default-key="${key}"
             value="${value === null || value === undefined ? '' : escapeHtml(value)}"
-            placeholder="不限" />
+            placeholder="${escapeHtml(t('admin.quota.limit.unlimited'))}" />
           <em>${suffix}</em>
         </div>
       </div>
@@ -64,23 +65,23 @@ function defaultQuotaCardHtml(defaults = {}, key, label, suffix) {
 export function quotaDefaultsCardHtml(defaults = null) {
   if (!defaults) return '';
   return `
-    ${defaultQuotaCardHtml(defaults, 'daily_limit', '系统默认每日调用上限', '次/天')}
-    ${defaultQuotaCardHtml(defaults, 'monthly_limit', '系统默认每月调用上限', '次/月')}
-    ${defaultQuotaCardHtml(defaults, 'storage_limit_mb', '存储上限', 'MB')}
-    ${defaultQuotaCardHtml(defaults, 'concurrent_limit', '并发上限', '次')}
+    ${defaultQuotaCardHtml(defaults, 'daily_limit', t('admin.quota.defaults.daily'), t('admin.quota.suffix.perDay'))}
+    ${defaultQuotaCardHtml(defaults, 'monthly_limit', t('admin.quota.defaults.monthly'), t('admin.quota.suffix.perMonth'))}
+    ${defaultQuotaCardHtml(defaults, 'storage_limit_mb', t('admin.quota.defaults.storage'), 'MB')}
+    ${defaultQuotaCardHtml(defaults, 'concurrent_limit', t('admin.quota.defaults.concurrent'), t('admin.quota.suffix.calls'))}
   `;
 }
 
-export function quotaErrorHtml(message = '加载失败') {
-  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+export function quotaErrorHtml(message = t('admin.quota.error.loadFailed')) {
+  return `<div class="error-banner">${escapeHtml(message || t('admin.quota.error.loadFailed'))}</div>`;
 }
 
 export function quotaRowMenuHtml() {
   return `
-    <button data-act="edit-all">编辑全部字段…</button>
-    <button data-act="reset-today">重置今日用量</button>
-    <button data-act="reset-month">重置本月用量</button>
-    <button data-act="restore" class="danger">恢复为默认</button>
+    <button data-act="edit-all">${escapeHtml(t('admin.quota.menu.editAll'))}</button>
+    <button data-act="reset-today">${escapeHtml(t('admin.quota.menu.resetToday'))}</button>
+    <button data-act="reset-month">${escapeHtml(t('admin.quota.menu.resetMonth'))}</button>
+    <button data-act="restore" class="danger">${escapeHtml(t('admin.quota.menu.restore'))}</button>
   `;
 }
 
@@ -93,7 +94,7 @@ export function inlineQuotaCellHtml(userId, field, value) {
         data-quota-field="${escapeHtml(field)}"
         data-user-id="${escapeHtml(userId)}"
         value="${overridden ? escapeHtml(value) : ''}"
-        placeholder="跟随" />
+        placeholder="${escapeHtml(t('admin.quota.placeholder.inherit'))}" />
     </td>
   `;
 }
@@ -104,7 +105,7 @@ export function quotaTableView(items = [], { selectedIds = new Set() } = {}) {
   if (!rows.length) {
     return {
       empty: true,
-      html: '<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无数据</p></div>'
+      html: `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>${escapeHtml(t('admin.quota.empty'))}</p></div>`
     };
   }
 
@@ -114,15 +115,15 @@ export function quotaTableView(items = [], { selectedIds = new Set() } = {}) {
     <table class="users-table management-table quota-table">
       <thead>
         <tr>
-          <th class="quota-check"><input type="checkbox" data-quota-bulk-toggle aria-label="全选" /></th>
-          <th>用户</th>
-          <th>状态</th>
-          <th>日额度</th>
-          <th>月额度</th>
-          <th>存储 (MB)</th>
-          <th>并发</th>
-          <th>用量（今 / 月 / 存储）</th>
-          <th aria-label="操作"></th>
+          <th class="quota-check"><input type="checkbox" data-quota-bulk-toggle aria-label="${escapeHtml(t('admin.quota.selectAll'))}" /></th>
+          <th>${escapeHtml(t('admin.quota.header.user'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.status'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.daily'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.monthly'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.storage'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.concurrent'))}</th>
+          <th>${escapeHtml(t('admin.quota.header.usage'))}</th>
+          <th aria-label="${escapeHtml(t('admin.quota.header.actions'))}"></th>
         </tr>
       </thead>
       <tbody>
@@ -150,16 +151,16 @@ export function quotaTableRowHtml(row = {}, { selectedIds = new Set() } = {}) {
   const monthFails = safeMetricNumber(month.fails);
   const id = user.id || '';
   const isChecked = selected.has(id);
-  const promptOptimizeChip = (todayPromptOptimizations || monthPromptOptimizations)
-    ? `<small class="quota-extra-chip" title="提示词优化今日 ${todayPromptOptimizations} / 本月 ${monthPromptOptimizations}">优化 ${todayPromptOptimizations}/${monthPromptOptimizations}</small>`
-    : '';
   const failChip = (todayFails || monthFails)
-    ? `<small class="quota-fail-chip" title="今日失败 ${todayFails} / 本月失败 ${monthFails}">失败 ${todayFails}/${monthFails}</small>`
+    ? `<small class="quota-fail-chip" title="${escapeHtml(t('admin.quota.usage.failTitle', { today: formatNumber(todayFails), month: formatNumber(monthFails) }))}">${escapeHtml(t('admin.quota.usage.failChip', { today: formatNumber(todayFails), month: formatNumber(monthFails) }))}</small>`
+    : '';
+  const promptOptimizeChip = (todayPromptOptimizations || monthPromptOptimizations)
+    ? `<small class="quota-extra-chip" title="${escapeHtml(t('admin.quota.usage.promptTitle', { today: formatNumber(todayPromptOptimizations), month: formatNumber(monthPromptOptimizations) }))}">${escapeHtml(t('admin.quota.usage.promptChip', { today: formatNumber(todayPromptOptimizations), month: formatNumber(monthPromptOptimizations) }))}</small>`
     : '';
   return `
             <tr data-quota-user-id="${escapeHtml(id)}" class="${isChecked ? 'selected' : ''}">
               <td class="quota-check">
-                <input type="checkbox" data-quota-row-check ${isChecked ? 'checked' : ''} aria-label="选中 ${escapeHtml(user.username || '')}" />
+                <input type="checkbox" data-quota-row-check ${isChecked ? 'checked' : ''} aria-label="${escapeHtml(t('admin.quota.selectUser', { name: user.username || '' }))}" />
               </td>
               <td>
                 <div class="management-user-cell">
@@ -169,7 +170,7 @@ export function quotaTableRowHtml(row = {}, { selectedIds = new Set() } = {}) {
               </td>
               <td>
                 <span class="chip ${user.status === 'active' ? 'ok' : 'err'}">${quotaStatusLabel(user.status)}</span>
-                ${user.role === 'admin' ? '<span class="chip info">管理员</span>' : ''}
+                ${user.role === 'admin' ? `<span class="chip info">${escapeHtml(t('admin.quota.role.admin'))}</span>` : ''}
               </td>
               ${inlineQuotaCellHtml(id, 'daily_limit', raw.daily_limit ?? null)}
               ${inlineQuotaCellHtml(id, 'monthly_limit', raw.monthly_limit ?? null)}
@@ -177,22 +178,22 @@ export function quotaTableRowHtml(row = {}, { selectedIds = new Set() } = {}) {
               ${inlineQuotaCellHtml(id, 'concurrent_limit', raw.concurrent_limit ?? null)}
               <td class="quota-usage-summary">
                 <div class="quota-usage-line">
-                  <span>今</span>${quotaMiniBar(todayCalls, quota.daily_limit)}
-                  <small title="今日系统默认接口调用总数（含生图与提示词优化）">${todayCalls}/${escapeHtml(formatQuotaLimit(quota.daily_limit))}</small>
+                  <span>${escapeHtml(t('admin.quota.usage.today'))}</span>${quotaMiniBar(todayCalls, quota.daily_limit)}
+                  <small title="${escapeHtml(t('admin.quota.usage.todayTitle'))}">${escapeHtml(formatNumber(todayCalls))}/${escapeHtml(formatQuotaLimit(quota.daily_limit))}</small>
                 </div>
                 <div class="quota-usage-line">
-                  <span>月</span>${quotaMiniBar(monthCalls, quota.monthly_limit)}
-                  <small title="本月系统默认接口调用总数（含生图与提示词优化）">${monthCalls}/${escapeHtml(formatQuotaLimit(quota.monthly_limit))}</small>
+                  <span>${escapeHtml(t('admin.quota.usage.month'))}</span>${quotaMiniBar(monthCalls, quota.monthly_limit)}
+                  <small title="${escapeHtml(t('admin.quota.usage.monthTitle'))}">${escapeHtml(formatNumber(monthCalls))}/${escapeHtml(formatQuotaLimit(quota.monthly_limit))}</small>
                 </div>
                 <div class="quota-usage-line">
-                  <span>存</span>${quotaStorageMiniBar(storage.bytes || 0, quota.storage_limit_mb)}
+                  <span>${escapeHtml(t('admin.quota.usage.storage'))}</span>${quotaStorageMiniBar(storage.bytes || 0, quota.storage_limit_mb)}
                   <small>${escapeHtml(formatQuotaStorageMb(storage.bytes || 0))}${quota.storage_limit_mb ? ` / ${escapeHtml(quota.storage_limit_mb)}MB` : ''}</small>
                 </div>
                 ${promptOptimizeChip}
                 ${failChip}
               </td>
               <td class="quota-row-action">
-                <button class="ghost small icon-only" data-quota-act="menu" aria-label="更多操作" title="更多操作">⋯</button>
+                <button class="ghost small icon-only" data-quota-act="menu" aria-label="${escapeHtml(t('admin.quota.moreActions'))}" title="${escapeHtml(t('admin.quota.moreActions'))}">⋯</button>
               </td>
             </tr>
           `;

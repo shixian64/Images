@@ -15,8 +15,10 @@ import {
   quotaTableRowHtml,
   quotaTableView
 } from '../public/modules/admin-quota-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('admin quota view formats labels and meter values', () => {
+  setLocale('zh-CN');
   assert.equal(quotaStatusLabel('active'), '启用');
   assert.equal(quotaStatusLabel('disabled'), '停用');
   assert.equal(formatQuotaLimit(null), '不限');
@@ -35,6 +37,7 @@ test('admin quota view formats labels and meter values', () => {
 });
 
 test('admin quota view renders escaped defaults and inline inputs', () => {
+  setLocale('zh-CN');
   const defaults = quotaDefaultsCardHtml({
     daily_limit: '1"><script>',
     monthly_limit: null,
@@ -53,6 +56,7 @@ test('admin quota view renders escaped defaults and inline inputs', () => {
 });
 
 test('admin quota view renders escaped errors and row menu actions', () => {
+  setLocale('zh-CN');
   const error = quotaErrorHtml('failed <script>alert(1)</script>');
   assert.match(error, /failed &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(error, /<script>/);
@@ -65,12 +69,14 @@ test('admin quota view renders escaped errors and row menu actions', () => {
 });
 
 test('admin quota view renders empty table state', () => {
+  setLocale('zh-CN');
   const view = quotaTableView([]);
   assert.equal(view.empty, true);
   assert.match(view.html, /暂无数据/);
 });
 
 test('admin quota view renders escaped quota rows with usage chips', () => {
+  setLocale('zh-CN');
   const row = {
     user: {
       id: 'u"><script>',
@@ -114,6 +120,7 @@ test('admin quota view renders escaped quota rows with usage chips', () => {
 });
 
 test('admin quota view renders populated table', () => {
+  setLocale('zh-CN');
   const view = quotaTableView([
     { user: { id: 'u1', username: 'Alice', status: 'disabled' }, quota: { raw: {} }, usage: {} }
   ]);
@@ -121,4 +128,53 @@ test('admin quota view renders populated table', () => {
   assert.match(view.html, /quota-table/);
   assert.match(view.html, /Alice/);
   assert.match(view.html, /停用/);
+});
+
+test('admin quota view uses locale messages for table chrome', () => {
+  setLocale('en-US');
+  assert.equal(quotaStatusLabel('active'), 'Enabled');
+  assert.equal(quotaStatusLabel('disabled'), 'Disabled');
+  assert.equal(formatQuotaLimit(null), 'Unlimited');
+
+  const defaults = quotaDefaultsCardHtml({
+    daily_limit: null,
+    monthly_limit: 20,
+    storage_limit_mb: 500,
+    concurrent_limit: 3
+  });
+  assert.match(defaults, /System daily call limit/);
+  assert.match(defaults, /placeholder="Unlimited"/);
+  assert.match(defaults, /calls\/month/);
+
+  const menu = quotaRowMenuHtml();
+  assert.match(menu, /Edit all fields/);
+  assert.match(menu, /Reset today usage/);
+  assert.match(menu, /Restore defaults/);
+
+  assert.match(inlineQuotaCellHtml('u1', 'daily_limit', null), /placeholder="Inherit"/);
+  assert.match(quotaErrorHtml('boom'), /boom/);
+  assert.match(quotaTableView([]).html, /No data/);
+
+  const table = quotaTableView([{
+    user: { id: 'u1', username: 'Alice', status: 'active', role: 'admin' },
+    quota: { raw: {}, daily_limit: 10, monthly_limit: null },
+    usage: {
+      today: { calls: 8, promptOptimizations: 1, fails: 2 },
+      month: { calls: 95, promptOptimizations: 3, fails: 4 },
+      storage: { bytes: 50 * 1024 * 1024 }
+    }
+  }]).html;
+  assert.match(table, />User<\/th>/);
+  assert.match(table, />Daily quota<\/th>/);
+  assert.match(table, /aria-label="Select all"/);
+  assert.match(table, /aria-label="Select Alice"/);
+  assert.match(table, /Admin/);
+  assert.match(table, /Today/);
+  assert.match(table, /Month/);
+  assert.match(table, /Storage/);
+  assert.match(table, /Optimize 1\/3/);
+  assert.match(table, /Failed 2\/4/);
+  assert.match(table, /aria-label="More actions"/);
+
+  setLocale('zh-CN');
 });
