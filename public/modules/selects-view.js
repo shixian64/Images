@@ -1,7 +1,8 @@
 import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 
 export function selectOptionLabel(option = {}) {
-  return option.label || option.text || option.textContent || option.value || '未命名';
+  return option.label || option.text || option.textContent || option.value || t('selects.untitled');
 }
 
 export function customSelectMenuHtml(items = []) {
@@ -29,6 +30,5 @@ export function customSelectMenuHtml(items = []) {
     `);
   }
 
-  return rows.join('') || '<div class="custom-select-empty">暂无选项</div>';
+  return rows.join('') || `<div class="custom-select-empty">${escapeHtml(t('selects.empty'))}</div>`;
 }
-

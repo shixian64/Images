@@ -5,8 +5,10 @@ import {
   customSelectMenuHtml,
   selectOptionLabel
 } from '../public/modules/selects-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('selects view resolves option label fallbacks', () => {
+  setLocale('zh-CN');
   assert.equal(selectOptionLabel({ label: 'Label' }), 'Label');
   assert.equal(selectOptionLabel({ text: 'Text' }), 'Text');
   assert.equal(selectOptionLabel({ textContent: 'Content' }), 'Content');
@@ -15,11 +17,13 @@ test('selects view resolves option label fallbacks', () => {
 });
 
 test('selects view renders empty state', () => {
+  setLocale('zh-CN');
   assert.equal(customSelectMenuHtml([]), '<div class="custom-select-empty">暂无选项</div>');
   assert.equal(customSelectMenuHtml([{ label: 'hidden', hidden: true }]), '<div class="custom-select-empty">暂无选项</div>');
 });
 
 test('selects view escapes groups and option labels', () => {
+  setLocale('zh-CN');
   const html = customSelectMenuHtml([
     {
       index: '1"><bad>',
@@ -52,4 +56,13 @@ test('selects view escapes groups and option labels', () => {
   assert.doesNotMatch(html, /<label>/);
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<fallback>/);
+});
+
+test('selects view uses locale messages for fallback chrome', () => {
+  setLocale('en-US');
+
+  assert.equal(selectOptionLabel({}), 'Untitled');
+  assert.equal(customSelectMenuHtml([]), '<div class="custom-select-empty">No options</div>');
+
+  setLocale('zh-CN');
 });
