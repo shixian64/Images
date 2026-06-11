@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { closeDialog, presentDialog } from '../public/modules/dialog.js';
+import { closeDialog, confirm, info, presentDialog, showSecret } from '../public/modules/dialog.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 class FakeElement {
   constructor(name = 'el') {
@@ -59,6 +60,27 @@ class FakeDialog extends FakeElement {
   }
 }
 
+class FakeBuiltDialog extends FakeDialog {
+  constructor() {
+    super([]);
+    this.className = '';
+    this.innerHTML = '';
+    this.removed = false;
+  }
+
+  querySelector() {
+    return null;
+  }
+
+  remove() {
+    this.removed = true;
+  }
+}
+
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
+
 function keyboardEvent(key, options = {}) {
   return {
     type: 'keydown',
@@ -88,6 +110,38 @@ function installDocument(t) {
   });
 
   return { opener };
+}
+
+function installBuildDialogDocument(t) {
+  const oldDocument = globalThis.document;
+  const oldEvent = globalThis.Event;
+  const opener = new FakeElement('opener');
+  const dialogs = [];
+  globalThis.document = {
+    activeElement: opener,
+    body: {
+      appendChild(node) {
+        dialogs.push(node);
+        return node;
+      }
+    },
+    createElement(tagName) {
+      assert.equal(tagName, 'dialog');
+      return new FakeBuiltDialog();
+    }
+  };
+  globalThis.Event = class Event {
+    constructor(type) {
+      this.type = type;
+    }
+  };
+
+  t.after(() => {
+    globalThis.document = oldDocument;
+    globalThis.Event = oldEvent;
+  });
+
+  return { dialogs, opener };
 }
 
 test('fallback dialog presentation sets modal semantics and traps focus', async (t) => {
@@ -151,4 +205,37 @@ test('closeDialog uses native close when available', () => {
 
   assert.equal(closedWith, 'confirm');
   assert.equal(dlg.returnValue, 'confirm');
+});
+
+test('built dialog defaults follow active locale and escape dynamic content', async (t) => {
+  const { dialogs } = installBuildDialogDocument(t);
+  setLocale('en-US');
+
+  const confirmResult = confirm({ message: '<danger>' });
+  const confirmDialog = dialogs.at(-1);
+  assert.match(confirmDialog.innerHTML, /Confirm action/);
+  assert.match(confirmDialog.innerHTML, /Cancel/);
+  assert.match(confirmDialog.innerHTML, /Confirm/);
+  assert.match(confirmDialog.innerHTML, /&lt;danger&gt;/);
+  closeDialog(confirmDialog, 'cancel');
+  assert.equal(await confirmResult, false);
+  assert.equal(confirmDialog.removed, true);
+
+  const infoResult = info({ message: '<notice>' });
+  const infoDialog = dialogs.at(-1);
+  assert.match(infoDialog.innerHTML, /Notice/);
+  assert.match(infoDialog.innerHTML, /Got it/);
+  assert.match(infoDialog.innerHTML, /&lt;notice&gt;/);
+  closeDialog(infoDialog, 'ok');
+  assert.equal(await infoResult, true);
+
+  const secretResult = showSecret({ secret: '<token>' });
+  const secretDialog = dialogs.at(-1);
+  assert.match(secretDialog.innerHTML, /Copy and save/);
+  assert.match(secretDialog.innerHTML, /This content is shown only once/);
+  assert.match(secretDialog.innerHTML, /&lt;token&gt;/);
+  assert.match(secretDialog.innerHTML, /Copy/);
+  assert.match(secretDialog.innerHTML, /Close/);
+  closeDialog(secretDialog, 'ok');
+  assert.equal(await secretResult, true);
 });

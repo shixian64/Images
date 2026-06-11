@@ -4,23 +4,11 @@
 
 import { escapeHtml } from './dom.js';
 import { copyText } from './clipboard.js';
+import { t } from './i18n.js';
 
-const TEXT = Object.freeze({
-  confirmTitle: '\u786e\u8ba4\u64cd\u4f5c',
-  confirm: '\u786e\u8ba4',
-  cancel: '\u53d6\u6d88',
-  infoTitle: '\u63d0\u793a',
-  infoOk: '\u6211\u77e5\u9053\u4e86',
-  secretTitle: '\u8bf7\u590d\u5236\u5e76\u59a5\u5584\u4fdd\u5b58',
-  secretMessage: '\u6b64\u5185\u5bb9\u53ea\u663e\u793a\u4e00\u6b21\uff0c\u5173\u95ed\u540e\u65e0\u6cd5\u518d\u6b21\u67e5\u770b\u3002',
-  copy: '\u590d\u5236',
-  copied: '\u5df2\u590d\u5236',
-  copyManual: '\u8bf7\u624b\u52a8\u590d\u5236',
-  copyFailed: '\u590d\u5236\u5931\u8d25',
-  close: '\u5173\u95ed',
-  formTitle: '\u586b\u5199\u4fe1\u606f',
-  save: '\u4fdd\u5b58'
-});
+function dialogText(key) {
+  return t(`dialog.${key}`);
+}
 
 const FOCUSABLE_SELECTOR = [
   'button:not([disabled])',
@@ -136,10 +124,10 @@ function showAndAwait(dlg, parseResult) {
 }
 
 export function confirm({
-  title = TEXT.confirmTitle,
+  title = dialogText('confirm.title'),
   message = '',
-  confirmText = TEXT.confirm,
-  cancelText = TEXT.cancel,
+  confirmText = dialogText('confirm.action'),
+  cancelText = dialogText('cancel'),
   danger = false
 } = {}) {
   const dlg = buildDialog(`
@@ -155,7 +143,7 @@ export function confirm({
   return showAndAwait(dlg, (val) => val === 'confirm');
 }
 
-export function info({ title = TEXT.infoTitle, message = '', okText = TEXT.infoOk } = {}) {
+export function info({ title = dialogText('info.title'), message = '', okText = dialogText('info.ok') } = {}) {
   const dlg = buildDialog(`
     <form method="dialog" class="app-dialog-form">
       <h3>${escapeHtml(title)}</h3>
@@ -169,8 +157,8 @@ export function info({ title = TEXT.infoTitle, message = '', okText = TEXT.infoO
 }
 
 export function showSecret({
-  title = TEXT.secretTitle,
-  message = TEXT.secretMessage,
+  title = dialogText('secret.title'),
+  message = dialogText('secret.message'),
   secret = ''
 } = {}) {
   const dlg = buildDialog(`
@@ -179,10 +167,10 @@ export function showSecret({
       <p class="app-dialog-message">${escapeHtml(message)}</p>
       <div class="app-dialog-secret">
         <code>${escapeHtml(secret)}</code>
-        <button type="button" class="ghost small" data-copy>${TEXT.copy}</button>
+        <button type="button" class="ghost small" data-copy>${escapeHtml(dialogText('copy.action'))}</button>
       </div>
       <div class="app-dialog-actions">
-        <button value="ok" class="primary" type="submit">${TEXT.close}</button>
+        <button value="ok" class="primary" type="submit">${escapeHtml(dialogText('close'))}</button>
       </div>
     </form>
   `);
@@ -190,20 +178,20 @@ export function showSecret({
   copyBtn?.addEventListener('click', async () => {
     try {
       const result = await copyText(secret);
-      copyBtn.textContent = result.manual ? TEXT.copyManual : TEXT.copied;
-      if (!result.manual) setTimeout(() => { copyBtn.textContent = TEXT.copy; }, 1400);
+      copyBtn.textContent = result.manual ? dialogText('copy.manual') : dialogText('copy.copied');
+      if (!result.manual) setTimeout(() => { copyBtn.textContent = dialogText('copy.action'); }, 1400);
     } catch (err) {
-      copyBtn.textContent = err?.message || TEXT.copyFailed;
+      copyBtn.textContent = err?.message || dialogText('copy.failed');
     }
   });
   return showAndAwait(dlg, () => true);
 }
 
 export function form({
-  title = TEXT.formTitle,
+  title = dialogText('form.title'),
   fields = [],
-  confirmText = TEXT.save,
-  cancelText = TEXT.cancel,
+  confirmText = dialogText('save'),
+  cancelText = dialogText('cancel'),
   validate
 } = {}) {
   const fieldHtml = fields.map((f) => {
