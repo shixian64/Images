@@ -10,6 +10,11 @@ import {
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { copyText } from './clipboard.js';
 import { upsertPromptHistoryEntry } from './prompt-history-model.js';
+import {
+  filterPromptSquareItems,
+  promptSquareSummaryStats,
+  promptSquareTags
+} from './prompt-square-model.js';
 import { createImagePreviewController } from './image-preview.js';
 import {
   BUILDER_FIELDS,
@@ -597,50 +602,13 @@ function currentSquareTag() {
   return document.querySelector('.prompt-square-tag.active')?.dataset.squareTag || 'all';
 }
 
-function inSquarePeriod(item) {
-  const period = currentSquarePeriod();
-  if (period === 'all') return true;
-  const days = period === '24h' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 0;
-  if (!days) return true;
-  const ts = Date.parse(item.publishedAt || item.updatedAt || item.createdAt || '');
-  if (!Number.isFinite(ts)) return false;
-  return Date.now() - ts <= days * 24 * 60 * 60 * 1000;
-}
-
 function filteredSquareItems() {
-  const keyword = ($('promptSquareSearch')?.value || '').trim().toLowerCase();
-  const tag = currentSquareTag();
-  const sort = $('promptSquareSort')?.value || 'publishedAt:desc';
-  const currentUserId = getCurrentUserId();
-
-  const items = squareItems
-    .filter((item) => {
-      if (!inSquarePeriod(item)) return false;
-      if (tag !== 'all' && !item.tags.includes(tag)) return false;
-      if (!keyword) return true;
-      const hay = [
-        item.title,
-        item.prompt,
-        item.tags.join(' '),
-        item.owner?.username || '',
-        sourceLabel(item.source)
-      ].join(' ').toLowerCase();
-      return hay.includes(keyword);
-    });
-
-  return items.sort((a, b) => {
-    if (sort === 'sourceHot:desc') {
-      const diff = (Number(b.meta?.sourceHot || b.useCount) || 0) - (Number(a.meta?.sourceHot || a.useCount) || 0);
-      if (diff) return diff;
-    } else if (sort === 'useCount:desc') {
-      const diff = (Number(b.useCount) || 0) - (Number(a.useCount) || 0);
-      if (diff) return diff;
-    } else if (sort === 'mine:first') {
-      const am = a.owner?.id === currentUserId;
-      const bm = b.owner?.id === currentUserId;
-      if (am !== bm) return am ? -1 : 1;
-    }
-    return String(b.publishedAt || b.updatedAt).localeCompare(String(a.publishedAt || a.updatedAt));
+  return filterPromptSquareItems(squareItems, {
+    keyword: $('promptSquareSearch')?.value || '',
+    tag: currentSquareTag(),
+    sort: $('promptSquareSort')?.value || 'publishedAt:desc',
+    period: currentSquarePeriod(),
+    currentUserId: getCurrentUserId()
   });
 }
 
@@ -648,9 +616,7 @@ function renderSquareTagCloud() {
   const cloud = $('promptSquareTagCloud');
   if (!cloud) return;
   const previous = currentSquareTag();
-  const tags = Array.from(new Set(squareItems.flatMap((item) => item.tags || [])))
-    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
-    .slice(0, 36);
+  const tags = promptSquareTags(squareItems);
   const selected = previous !== 'all' && tags.includes(previous) ? previous : 'all';
   cloud.innerHTML = [
     `<button class="prompt-square-tag ${selected === 'all' ? 'active' : ''}" type="button" data-square-tag="all">所有风格</button>`,
@@ -665,12 +631,11 @@ function renderSquareSummary(filtered) {
   const count = $('promptSquareCount');
   if (count) count.textContent = String(squareItems.length);
   if (!el) return;
-  const mine = squareItems.filter((item) => item.owner?.id === getCurrentUserId()).length;
-  const totalUses = squareItems.reduce((sum, item) => sum + (Number(item.useCount) || 0), 0);
+  const stats = promptSquareSummaryStats(squareItems, getCurrentUserId());
   el.innerHTML = `
     <span class="chip">广场共 ${squareItems.length} 条 · 当前显示 ${filtered.length}</span>
-    <span class="chip info">我的公开 ${mine}</span>
-    <span class="chip">累计使用 ${totalUses}</span>
+    <span class="chip info">我的公开 ${stats.mine}</span>
+    <span class="chip">累计使用 ${stats.totalUses}</span>
     <span class="chip pin">风格标签 / 热度排序</span>
   `;
 }
