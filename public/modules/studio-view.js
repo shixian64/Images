@@ -1,4 +1,5 @@
 import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 
 export function formatBytes(bytes) {
   const value = Number(bytes || 0);
@@ -26,7 +27,7 @@ export function referenceListView(items = []) {
   if (!references.length) {
     return {
       empty: true,
-      html: '<div class="reference-empty">还没有参考图。生成结果卡片可点“加入参考图”。</div>'
+      html: `<div class="reference-empty">${escapeHtml(t('studio.reference.empty'))}</div>`
     };
   }
 
@@ -34,12 +35,16 @@ export function referenceListView(items = []) {
     empty: false,
     html: references.map((item, index) => {
       const src = referencePreview(item);
-      const name = item.filename || item.name || (item.type === 'upload' ? '上传图片' : '图库图片');
-      const source = item.type === 'upload' ? '上传' : '图库';
+      const name = item.filename || item.name || t(item.type === 'upload'
+        ? 'studio.reference.uploadImage'
+        : 'studio.reference.galleryImage');
+      const source = t(item.type === 'upload'
+        ? 'studio.reference.source.upload'
+        : 'studio.reference.source.gallery');
       const bytes = formatBytes(item.bytes);
       return `<article class="reference-item" data-reference-id="${escapeHtml(item.clientId)}">
-      <img src="${escapeHtml(src)}" alt="${escapeHtml(`参考图 ${index + 1}`)}" />
-      <button class="reference-remove" type="button" data-reference-remove aria-label="移除参考图 ${index + 1}">移除</button>
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(t('studio.reference.alt', { index: index + 1 }))}" />
+      <button class="reference-remove" type="button" data-reference-remove aria-label="${escapeHtml(t('studio.reference.removeAria', { index: index + 1 }))}">${escapeHtml(t('studio.reference.remove'))}</button>
       <div class="reference-item-meta">
         <span title="${escapeHtml(name)}">#${index + 1} ${escapeHtml(source)}</span>
         <span>${escapeHtml(bytes)}</span>
@@ -53,7 +58,7 @@ export function studioEmptyGalleryHtml() {
   return `
       <div class="empty-state">
         <div class="empty-icon" aria-hidden="true">⚠</div>
-        <p>接口返回成功，但 <code>data[]</code> 为空。</p>
+        <p>${escapeHtml(t('studio.gallery.empty'))}</p>
       </div>`;
 }
 
@@ -62,22 +67,22 @@ export function studioImageCardHtml(item = {}, index = 0, {
   timestamp = Date.now()
 } = {}) {
   const src = imageSrcFromItem(item);
-  const altBase = escapeHtml(String(prompt || '').slice(0, 100));
+  const altText = String(prompt || '').slice(0, 100) || t('studio.result.altFallback', { index: index + 1 });
   const stem = `image-${timestamp}-${index + 1}`;
   const downloadName = item.file_name || `${stem}.png`;
   const saveError = item.save_error
-    ? `<p class="revised">本地保存失败：${escapeHtml(item.save_error)}</p>`
+    ? `<p class="revised">${escapeHtml(t('studio.result.saveFailed', { error: item.save_error }))}</p>`
     : '';
   const galleryId = item.gallery_id || item.galleryId || '';
   const refDisabled = galleryId ? '' : 'disabled';
   return `<article class="image-card">
-      <button class="image-preview-trigger" type="button" data-studio-index="${index}" aria-label="放大查看第 ${index + 1} 张生成图">
-        <img src="${escapeHtml(src)}" alt="${altBase || `Generated image ${index + 1}`}" />
+      <button class="image-preview-trigger" type="button" data-studio-index="${index}" aria-label="${escapeHtml(t('studio.result.previewAria', { index: index + 1 }))}">
+        <img src="${escapeHtml(src)}" alt="${escapeHtml(altText)}" />
       </button>
       <div class="card-actions">
-        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">下载</a>
-        <button type="button" data-studio-add-reference="${index}" ${refDisabled}>加入参考图</button>
-        <button type="button" data-studio-edit-reference="${index}" ${refDisabled}>继续编辑</button>
+        <a href="${escapeHtml(src)}" download="${escapeHtml(downloadName)}">${escapeHtml(t('studio.result.download'))}</a>
+        <button type="button" data-studio-add-reference="${index}" ${refDisabled}>${escapeHtml(t('studio.result.addReference'))}</button>
+        <button type="button" data-studio-edit-reference="${index}" ${refDisabled}>${escapeHtml(t('studio.result.editReference'))}</button>
       </div>
       ${saveError}
     </article>`;
