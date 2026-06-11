@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs';
 
 test('quota progress components do not inject inline width styles', () => {
   const profile = readFileSync('public/modules/profile.js', 'utf8');
+  const profileView = readFileSync('public/modules/profile-view.js', 'utf8');
   const users = readFileSync('public/modules/users.js', 'utf8');
   const quota = readFileSync('public/modules/admin-quota.js', 'utf8');
   const quotaView = readFileSync('public/modules/admin-quota-view.js', 'utf8');
-  const source = `${profile}\n${users}\n${quota}\n${quotaView}`;
+  const source = `${profile}\n${profileView}\n${users}\n${quota}\n${quotaView}`;
 
   assert.equal(/style=["']width\s*:/.test(source), false);
   assert.match(source, /<progress class="quota-progress/);
