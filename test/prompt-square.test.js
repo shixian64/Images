@@ -91,6 +91,15 @@ async function getSquare(user, query) {
   return JSON.parse(res.body);
 }
 
+async function getSquareDetail(user, id) {
+  const path = `/api/prompt-square/${encodeURIComponent(id)}`;
+  const url = new URL(`http://localhost${path}`);
+  const res = captureRes();
+  await promptSquareRoutes.handlePromptSquareRoute(getReq(user), res, path, url);
+  assert.equal(res.statusCode, 200);
+  return JSON.parse(res.body);
+}
+
 async function postSquare(user, body) {
   const url = new URL('http://localhost/api/prompt-square');
   const res = captureRes();
@@ -317,4 +326,43 @@ test('prompt square only keeps HTTPS external preview image urls', async () => {
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.item.meta.sourceUrl, undefined);
   assert.deepEqual(result.body.item.meta.previewImages, [httpsPreviewUrl]);
+});
+
+test('prompt square list caps prompt previews while detail keeps the full prompt', async () => {
+  const owner = auth.register({
+    username: 'square_budget_owner',
+    email: 'square_budget_owner@example.com',
+    password: 'longenough1'
+  });
+  const longPrompt = [
+    'budget prompt start',
+    '画'.repeat(promptSquareRoutes.PROMPT_SQUARE_LIST_PROMPT_MAX_CHARS + 200),
+    'budget prompt end'
+  ].join('\n');
+
+  const published = await postSquare(owner, {
+    sourcePromptId: 'list-budget-long-prompt',
+    title: 'List budget long prompt',
+    prompt: longPrompt,
+    tags: ['budget'],
+    source: 'manual'
+  });
+
+  assert.equal(published.statusCode, 200);
+  assert.equal(published.body.item.prompt, longPrompt);
+  assert.equal(published.body.item.promptTruncated, false);
+
+  const list = await getSquare(owner, '?limit=20&mine=1&tag=budget');
+  const item = list.items.find((entry) => entry.id === published.body.item.id);
+  assert.ok(item, 'published prompt should appear in mine/tag list');
+  assert.equal(item.promptTruncated, true);
+  assert.equal(item.promptLength, longPrompt.length);
+  assert.ok(item.prompt.length <= promptSquareRoutes.PROMPT_SQUARE_LIST_PROMPT_MAX_CHARS);
+  assert.match(item.prompt, /…$/);
+  assert.doesNotMatch(item.prompt, /budget prompt end/);
+
+  const detail = await getSquareDetail(owner, item.id);
+  assert.equal(detail.item.promptTruncated, false);
+  assert.equal(detail.item.promptLength, longPrompt.length);
+  assert.equal(detail.item.prompt, longPrompt);
 });

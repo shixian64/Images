@@ -82,6 +82,9 @@ export function promptSquareCardHtml(item = {}, index = 0, { currentUserId = '' 
           <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(`${item.title} 示例图`)}" loading="lazy" referrerpolicy="no-referrer" />
         </button>`
     : '<div class="prompt-square-preview prompt-square-preview-placeholder" aria-hidden="true"><span>暂无示例图</span></div>';
+  const truncation = item.promptTruncated
+    ? `<span title="操作时会自动加载完整提示词">预览已截断 · 完整 ${Number(item.promptLength) || 0} 字</span>`
+    : '';
   return `
       <article class="prompt-square-card ${mine ? 'is-mine' : ''}" data-id="${escapeHtml(item.id)}">
         <div class="prompt-square-rank">#${index + 1}</div>
@@ -99,6 +102,7 @@ export function promptSquareCardHtml(item = {}, index = 0, { currentUserId = '' 
           <span>发布 ${escapeHtml(formatTime(item.publishedAt))}</span>
           <span>使用 ${Number(item.useCount) || 0} 次</span>
           ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
+          ${truncation}
         </div>
         ${preview}
         <div class="prompt-history-buttons">

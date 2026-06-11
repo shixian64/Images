@@ -79,6 +79,17 @@ test('prompt square view renders escaped cards and owner controls', () => {
   assert.doesNotMatch(card, /<script>/);
 });
 
+test('prompt square view marks truncated prompt previews', () => {
+  const card = promptSquareCardHtml({
+    ...squareItem,
+    promptTruncated: true,
+    promptLength: 4321
+  }, 0, { currentUserId: 'other' });
+
+  assert.match(card, /预览已截断 · 完整 4321 字/);
+  assert.match(card, /操作时会自动加载完整提示词/);
+});
+
 test('prompt square list state renders populated lists', () => {
   const view = promptSquareListState([squareItem], { currentUserId: 'other', loaded: true });
   assert.equal(view.empty, false);

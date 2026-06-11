@@ -520,6 +520,18 @@ async function unpublishSquareItem(item) {
   await refreshPromptSquare({ silent: true });
 }
 
+async function ensureFullSquareItem(item) {
+  if (!item?.promptTruncated) return item;
+  const resp = await apiFetch(`/api/prompt-square/${encodeURIComponent(item.id)}`, {
+    headers: { accept: 'application/json' }
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.item) throw new Error(data?.error || `HTTP ${resp.status}`);
+  const index = squareItems.findIndex((it) => it.id === item.id);
+  if (index >= 0) squareItems[index] = data.item;
+  return data.item;
+}
+
 function currentSquarePeriod() {
   return document.querySelector('.prompt-square-period.active')?.dataset.squarePeriod || 'all';
 }
@@ -588,27 +600,30 @@ function renderSquareList(filtered, { onUsePrompt } = {}) {
     try {
       btn.disabled = true;
       if (action === 'use-square') {
-        await recordSquareUse(item);
-        onUsePrompt?.(item.prompt);
+        const fullItem = await ensureFullSquareItem(item);
+        await recordSquareUse(fullItem);
+        onUsePrompt?.(fullItem.prompt);
         setStatus('已从广场送到生成页', 'ok', 1400);
       } else if (action === 'copy-square') {
-        const result = await copyText(item.prompt);
+        const fullItem = await ensureFullSquareItem(item);
+        const result = await copyText(fullItem.prompt);
         setStatus(result.manual ? '请在弹出的文本框中手动复制广场提示词' : '已复制广场提示词', result.manual ? 'ready' : 'ok', 1400);
       } else if (action === 'save-square') {
-        addPromptHistory(item.prompt, {
+        const fullItem = await ensureFullSquareItem(item);
+        addPromptHistory(fullItem.prompt, {
           source: 'square',
-          title: item.title,
-          tags: item.tags,
-          parts: item.parts,
-          model: item.meta?.model,
-          size: item.meta?.size,
-          quality: item.meta?.quality,
-          outputFormat: item.meta?.outputFormat,
-          sref: item.meta?.sref,
-          sourceHot: item.meta?.sourceHot,
-          sourceName: item.meta?.sourceName,
-          sourceUrl: item.meta?.sourceUrl,
-          previewImages: item.meta?.previewImages
+          title: fullItem.title,
+          tags: fullItem.tags,
+          parts: fullItem.parts,
+          model: fullItem.meta?.model,
+          size: fullItem.meta?.size,
+          quality: fullItem.meta?.quality,
+          outputFormat: fullItem.meta?.outputFormat,
+          sref: fullItem.meta?.sref,
+          sourceHot: fullItem.meta?.sourceHot,
+          sourceName: fullItem.meta?.sourceName,
+          sourceUrl: fullItem.meta?.sourceUrl,
+          previewImages: fullItem.meta?.previewImages
         });
         setStatus('已保存到历史提示词', 'ok', 1400);
       } else if (action === 'unpublish-square') {

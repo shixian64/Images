@@ -10,6 +10,7 @@ const MAX_TITLE_LEN = 120;
 const MAX_PROMPT_LEN = 12_000;
 const MAX_TAGS = 8;
 const MAX_TAG_LEN = 32;
+export const PROMPT_SQUARE_LIST_PROMPT_MAX_CHARS = 2_000;
 const STYLE_REFERENCE_RE = /\s*风格参考\s*[:：]\s*--sref\s+[\w-]+\s*$/i;
 
 function trimText(value, max = 1000) {
@@ -101,15 +102,36 @@ function parseJsonField(value, fallback) {
   }
 }
 
-function mapSquareRow(row, viewerId) {
+function promptForResponse(prompt, { maxChars = null } = {}) {
+  const clean = stripStyleReference(prompt);
+  const max = Number(maxChars);
+  if (!Number.isFinite(max) || max <= 0 || clean.length <= max) {
+    return {
+      prompt: clean,
+      promptLength: clean.length,
+      promptTruncated: false
+    };
+  }
+  const clipped = max <= 1 ? clean.slice(0, max) : `${clean.slice(0, max - 1)}…`;
+  return {
+    prompt: clipped,
+    promptLength: clean.length,
+    promptTruncated: true
+  };
+}
+
+function mapSquareRow(row, viewerId, options = {}) {
   if (!row) return null;
   const meta = parseJsonField(row.meta, {});
   const tags = parseJsonField(row.tags, []);
+  const prompt = promptForResponse(row.prompt, options);
   return {
     id: row.id,
     sourcePromptId: row.source_prompt_id || '',
     title: row.title,
-    prompt: stripStyleReference(row.prompt),
+    prompt: prompt.prompt,
+    promptLength: prompt.promptLength,
+    promptTruncated: prompt.promptTruncated,
     tags: Array.isArray(tags) ? tags : [],
     source: row.source || 'manual',
     meta,
@@ -159,7 +181,7 @@ async function handleCollection(req, res, urlObj) {
     const filters = { limit, search, tag, mine, userId: user.id };
     const items = promptSquare
       .list(filters)
-      .map((row) => mapSquareRow(row, user.id));
+      .map((row) => mapSquareRow(row, user.id, { maxChars: PROMPT_SQUARE_LIST_PROMPT_MAX_CHARS }));
     const total = promptSquare.count();
     const filtered = promptSquare.count(filters);
     return sendJson(res, 200, { items, total, filtered });
