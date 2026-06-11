@@ -1,4 +1,5 @@
 import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 
 export function avatarInitial(user) {
   const s = (user?.username || user?.email || '?').trim();
@@ -17,18 +18,18 @@ export function profileMenuHtml(user = {}) {
       ${avatarUrl
         ? `<img class="user-avatar" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
         : `<span class="user-avatar user-avatar-text">${escapeHtml(avatarInitial(user))}</span>`}
-      <span class="user-name">${escapeHtml(user.username || user.email || '用户')}</span>
+      <span class="user-name">${escapeHtml(user.username || user.email || t('profile.menu.userFallback'))}</span>
       <span class="user-caret" aria-hidden="true">▾</span>
     </button>
     <div class="user-menu-dropdown" role="menu" hidden>
-      <button role="menuitem" data-action="profile" type="button">个人资料</button>
-      <button role="menuitem" data-action="password" type="button">修改密码</button>
-      <button role="menuitem" data-action="usage" type="button">我的用量</button>
+      <button role="menuitem" data-action="profile" type="button">${escapeHtml(t('profile.menu.profile'))}</button>
+      <button role="menuitem" data-action="password" type="button">${escapeHtml(t('profile.menu.password'))}</button>
+      <button role="menuitem" data-action="usage" type="button">${escapeHtml(t('profile.menu.usage'))}</button>
       ${user.role === 'admin' ? `
         <div class="user-menu-divider" role="separator"></div>
-        <button role="menuitem" data-action="admin" type="button">管理后台</button>
+        <button role="menuitem" data-action="admin" type="button">${escapeHtml(t('profile.menu.admin'))}</button>
       ` : ''}
-      <button role="menuitem" data-action="logout" type="button">退出登录</button>
+      <button role="menuitem" data-action="logout" type="button">${escapeHtml(t('profile.menu.logout'))}</button>
     </div>
   `;
 }
@@ -36,20 +37,20 @@ export function profileMenuHtml(user = {}) {
 export function profileDialogHtml() {
   return `
     <form method="dialog" class="app-dialog-form" data-profile-form>
-      <h3>个人资料</h3>
+      <h3>${escapeHtml(t('profile.dialog.profile.title'))}</h3>
       <div class="error-banner" data-err hidden></div>
-      <label class="field"><span>用户名</span>
+      <label class="field"><span>${escapeHtml(t('profile.dialog.username'))}</span>
         <input name="username" required pattern="[a-zA-Z0-9_\\-]{3,32}" />
       </label>
-      <label class="field"><span>邮箱</span>
+      <label class="field"><span>${escapeHtml(t('profile.dialog.email'))}</span>
         <input name="email" type="email" required />
       </label>
-      <label class="field"><span>头像 URL（可选，仅 HTTPS）</span>
+      <label class="field"><span>${escapeHtml(t('profile.dialog.avatarUrl'))}</span>
         <input name="avatarUrl" type="url" placeholder="https://example.com/avatar.png" />
       </label>
       <div class="app-dialog-actions">
-        <button value="cancel" class="ghost" type="submit">取消</button>
-        <button value="confirm" class="primary" type="submit" data-confirm>保存</button>
+        <button value="cancel" class="ghost" type="submit">${escapeHtml(t('profile.dialog.cancel'))}</button>
+        <button value="confirm" class="primary" type="submit" data-confirm>${escapeHtml(t('profile.dialog.save'))}</button>
       </div>
     </form>
   `;
@@ -58,21 +59,21 @@ export function profileDialogHtml() {
 export function passwordDialogHtml() {
   return `
     <form method="dialog" class="app-dialog-form" data-password-form>
-      <h3>修改密码</h3>
-      <p class="hint" data-reset-required hidden>管理员已重置你的密码。继续使用前，请先设置一个新的个人密码。</p>
+      <h3>${escapeHtml(t('profile.password.title'))}</h3>
+      <p class="hint" data-reset-required hidden>${escapeHtml(t('profile.password.resetRequired'))}</p>
       <div class="error-banner" data-err hidden></div>
-      <label class="field"><span>当前密码</span>
+      <label class="field"><span>${escapeHtml(t('profile.password.current'))}</span>
         <input name="oldPassword" type="password" required />
       </label>
-      <label class="field"><span>新密码（至少 8 位）</span>
+      <label class="field"><span>${escapeHtml(t('profile.password.new'))}</span>
         <input name="newPassword" type="password" required minlength="8" />
       </label>
-      <label class="field"><span>确认新密码</span>
+      <label class="field"><span>${escapeHtml(t('profile.password.confirm'))}</span>
         <input name="confirmPassword" type="password" required minlength="8" />
       </label>
       <div class="app-dialog-actions">
-        <button value="cancel" class="ghost" type="submit" data-cancel>取消</button>
-        <button value="confirm" class="primary" type="submit" data-confirm>提交</button>
+        <button value="cancel" class="ghost" type="submit" data-cancel>${escapeHtml(t('profile.dialog.cancel'))}</button>
+        <button value="confirm" class="primary" type="submit" data-confirm>${escapeHtml(t('profile.dialog.submit'))}</button>
       </div>
     </form>
   `;
@@ -103,7 +104,7 @@ export function usageProgressHtml(used, limit, label) {
   const safeLimit = countValue(limit);
   const safeLabel = escapeHtml(label);
   if (!safeLimit) {
-    return `<div class="usage-row"><span>${safeLabel}</span><strong>${safeUsed} / 不限</strong></div>`;
+    return `<div class="usage-row"><span>${safeLabel}</span><strong>${safeUsed} / ${escapeHtml(t('profile.usage.unlimited'))}</strong></div>`;
   }
   const p = Math.min(100, Math.round(safeUsed / safeLimit * 100));
   const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
@@ -121,26 +122,27 @@ export function usageStorageHtml(usedBytes, limitMb) {
   const safeLimitMb = countValue(limitMb);
   const usedMb = safeUsedBytes / (1024 * 1024);
   const display = formatUsageBytes(safeUsedBytes);
+  const label = t('profile.usage.storage');
   if (!safeLimitMb) {
-    return `<div class="usage-row"><span>存储</span><strong>${display} / 不限</strong></div>`;
+    return `<div class="usage-row"><span>${escapeHtml(label)}</span><strong>${display} / ${escapeHtml(t('profile.usage.unlimited'))}</strong></div>`;
   }
   const p = Math.min(100, Math.round(usedMb / safeLimitMb * 100));
   const cls = p >= 90 ? 'high' : p >= 70 ? 'mid' : '';
   return `
     <div class="usage-row">
-      <span>存储</span>
+      <span>${escapeHtml(label)}</span>
       <strong>${display} / ${safeLimitMb} MB (${p}%)</strong>
     </div>
-    <progress class="quota-progress ${cls}" value="${p}" max="100" aria-label="存储"></progress>
+    <progress class="quota-progress ${cls}" value="${p}" max="100" aria-label="${escapeHtml(label)}"></progress>
   `;
 }
 
 export function usageLoadingHtml() {
-  return '<div class="empty-state"><p>正在加载…</p></div>';
+  return `<div class="empty-state"><p>${escapeHtml(t('profile.usage.loading'))}</p></div>`;
 }
 
 export function usageErrorHtml(message) {
-  return `<div class="error-banner">${escapeHtml(message || '加载失败')}</div>`;
+  return `<div class="error-banner">${escapeHtml(message || t('common.loadFailed'))}</div>`;
 }
 
 export function usageDrawerHtml({ quota = {}, usage = {} } = {}) {
@@ -151,22 +153,21 @@ export function usageDrawerHtml({ quota = {}, usage = {} } = {}) {
   return `
       <div class="user-detail">
         <section class="user-detail-block">
-          <h3>今日</h3>
-          ${usageProgressHtml(today.calls || 0, quota.daily_limit, '额度调用次数（系统默认接口）')}
-          <p class="hint">提示词优化 ${countValue(today.promptOptimizations)} 次 · 失败 ${countValue(today.fails)} 次 · 入库 ${countValue(today.images)} 张</p>
+          <h3>${escapeHtml(t('profile.usage.today'))}</h3>
+          ${usageProgressHtml(today.calls || 0, quota.daily_limit, t('profile.usage.callQuota'))}
+          <p class="hint">${escapeHtml(t('profile.usage.periodHint', { promptOptimizations: countValue(today.promptOptimizations), fails: countValue(today.fails), images: countValue(today.images) }))}</p>
         </section>
         <section class="user-detail-block">
-          <h3>本月</h3>
-          ${usageProgressHtml(month.calls || 0, quota.monthly_limit, '额度调用次数（系统默认接口）')}
-          <p class="hint">提示词优化 ${countValue(month.promptOptimizations)} 次 · 失败 ${countValue(month.fails)} 次 · 入库 ${countValue(month.images)} 张</p>
+          <h3>${escapeHtml(t('profile.usage.month'))}</h3>
+          ${usageProgressHtml(month.calls || 0, quota.monthly_limit, t('profile.usage.callQuota'))}
+          <p class="hint">${escapeHtml(t('profile.usage.periodHint', { promptOptimizations: countValue(month.promptOptimizations), fails: countValue(month.fails), images: countValue(month.images) }))}</p>
         </section>
         <section class="user-detail-block">
-          <h3>存储</h3>
+          <h3>${escapeHtml(t('profile.usage.storage'))}</h3>
           ${usageStorageHtml(storage.bytes || 0, quota.storage_limit_mb)}
-          <p class="hint">本地图库共 ${countValue(storage.images)} 张</p>
+          <p class="hint">${escapeHtml(t('profile.usage.storageHint', { images: countValue(storage.images) }))}</p>
         </section>
-        <p class="hint">额度由管理员维护；日/月次数统计系统默认接口调用（含生图与提示词优化），存储与并发对系统默认和个人自定义接口都生效。</p>
+        <p class="hint">${escapeHtml(t('profile.usage.footer'))}</p>
       </div>
     `;
 }
-

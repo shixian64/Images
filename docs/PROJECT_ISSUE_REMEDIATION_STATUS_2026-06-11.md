@@ -57,7 +57,7 @@
 | 55、58 | 部分闭环 | 上游响应和内存默认值已收紧，URL / 上传路径也更流式；仍需要长期容量压测验证峰值。 |
 | 67、71 | 进行中 | 已大量拆 `*-view.js` 并补转义测试，但大前端模块与 HTML 模板治理仍需持续推进。 |
 | 69 | 部分闭环 | 审计日志 metadata 与 generation job result / progress 已复用统一 JSON budget helper；client logs 已有接入预算，且客户端日志列表会裁剪超大 meta 并返回长度 / 裁剪标记；Prompt Square 列表只返回裁剪后的 prompt 预览，漫画项目列表只返回故事 / 分镜预览且详情接口保留完整内容；管理员图库列表会裁剪 prompt / revisedPrompt 并返回长度与裁剪标记；系统配置脱敏导出会裁剪超大 value，含密钥的可恢复导出保持完整。剩余零散 JSON 响应仍需持续梳理。 |
-| 80 | 部分闭环 | 已建立前端 `i18n` / locale 基础模块，支持消息 key、插值、日期 / 数字 / 时长格式化，并接入队列管理视图的状态 / 时长 / 摘要 / 设置 / 空状态 / 表头 / 操作文案、用户侧队列面板的状态 / 进度 / 元信息 / 空状态 / 摘要 / 操作文案、管理员用户列表视图的角色 / 状态 / 表格 / 分页 / 操作文案、个人接口配置视图的 Key 状态 / 系统默认卡片 / 摘要 / 探活状态文案、图库漫画项目状态 / 进度文案、管理员客户端日志视图的筛选 / 摘要 / 表头 / 空状态 / 客户端时间文案、管理员接口摘要 / Key 状态 / 探活状态文案、管理员注册 / 邀请码视图的模式 / 状态 / 摘要 / 空状态 / 表头 / 操作文案，以及管理员额度视图的默认值卡片、表格、菜单、状态、占位符和用量文案；大量既有页面文案仍需逐步迁移。 |
+| 80 | 部分闭环 | 已建立前端 `i18n` / locale 基础模块，支持消息 key、插值、日期 / 数字 / 时长格式化，并接入队列管理视图的状态 / 时长 / 摘要 / 设置 / 空状态 / 表头 / 操作文案、用户侧队列面板的状态 / 进度 / 元信息 / 空状态 / 摘要 / 操作文案、管理员用户列表视图的角色 / 状态 / 表格 / 分页 / 操作文案、个人接口配置视图的 Key 状态 / 系统默认卡片 / 摘要 / 探活状态文案、个人菜单 / 资料弹窗 / 密码弹窗 / 用量抽屉文案、图库漫画项目状态 / 进度文案、管理员客户端日志视图的筛选 / 摘要 / 表头 / 空状态 / 客户端时间文案、管理员接口摘要 / Key 状态 / 探活状态文案、管理员注册 / 邀请码视图的模式 / 状态 / 摘要 / 空状态 / 表头 / 操作文案，以及管理员额度视图的默认值卡片、表格、菜单、状态、占位符和用量文案；大量既有页面文案仍需逐步迁移。 |
 | 86、87 | 部分闭环 | CI 已有 Windows、`check:js`、coverage；尚无完整 lint / typecheck / 容器矩阵。 |
 | 89 | 部分闭环 | 已新增无第三方依赖的真实浏览器 smoke：`npm run e2e:smoke` 会通过 Chrome / Edge / Chromium DevTools 打开 `/login.html` 并验证真实 DOM；设置 `E2E_USERNAME` / `E2E_PASSWORD` 后还会提交真实登录表单、校验主应用 shell，并逐个切换主要 tab；脚本已支持可选截图目录、截图 manifest 与 SHA-256 baseline 校验；`docs/E2E.md` 记录运行方式。仍缺感知型 / 阈值型视觉 diff。 |
 | 92 | 部分闭环 | 已有 Node 运行时预检与测试，但依赖 `node:sqlite` experimental 的根风险仍存在。 |
@@ -82,6 +82,7 @@
 - `node --experimental-sqlite --test test\jobs-view.test.js test\i18n.test.js`
 - `node --experimental-sqlite --test test\users-view.test.js test\i18n.test.js`
 - `node --experimental-sqlite --test test\profiles-view.test.js test\i18n.test.js`
+- `node --experimental-sqlite --test test\profile-view.test.js test\i18n.test.js`
 - `node --experimental-sqlite --test test\e2e-smoke-script.test.js`
 - `node --experimental-sqlite --test test\gallery-store.test.js test\admin-gallery-view.test.js`
 - `node --experimental-sqlite --test test\client-logs.test.js`

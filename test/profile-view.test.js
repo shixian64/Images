@@ -10,11 +10,14 @@ import {
   profileMenuHtml,
   usageDrawerHtml,
   usageErrorHtml,
+  usageLoadingHtml,
   usageProgressHtml,
   usageStorageHtml
 } from '../public/modules/profile-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('profile view renders escaped user menu and avatar state', () => {
+  setLocale('zh-CN');
   assert.equal(avatarInitial({ username: ' alice ' }), 'A');
   assert.equal(displayAvatarUrl({ avatarUrl: 'http://example.test/a.png' }), '');
   assert.equal(displayAvatarUrl({ avatarUrl: 'javascript:alert(1)' }), '');
@@ -41,6 +44,7 @@ test('profile view renders escaped user menu and avatar state', () => {
 });
 
 test('profile dialogs expose expected form hooks', () => {
+  setLocale('zh-CN');
   const profileHtml = profileDialogHtml();
   assert.match(profileHtml, /data-profile-form/);
   assert.match(profileHtml, /name="username"/);
@@ -54,6 +58,7 @@ test('profile dialogs expose expected form hooks', () => {
 });
 
 test('profile usage view formats bytes, progress and storage safely', () => {
+  setLocale('zh-CN');
   assert.equal(formatUsageBytes(0), '0 B');
   assert.equal(formatUsageBytes(1024), '1.0 KB');
   assert.equal(formatUsageBytes(1024 * 1024), '1.0 MB');
@@ -75,6 +80,7 @@ test('profile usage view formats bytes, progress and storage safely', () => {
 });
 
 test('profile usage drawer escapes server-sourced numeric-ish fields and errors', () => {
+  setLocale('zh-CN');
   const html = usageDrawerHtml({
     quota: {
       daily_limit: 10,
@@ -110,4 +116,51 @@ test('profile usage drawer escapes server-sourced numeric-ish fields and errors'
   const error = usageErrorHtml('fail <script>alert(1)</script>');
   assert.match(error, /fail &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(error, /<script>/);
+});
+
+test('profile view uses locale messages for menu, dialogs, and usage', () => {
+  setLocale('en-US');
+
+  const menu = profileMenuHtml({ role: 'admin' });
+  assert.match(menu, /<span class="user-name">User<\/span>/);
+  assert.match(menu, />Profile<\/button>/);
+  assert.match(menu, />Change password<\/button>/);
+  assert.match(menu, />My usage<\/button>/);
+  assert.match(menu, />Admin console<\/button>/);
+  assert.match(menu, />Log out<\/button>/);
+
+  const profileHtml = profileDialogHtml();
+  assert.match(profileHtml, /<h3>Profile<\/h3>/);
+  assert.match(profileHtml, />Username<\/span>/);
+  assert.match(profileHtml, />Avatar URL \(optional, HTTPS only\)<\/span>/);
+  assert.match(profileHtml, />Cancel<\/button>/);
+  assert.match(profileHtml, />Save<\/button>/);
+
+  const passwordHtml = passwordDialogHtml();
+  assert.match(passwordHtml, /<h3>Change password<\/h3>/);
+  assert.match(passwordHtml, /Set a new personal password/);
+  assert.match(passwordHtml, />Current password<\/span>/);
+  assert.match(passwordHtml, />Submit<\/button>/);
+
+  assert.match(usageProgressHtml(1, 0, 'Calls'), /1 \/ Unlimited/);
+  assert.match(usageStorageHtml(0, 0), /Storage<\/span><strong>0 B \/ Unlimited/);
+  assert.match(usageLoadingHtml(), /Loading…/);
+  assert.match(usageErrorHtml(''), /Load failed/);
+
+  const usage = usageDrawerHtml({
+    quota: { daily_limit: 10, monthly_limit: 20, storage_limit_mb: 2 },
+    usage: {
+      today: { calls: 1, promptOptimizations: 2, fails: 3, images: 4 },
+      month: { calls: 5, promptOptimizations: 6, fails: 7, images: 8 },
+      storage: { bytes: 1024, images: 9 }
+    }
+  });
+  assert.match(usage, /<h3>Today<\/h3>/);
+  assert.match(usage, /Quota calls \(system-default interface\)/);
+  assert.match(usage, /Prompt optimizations 2 · failures 3 · saved 4 images/);
+  assert.match(usage, /<h3>This month<\/h3>/);
+  assert.match(usage, /Local gallery has 9 images/);
+  assert.match(usage, /Quotas are maintained by admins/);
+
+  setLocale('zh-CN');
 });
