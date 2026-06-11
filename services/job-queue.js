@@ -30,23 +30,12 @@ import {
   priorityForUser
 } from './queue-settings.js';
 import { emitJob, emitQueueRefresh } from './queue-events.js';
+import { queueStats as queueStatsSnapshot } from './queue-read-model.js';
 import { compactGenerationResult, serializeJob } from './queue-serialization.js';
-import { isActiveJobStatus, isTerminalJobStatus } from './queue-status.js';
+import { isTerminalJobStatus } from './queue-status.js';
 import { logger } from '../utils/logger.js';
 
 const TICK_MS = 5_000;
-const RUNTIME_INFO = Object.freeze({
-  backend: 'sqlite-single-process',
-  distributed: false,
-  volatileSecrets: true,
-  restartPolicy: Object.freeze({
-    running: 'mark_failed',
-    systemQueued: 'resume_from_sqlite',
-    customQueued: 'requires_same_node_process_secret'
-  }),
-  scaleOutReady: false
-});
-
 let started = false;
 let schedulerTimer = null;
 let kicking = false;
@@ -57,6 +46,14 @@ const transientJobSecrets = new Map();
 
 export { getQueueSettings, normalizeQueueSettings } from './queue-settings.js';
 export { onJobUpdate, subscribeAdminJobs, subscribeJob, subscribeUserJobs } from './queue-events.js';
+export {
+  getAdminJob,
+  getAdminJobs,
+  getJobForUser,
+  getUserJobs,
+  isActiveStatus,
+  queueRuntimeInfo
+} from './queue-read-model.js';
 export { compactGenerationResult, serializeJob } from './queue-serialization.js';
 
 export function setQueueSettings(patch = {}, updatedBy = null) {
@@ -596,53 +593,8 @@ export function stopJobQueue() {
   }
 }
 
-export function getUserJobs(userId, opts = {}) {
-  return generationJobs.listByUser(userId, opts).map((job) => serializeJob(job));
-}
-
-export function getJobForUser(jobId, userInfo, { allowAdmin = false } = {}) {
-  const job = generationJobs.findById(jobId);
-  if (!job) throw httpError(404, 'job not found');
-  if (!allowAdmin && job.user_id !== userInfo?.id) throw httpError(404, 'job not found');
-  return serializeJob(job, { includeUser: allowAdmin });
-}
-
-export function getAdminJobs({ limit = 200, status = '', userId = '' } = {}) {
-  return generationJobs.listAll({ limit, status, userId }).map((job) => serializeJob(job, { includeUser: true }));
-}
-
-export function getAdminJob(jobId) {
-  const job = generationJobs.findById(jobId);
-  if (!job) return null;
-  const user = job.user_id ? users.findById(job.user_id) : null;
-  return serializeJob({
-    ...job,
-    user_username: user?.username || '',
-    user_email: user?.email || '',
-    user_role: user?.role || ''
-  }, { includeUser: true });
-}
-
 export function queueStats() {
-  const storedStats = generationJobs.stats();
-  const byStatus = storedStats.byStatus || {};
-  const terminal = ['succeeded', 'failed', 'timeout', 'cancelled']
-    .reduce((sum, status) => sum + (Number(byStatus[status]) || 0), 0);
-  const succeeded = Number(byStatus.succeeded) || 0;
-  return {
-    byStatus,
-    active: activeJobs.size,
-    runtime: queueRuntimeInfo(),
-    successRate: terminal ? Math.round((succeeded / terminal) * 1000) / 10 : null,
-    avgSuccessDurationMs: storedStats.avgSuccessDurationMs ?? null
-  };
-}
-
-export function queueRuntimeInfo() {
-  return {
-    ...RUNTIME_INFO,
-    restartPolicy: { ...RUNTIME_INFO.restartPolicy }
-  };
+  return queueStatsSnapshot({ activeCount: activeJobs.size });
 }
 
 export function cancelJob(jobId, userInfo, { admin = false } = {}) {
@@ -758,8 +710,4 @@ export function updateJobPriority(jobId, priority, userInfo) {
   emitJob(updated, 'job');
   kickScheduler();
   return serializeJob(updated, { includeUser: true });
-}
-
-export function isActiveStatus(status) {
-  return isActiveJobStatus(status);
 }
