@@ -1,4 +1,5 @@
 import { escapeHtml } from './dom.js';
+import { t } from './i18n.js';
 
 export function imageSrcFromGalleryItem(item = {}) {
   return item?.url || item?.local_url || item?.localUrl || '';
@@ -140,14 +141,7 @@ export function galleryImageCardsHtml(items = [], options = {}) {
 }
 
 export function comicProjectStatusLabel(status) {
-  return {
-    draft: '草稿',
-    storyboard: '已生成页分镜',
-    generating: '生成中',
-    completed: '已完成',
-    stopped: '已停止',
-    failed: '失败'
-  }[status] || status || '项目';
+  return t(`gallery.comic.status.${status}`, {}, status || t('gallery.comic.status.project'));
 }
 
 export function comicProjectProgress(project = {}, images = []) {
@@ -167,10 +161,13 @@ export function comicProjectProgress(project = {}, images = []) {
 
 export function comicProjectProgressText(project = {}, images = []) {
   const progress = comicProjectProgress(project, images);
-  const parts = [`${progress.completed}/${progress.total || '-'} 张`];
-  if (progress.running) parts.push(`${progress.running} 个运行中`);
-  if (progress.queued) parts.push(`${progress.queued} 个排队中`);
-  if (!progress.active && progress.failed) parts.push(`${progress.failed} 个失败`);
+  const parts = [t('gallery.comic.progress.images', {
+    completed: progress.completed,
+    total: progress.total || '-'
+  })];
+  if (progress.running) parts.push(t('gallery.comic.progress.running', { count: progress.running }));
+  if (progress.queued) parts.push(t('gallery.comic.progress.queued', { count: progress.queued }));
+  if (!progress.active && progress.failed) parts.push(t('gallery.comic.progress.failed', { count: progress.failed }));
   return parts.join(' · ');
 }
 

@@ -21,6 +21,7 @@ import {
   previewSrcFromGalleryItem,
   thumbnailSrcFromGalleryItem
 } from '../public/modules/gallery-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('gallery view resolves image URLs and formats metadata', () => {
   const item = {
@@ -146,6 +147,14 @@ test('gallery view formats comic project status and progress', () => {
     imageCount: 2,
     progress: { failed: 1 }
   }), '2/- 张 · 1 个失败');
+
+  setLocale('en-US');
+  assert.equal(comicProjectStatusLabel('storyboard'), 'Storyboard ready');
+  assert.equal(comicProjectProgressText({
+    pageCount: 5,
+    progress: { completed: 2, running: 1, queued: 1 }
+  }), '2/5 images · 1 running · 1 queued');
+  setLocale('zh-CN');
 });
 
 test('gallery view renders escaped comic project cards', () => {
