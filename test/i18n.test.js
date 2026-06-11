@@ -27,6 +27,7 @@ test('i18n translates keys with interpolation', () => {
   assert.equal(t('admin.interfaces.summary.imageKey', { state: 'Configured' }), 'Image key: Configured');
   assert.equal(t('admin.registration.summary.defaultTtl', { days: 7 }), 'Default TTL: 7 days');
   assert.equal(t('admin.quota.header.usage'), 'Usage (today / month / storage)');
+  assert.equal(t('admin.users.pager.info', { page: 2, totalPages: 3, pageSize: 50 }), 'Page 2 / 3 · 50 per page');
   assert.equal(t('admin.jobs.summary.successRate', { rate: '88%' }), 'Success rate 88%');
   assert.equal(t('jobs.queued.position', { count: 2 }), '2 ahead');
   assert.equal(t('duration.minutesSeconds', { minutes: 2, seconds: 5 }), '2m 5s');

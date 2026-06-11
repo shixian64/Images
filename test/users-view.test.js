@@ -12,8 +12,10 @@ import {
   usersPagerView,
   usersTableHtml
 } from '../public/modules/users-view.js';
+import { setLocale } from '../public/modules/i18n.js';
 
 test('users view formats common user metadata', () => {
+  setLocale('zh-CN');
   assert.equal(formatTime(''), '-');
   assert.equal(formatTime('not-a-date'), '-');
   assert.equal(formatBytes(0), '-');
@@ -27,6 +29,7 @@ test('users view formats common user metadata', () => {
 });
 
 test('users view renders rows with escaped dynamic fields and self controls disabled', () => {
+  setLocale('zh-CN');
   const html = renderUserRow({
     id: 'u"><script>',
     username: '<b>alice</b>',
@@ -48,6 +51,7 @@ test('users view renders rows with escaped dynamic fields and self controls disa
 });
 
 test('users view renders table empty state and populated rows', () => {
+  setLocale('zh-CN');
   assert.match(usersTableHtml([]), /暂无用户数据/);
 
   const html = usersTableHtml([
@@ -60,6 +64,7 @@ test('users view renders table empty state and populated rows', () => {
 });
 
 test('users view renders escaped error banner', () => {
+  setLocale('zh-CN');
   const html = usersErrorHtml('<script>alert(1)</script> "><bad>', { prefix: '加载用户失败：' });
 
   assert.match(html, /class="error-banner"/);
@@ -69,6 +74,7 @@ test('users view renders escaped error banner', () => {
 });
 
 test('users view renders pager visibility and boundaries', () => {
+  setLocale('zh-CN');
   assert.deepEqual(usersPagerView({ filtered: 10, pageSize: 50, page: 1 }), {
     hidden: true,
     html: ''
@@ -82,4 +88,47 @@ test('users view renders pager visibility and boundaries', () => {
 
   const last = usersPagerView({ filtered: 120, pageSize: 50, page: 3 });
   assert.match(last.html, /data-users-pager="next" disabled/);
+});
+
+test('users view uses locale messages for table chrome', () => {
+  setLocale('en-US');
+  assert.equal(roleLabel('admin'), 'Admin');
+  assert.equal(roleLabel('user'), 'User');
+  assert.equal(statusLabel('active'), 'Enabled');
+  assert.equal(statusLabel('disabled'), 'Disabled');
+
+  assert.match(usersTableHtml([]), /No users\./);
+
+  const row = renderUserRow({
+    id: 'u1',
+    username: 'Alice',
+    email: 'a@example.test',
+    role: 'user',
+    status: 'active'
+  }, {
+    currentUserId: 'u1'
+  });
+  assert.match(row, /<span class="chip info">You<\/span>/);
+  assert.match(row, /title="You cannot modify yourself" disabled/);
+  assert.match(row, />Details<\/button>/);
+  assert.match(row, />Disable<\/button>/);
+
+  const table = usersTableHtml([
+    { id: 'u1', username: 'Alice', email: 'a@example.test', role: 'user', status: 'disabled' }
+  ]);
+  assert.match(table, />Username<\/th>/);
+  assert.match(table, />Email<\/th>/);
+  assert.match(table, />Role<\/th>/);
+  assert.match(table, />Last login<\/th>/);
+  assert.match(table, /User/);
+  assert.match(table, /Disabled/);
+  assert.match(table, />Enable<\/button>/);
+
+  assert.match(usersErrorHtml('', { prefix: 'Users failed: ' }), /Users failed: Load failed/);
+  const pager = usersPagerView({ filtered: 120, pageSize: 50, page: 2 });
+  assert.match(pager.html, />Previous<\/button>/);
+  assert.match(pager.html, /Page 2 \/ 3 · 50 per page/);
+  assert.match(pager.html, />Next<\/button>/);
+
+  setLocale('zh-CN');
 });

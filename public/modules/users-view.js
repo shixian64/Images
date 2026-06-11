@@ -1,10 +1,8 @@
 import { escapeHtml } from './dom.js';
+import { formatDateTime, t } from './i18n.js';
 
 export function formatTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(iso);
 }
 
 export function formatBytes(bytes) {
@@ -26,43 +24,43 @@ export function shortId(id) {
 }
 
 export function roleLabel(role) {
-  return role === 'admin' ? '管理员' : '普通用户';
+  return role === 'admin' ? t('admin.users.role.admin') : t('admin.users.role.user');
 }
 
 export function statusLabel(status) {
-  return status === 'active' ? '启用' : '停用';
+  return status === 'active' ? t('admin.users.status.active') : t('admin.users.status.disabled');
 }
 
 export function renderUserRow(user = {}, { currentUserId = '' } = {}) {
   const isSelf = user.id === currentUserId;
-  const selfTip = isSelf ? ' title="不能修改自己" disabled' : '';
+  const selfTip = isSelf ? ` title="${escapeHtml(t('admin.users.self.disabledTitle'))}" disabled` : '';
   const roleOptions = ['admin', 'user'].map((value) => {
     const selected = value === user.role ? ' selected' : '';
-    return `<option value="${value}"${selected}>${roleLabel(value)}</option>`;
+    return `<option value="${value}"${selected}>${escapeHtml(roleLabel(value))}</option>`;
   }).join('');
 
   const statusBtnClass = user.status === 'active' ? 'danger ghost small' : 'primary small';
-  const statusBtnLabel = user.status === 'active' ? '停用' : '启用';
+  const statusBtnLabel = user.status === 'active' ? t('admin.users.action.disable') : t('admin.users.action.enable');
 
   return `<tr data-user-id="${escapeHtml(user.id)}">
-    <td>${escapeHtml(user.username || '-')}${isSelf ? ' <span class="chip info">你</span>' : ''}</td>
+    <td>${escapeHtml(user.username || '-')}${isSelf ? ` <span class="chip info">${escapeHtml(t('admin.users.self.badge'))}</span>` : ''}</td>
     <td>${escapeHtml(user.email || '-')}</td>
     <td>
       <select class="users-role-select"${selfTip}>${roleOptions}</select>
     </td>
     <td>
-      <span class="chip ${user.status === 'active' ? 'ok' : 'err'}">${statusLabel(user.status)}</span>
+      <span class="chip ${user.status === 'active' ? 'ok' : 'err'}">${escapeHtml(statusLabel(user.status))}</span>
     </td>
     <td>${escapeHtml(formatTime(user.last_login_at || user.lastLoginAt))}</td>
     <td class="users-actions-cell"><div class="actions-wrap">
-      <button class="ghost small" data-act="detail">详情</button>
-      <button class="${statusBtnClass} users-status-btn"${selfTip}>${statusBtnLabel}</button>
+      <button class="ghost small" data-act="detail">${escapeHtml(t('admin.users.action.detail'))}</button>
+      <button class="${statusBtnClass} users-status-btn"${selfTip}>${escapeHtml(statusBtnLabel)}</button>
     </div></td>
   </tr>`;
 }
 
 export function usersEmptyHtml() {
-  return '<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>暂无用户数据</p></div>';
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">◎</div><p>${escapeHtml(t('admin.users.empty'))}</p></div>`;
 }
 
 export function usersTableHtml(items = [], { currentUserId = '' } = {}) {
@@ -72,12 +70,12 @@ export function usersTableHtml(items = [], { currentUserId = '' } = {}) {
     <table class="users-table">
       <thead>
         <tr>
-          <th>用户名</th>
-          <th>邮箱</th>
-          <th>角色</th>
-          <th>状态</th>
-          <th>最后登录</th>
-          <th>操作</th>
+          <th>${escapeHtml(t('admin.users.header.username'))}</th>
+          <th>${escapeHtml(t('admin.users.header.email'))}</th>
+          <th>${escapeHtml(t('admin.users.header.role'))}</th>
+          <th>${escapeHtml(t('admin.users.header.status'))}</th>
+          <th>${escapeHtml(t('admin.users.header.lastLogin'))}</th>
+          <th>${escapeHtml(t('admin.users.header.actions'))}</th>
         </tr>
       </thead>
       <tbody>${users.map((user) => renderUserRow(user, { currentUserId })).join('')}</tbody>
@@ -86,7 +84,7 @@ export function usersTableHtml(items = [], { currentUserId = '' } = {}) {
 }
 
 export function usersErrorHtml(message, { prefix = '' } = {}) {
-  return `<div class="error-banner">${escapeHtml(prefix)}${escapeHtml(message || '加载失败')}</div>`;
+  return `<div class="error-banner">${escapeHtml(prefix)}${escapeHtml(message || t('common.loadFailed'))}</div>`;
 }
 
 export function usersPagerView(view = {}) {
@@ -100,9 +98,9 @@ export function usersPagerView(view = {}) {
   return {
     hidden: false,
     html: `
-    <button class="ghost small" data-users-pager="prev" ${page <= 1 ? 'disabled' : ''}>上一页</button>
-    <span>第 ${page} / ${totalPages} 页 · 每页 ${pageSize}</span>
-    <button class="ghost small" data-users-pager="next" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+    <button class="ghost small" data-users-pager="prev" ${page <= 1 ? 'disabled' : ''}>${escapeHtml(t('admin.users.pager.prev'))}</button>
+    <span>${escapeHtml(t('admin.users.pager.info', { page, totalPages, pageSize }))}</span>
+    <button class="ghost small" data-users-pager="next" ${page >= totalPages ? 'disabled' : ''}>${escapeHtml(t('admin.users.pager.next'))}</button>
   `
   };
 }
