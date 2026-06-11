@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { setLocale } from '../public/modules/i18n.js';
 import { createImagePreviewController } from '../public/modules/image-preview.js';
 
 class FakeClassList {
@@ -95,6 +96,10 @@ function installDom(t) {
   return { body };
 }
 
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
+
 test('image preview controller builds and closes the modal without HTML injection', (t) => {
   const { body } = installDom(t);
   const trigger = new FakeElement('button');
@@ -130,6 +135,23 @@ test('image preview controller builds and closes the modal without HTML injectio
   assert.equal(img.src, undefined);
   assert.equal(body.classList.contains('preview-open'), false);
   assert.equal(trigger.focused, true);
+});
+
+test('image preview controller uses localized default labels', (t) => {
+  installDom(t);
+
+  const zh = createImagePreviewController();
+  assert.equal(zh.open({ src: '/zh.png' }), true);
+  let modal = zh.getModal();
+  assert.equal(modal.attributes['aria-label'], '图片预览');
+  assert.equal(modal.querySelector('.image-preview-close').attributes['aria-label'], '关闭图片预览');
+
+  setLocale('en-US');
+  const en = createImagePreviewController();
+  assert.equal(en.open({ src: '/en.png' }), true);
+  modal = en.getModal();
+  assert.equal(modal.attributes['aria-label'], 'Image preview');
+  assert.equal(modal.querySelector('.image-preview-close').attributes['aria-label'], 'Close image preview');
 });
 
 test('image preview controller supports URL transforms and referrer policy', (t) => {

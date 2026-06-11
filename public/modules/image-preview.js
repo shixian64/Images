@@ -1,6 +1,8 @@
 // Shared image preview modal controller. It intentionally builds DOM nodes
 // instead of injecting an HTML string so callers only pass image URL/alt text.
 
+import { t } from './i18n.js';
+
 function createEl(tag, { className = '', attrs = {}, text = '' } = {}) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -14,8 +16,8 @@ function createEl(tag, { className = '', attrs = {}, text = '' } = {}) {
 
 export function createImagePreviewController({
   modalClass = '',
-  ariaLabel = '图片预览',
-  closeLabel = '关闭图片预览',
+  ariaLabel = t('imagePreview.ariaLabel'),
+  closeLabel = t('imagePreview.closeLabel'),
   closeAttribute = 'data-image-preview-close',
   referrerPolicy = '',
   transformUrl = (url) => url,
