@@ -21,13 +21,16 @@ import {
   PROMPT_EXAMPLE_ACCEPT,
   buildLargeSquarePreviewUrl,
   deriveTitle,
-  formatTime,
   historyPreviewImageIds,
   historyPreviewImages,
   normalizeHistory,
   normalizeTags,
   sourceLabel
 } from './prompt-utils.js';
+import {
+  promptHistoryListState,
+  promptHistorySummaryHtml
+} from './prompt-history-view.js';
 import {
   promptSquareErrorHtml,
   promptSquareListState,
@@ -275,29 +278,7 @@ function renderHistorySummary(filtered) {
   const count = $('promptHistoryCount');
   if (count) count.textContent = String(history.length);
   if (!el) return;
-  const pinned = history.filter((item) => item.pinned).length;
-  const published = history.filter((item) => item.isPublic).length;
-  const builder = history.filter((item) => item.source === 'builder').length;
-  const studio = history.filter((item) => item.source === 'studio').length;
-  el.innerHTML = `
-    <span class="chip">共 ${history.length} 条 · 显示 ${filtered.length}</span>
-    <span class="chip info">构造器 ${builder}</span>
-    <span class="chip">生成页 ${studio}</span>
-    <span class="chip public">已公开 ${published}</span>
-    <span class="chip pin">固定 ${pinned}</span>
-  `;
-}
-
-function renderHistoryExamples(item) {
-  const previews = historyPreviewImages(item);
-  if (!previews.length) return '';
-  return `<div class="prompt-history-examples" aria-label="示例图">
-    ${previews.map((url, index) => `
-      <button class="prompt-history-example" type="button" data-history-preview="${escapeHtml(url)}" aria-label="预览第 ${index + 1} 张示例图">
-        <img src="${escapeHtml(url)}" alt="${escapeHtml(`${item.title} 示例图 ${index + 1}`)}" loading="lazy" referrerpolicy="no-referrer" />
-      </button>
-    `).join('')}
-  </div>`;
+  el.innerHTML = promptHistorySummaryHtml(history, filtered);
 }
 
 function selectPromptExampleFiles() {
@@ -378,54 +359,11 @@ function clearPromptExamples(entry) {
 function renderHistoryList(filtered, { onUsePrompt } = {}) {
   const list = $('promptHistoryList');
   if (!list) return;
-  if (!filtered.length) {
-    list.dataset.empty = 'true';
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true">✦</div>
-        <p>没有匹配的历史提示词。试试换一个搜索词或标签。</p>
-      </div>`;
-    return;
-  }
 
-  list.dataset.empty = 'false';
-  list.innerHTML = filtered.map((item) => {
-    const tags = item.tags.length
-      ? item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')
-      : '<span>未标记</span>';
-    const meta = [item.meta?.model, item.meta?.size, item.meta?.quality].filter(Boolean).join(' · ');
-    const previews = historyPreviewImages(item);
-    return `
-      <article class="prompt-history-item ${item.pinned ? 'is-pinned' : ''}" data-id="${escapeHtml(item.id)}">
-        <div class="prompt-history-main">
-          <div class="prompt-history-titleline">
-            <strong>${escapeHtml(item.title)}</strong>
-            <span class="prompt-source" data-source="${escapeHtml(item.source)}">${escapeHtml(sourceLabel(item.source))}</span>
-            ${item.pinned ? '<span class="prompt-pin">已固定</span>' : ''}
-            ${item.isPublic ? '<span class="prompt-public">已公开</span>' : ''}
-          </div>
-          <p>${escapeHtml(item.prompt)}</p>
-          <div class="prompt-history-tags">${tags}</div>
-          ${renderHistoryExamples(item)}
-        </div>
-        <div class="prompt-history-side">
-          <span>${escapeHtml(formatTime(item.updatedAt))}</span>
-          <span>使用 ${item.useCount || 0} 次</span>
-          ${previews.length ? `<span>示例图 ${previews.length} 张</span>` : ''}
-          ${meta ? `<span>${escapeHtml(meta)}</span>` : ''}
-        </div>
-        <div class="prompt-history-buttons">
-          <button data-action="use" type="button">使用</button>
-          <button data-action="copy" type="button">复制</button>
-          <button data-action="load" type="button">载入构造</button>
-          <button data-action="upload-example" type="button">上传示例图</button>
-          ${previews.length ? '<button data-action="clear-examples" type="button">清空示例图</button>' : ''}
-          <button data-action="toggle-public" type="button">${item.isPublic ? '取消公开' : '公开到广场'}</button>
-          <button data-action="pin" type="button">${item.pinned ? '取消固定' : '固定'}</button>
-          <button data-action="delete" class="danger" type="button">删除</button>
-        </div>
-      </article>`;
-  }).join('');
+  const view = promptHistoryListState(filtered);
+  list.dataset.empty = view.empty ? 'true' : 'false';
+  list.innerHTML = view.html;
+  if (view.empty) return;
 
   list.onclick = async (ev) => {
     const previewBtn = ev.target.closest('[data-history-preview]');
