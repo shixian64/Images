@@ -47,7 +47,7 @@
 - Docker compose 默认使用只读根文件系统，并仅持久化 `/app/generated`。
 - 静态文件、图库文件、提示词示例图和参考图临时文件都有路径边界检查。
 - JSON、multipart、上游响应、URL 图片下载、参考图上传和提示词示例图上传都有大小限制。
-- API 与静态文件响应默认带 CSP、`X-Content-Type-Options`、`Referrer-Policy`、`X-Frame-Options` 和基础 `Permissions-Policy`。
+- 当前 JSON API、SSE、204 空响应与静态文件等服务端响应路径默认带 CSP、`X-Content-Type-Options`、`Referrer-Policy`、`X-Frame-Options` 和基础 `Permissions-Policy`。
 
 ## 认证、会话与 CSRF
 

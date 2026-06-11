@@ -552,7 +552,7 @@ subscriptions(workspace_id, plan, stripe_sub_id, status, current_period_end)
 
 ### 9.1 性能目标（SLO）
 - P50 页面首屏 TTFB < 400ms，LCP < 2s
-- 同步生成 P95 < 15s（不含上游等待，仅我们的开销）
+- 生成任务创建与状态更新 P95 < 15s（不含上游等待，仅我们的开销）
 - 队列入队延迟 P99 < 200ms
 - 作品库列表（50 条）P95 < 300ms
 
@@ -578,7 +578,7 @@ RESTful，所有请求需 `Authorization: Bearer <token>` 或 Session Cookie。
 ```
 POST   /api/v1/jobs                   # 创建生成任务 → 202 + job_id
 GET    /api/v1/jobs/:id               # 查询状态
-GET    /api/v1/jobs/:id/events        # SSE 实时进度
+GET    /api/v1/jobs/:id/stream        # SSE 实时进度
 DELETE /api/v1/jobs/:id               # 取消
 
 GET    /api/v1/images                 # 列表 (query: page, filter)
@@ -644,9 +644,9 @@ POST   /api/v1/prompts
 
 ```
 W1–W2   搭架子：Next.js + Auth + DB + S3 + 基础 Studio
-W3–W4   MVP：Profile CRUD + 同步生成 + Gallery + 日志迁移
+W3–W4   MVP：Profile CRUD + 异步生成入队 + Gallery + 日志迁移
 ──── MVP 上线（内测）────
-W5–W6   Beta-A：异步队列 + SSE + 批量 + 模板库
+W5–W6   Beta-A：队列增强 + SSE + 批量 + 模板库
 W7–W8   Beta-B：版本树 + 多模型对比 + 收藏/标签
 ──── 公开 Beta ────
 W9–W10  商业-A：Stripe + Free/Pro 订阅 + 空间隔离

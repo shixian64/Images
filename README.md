@@ -166,7 +166,7 @@ services/
   registration-guard.js   # 注册模式、邀请码、IP 限频、邮箱域策略
   quota.js                # 默认额度、用户额度、用量、并发槽位
   job-queue.js            # 持久化生成队列、SSE 订阅、重试/取消
-  image-generation.js     # 生成任务准备、同步/流式响应
+  image-generation.js     # 生成任务准备、上游调用与队列结果封装
   upstream.js             # URL 规范化、安全校验、上游请求
   reference-images.js     # 参考图上传、校验、临时文件
   gallery-store.js        # 图片保存、公开图库、点赞、统计、清理
