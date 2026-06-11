@@ -1,46 +1,49 @@
 import { escapeHtml } from './dom.js';
 import { imageSrcFromItem, pageStoryboardEditorEnabled } from './comic-model.js';
+import { t } from './i18n.js';
 
 export const COMIC_RESULT_STATUS_LABELS = Object.freeze({
-  pending: '等待',
-  queued: '排队',
-  running: '生成中',
-  succeeded: '完成',
-  failed: '失败',
-  cancelled: '已停止',
-  timeout: '超时'
+  pending: 'comic.result.status.pending',
+  queued: 'comic.result.status.queued',
+  running: 'comic.result.status.running',
+  succeeded: 'comic.result.status.succeeded',
+  failed: 'comic.result.status.failed',
+  cancelled: 'comic.result.status.cancelled',
+  timeout: 'comic.result.status.timeout'
 });
 
 export function comicResultStatusLabel(status = '') {
-  return COMIC_RESULT_STATUS_LABELS[status] || String(status || '');
+  const key = COMIC_RESULT_STATUS_LABELS[status];
+  return key ? t(key) : String(status || '');
 }
 
 export function comicResultEmptyHtml() {
   return `<div class="empty-state">
       <div class="empty-icon" aria-hidden="true">□</div>
-      <p>页分镜确认后点击“逐页生成图片”。生成时会把首页/上一页作为上下文参考，尽量锁定角色和画风。</p>
+      <p>${escapeHtml(t('comic.result.empty'))}</p>
     </div>`;
 }
 
 export function comicResultCardHtml(entry = {}, index = 0, {
   storyboard = null,
-  unitLabel = pageStoryboardEditorEnabled(storyboard) ? '页' : '格'
+  unitLabel = pageStoryboardEditorEnabled(storyboard) ? t('comic.result.unit.page') : t('comic.result.unit.panel')
 } = {}) {
   const item = entry.item || {};
   const src = imageSrcFromItem(item);
-  const title = storyboard?.panels?.[index]?.beat || `分镜 ${index + 1}`;
+  const itemIndex = index + 1;
+  const title = storyboard?.panels?.[index]?.beat || t('comic.result.titleFallback', { index: itemIndex });
   const status = entry.status || 'pending';
   const statusLabel = comicResultStatusLabel(status);
   const image = src
     ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(title.slice(0, 80))}" loading="lazy" />`
     : `<div class="comic-result-placeholder">${escapeHtml(statusLabel)}</div>`;
   const actions = src
-    ? `<a href="${escapeHtml(src)}" download="comic-panel-${index + 1}.png">下载</a>`
+    ? `<a href="${escapeHtml(src)}" download="comic-panel-${itemIndex}.png">${escapeHtml(t('comic.result.download'))}</a>`
     : '';
   return `<article class="image-card comic-result-card" data-status="${escapeHtml(status)}">
       ${image}
       <div class="image-meta">
-        <span>第 ${index + 1} ${escapeHtml(unitLabel)} ${escapeHtml(statusLabel)}</span>
+        <span>${escapeHtml(t('comic.result.meta', { index: itemIndex, unit: unitLabel, status: statusLabel }))}</span>
         <span>${escapeHtml(entry.jobId ? entry.jobId.slice(0, 8) : '')}</span>
       </div>
       <p class="prompt-preview" title="${escapeHtml(title)}">${escapeHtml(title)}</p>
@@ -58,7 +61,7 @@ export function comicResultsView(generatedPanels = [], storyboard = null) {
     };
   }
 
-  const unitLabel = pageStoryboardEditorEnabled(storyboard) ? '页' : '格';
+  const unitLabel = pageStoryboardEditorEnabled(storyboard) ? t('comic.result.unit.page') : t('comic.result.unit.panel');
   return {
     empty: false,
     html: entries.map((entry, index) => comicResultCardHtml(entry, index, {

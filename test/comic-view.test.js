@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { setLocale } from '../public/modules/i18n.js';
 import {
   comicResultCardHtml,
   comicResultsView,
   comicResultStatusLabel
 } from '../public/modules/comic-view.js';
+
+test.beforeEach(() => {
+  setLocale('zh-CN');
+});
 
 test('comic result view renders empty state', () => {
   const view = comicResultsView([], { panels: [] });
@@ -49,4 +54,28 @@ test('comic result view escapes dynamic text fields', () => {
   assert.match(html, /failed&quot;&gt;&lt;script&gt;/);
   assert.match(html, /&lt;b&gt;标题&lt;\/b&gt;/);
   assert.match(html, /&lt;页&gt;/);
+});
+
+test('comic result view uses locale messages for statuses and chrome', () => {
+  setLocale('en-US');
+  assert.equal(comicResultStatusLabel('running'), 'Generating');
+  assert.equal(comicResultStatusLabel('custom'), 'custom');
+
+  const empty = comicResultsView([], { panels: [] });
+  assert.match(empty.html, /After confirming the storyboard/);
+
+  const view = comicResultsView([{
+    status: 'succeeded',
+    jobId: 'abcdef123456',
+    item: { local_url: '/gallery/a.png' }
+  }], {
+    pageStoryboardEnabled: true,
+    panels: [{}]
+  });
+
+  assert.equal(view.empty, false);
+  assert.match(view.html, /Page 1 · Done/);
+  assert.match(view.html, /Storyboard 1/);
+  assert.match(view.html, />Download</);
+  assert.match(view.html, /download="comic-panel-1\.png"/);
 });
