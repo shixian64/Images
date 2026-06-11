@@ -10,33 +10,22 @@ import {
 import { apiFetch, getCurrentUserId } from './auth.js';
 import { copyText } from './clipboard.js';
 import { createImagePreviewController } from './image-preview.js';
-
-const MAX_PROMPT_HISTORY = 160;
-const MAX_PROMPT_EXAMPLE_IMAGES = 4;
-const PROMPT_EXAMPLE_ACCEPT = 'image/png,image/jpeg,image/webp';
-
-const SOURCE_LABEL = {
-  builder: '构造器',
-  studio: '生成页',
-  comic: '漫画',
-  manual: '手动',
-  optimizer: '优化',
-  square: '广场',
-  seed: '精选'
-};
-
-const BUILDER_FIELDS = [
-  ['title', 'promptTitleInput'],
-  ['tags', 'promptTagsInput'],
-  ['subject', 'promptSubjectInput'],
-  ['style', 'promptStyleInput'],
-  ['composition', 'promptCompositionInput'],
-  ['lighting', 'promptLightingInput'],
-  ['palette', 'promptPaletteInput'],
-  ['text', 'promptTextInput'],
-  ['negative', 'promptNegativeInput'],
-  ['composed', 'promptComposedOutput']
-];
+import {
+  BUILDER_FIELDS,
+  MAX_PROMPT_EXAMPLE_IMAGES,
+  MAX_PROMPT_HISTORY,
+  PROMPT_EXAMPLE_ACCEPT,
+  buildLargeSquarePreviewUrl,
+  createPromptId,
+  deriveTitle,
+  formatTime,
+  historyPreviewImageIds,
+  historyPreviewImages,
+  mergeTags,
+  normalizeHistory,
+  normalizeTags,
+  sourceLabel
+} from './prompt-utils.js';
 
 // why：延迟到 mount 阶段再按用户 scope 加载历史，避免 import 期拿到 guest 数据。
 let history = [];
@@ -62,73 +51,9 @@ function onPromptHistoryChanged(fn) {
   return () => listeners.delete(fn);
 }
 
-function createId() {
-  return (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function normalizeHistory(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item) => item && typeof item.prompt === 'string' && item.prompt.trim())
-    .map((item) => ({
-      id: item.id || createId(),
-      title: item.title || deriveTitle(item.prompt),
-      prompt: item.prompt.trim(),
-      tags: normalizeTags(item.tags),
-      source: item.source || 'manual',
-      createdAt: item.createdAt || item.ts || new Date().toISOString(),
-      updatedAt: item.updatedAt || item.createdAt || item.ts || new Date().toISOString(),
-      lastUsedAt: item.lastUsedAt || '',
-      useCount: Number(item.useCount || 0),
-      pinned: Boolean(item.pinned),
-      isPublic: Boolean(item.isPublic || item.public),
-      squareId: item.squareId || '',
-      publishedAt: item.publishedAt || '',
-      parts: item.parts || null,
-      meta: item.meta || {}
-    }));
-}
-
 function saveHistory() {
   writeJsonScoped(KEYS.promptHistory, history);
   emitHistoryChanged();
-}
-
-function normalizeTags(input) {
-  const list = Array.isArray(input)
-    ? input
-    : String(input || '').split(/[，,\n#]+/);
-  return Array.from(new Set(list.map((tag) => String(tag).trim()).filter(Boolean))).slice(0, 8);
-}
-
-function mergeTags(a, b) {
-  return Array.from(new Set([...normalizeTags(a), ...normalizeTags(b)])).slice(0, 8);
-}
-
-function deriveTitle(prompt) {
-  const firstLine = String(prompt || '').trim().split(/\n+/)[0] || '未命名提示词';
-  return firstLine.length > 30 ? `${firstLine.slice(0, 30)}…` : firstLine;
-}
-
-function sourceLabel(source) {
-  return SOURCE_LABEL[source] || SOURCE_LABEL.manual;
-}
-
-function formatTime(iso) {
-  if (!iso) return '-';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '-';
-  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function buildLargeSquarePreviewUrl(url) {
-  if (!url) return '';
-  const source = String(url);
-  if (!source.includes('/cdn-cgi/image/')) return source;
-
-  return source
-    .replace(/(width(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}1200`)
-    .replace(/(quality(?:%3D|=))\d+/i, (_match, prefix) => `${prefix}92`);
 }
 
 const squarePreviewController = createImagePreviewController({
@@ -354,7 +279,7 @@ export function addPromptHistory(prompt, meta = {}) {
     history.unshift(...history.splice(index, 1));
   } else {
     history.unshift({
-      id: createId(),
+      id: createPromptId(),
       title: title || deriveTitle(normalizedPrompt),
       prompt: normalizedPrompt,
       tags: normalizeTags(meta.tags),
@@ -429,27 +354,6 @@ function renderHistorySummary(filtered) {
     <span class="chip public">已公开 ${published}</span>
     <span class="chip pin">固定 ${pinned}</span>
   `;
-}
-
-function historyPreviewImages(entry) {
-  const meta = entry?.meta || {};
-  const values = Array.isArray(meta.previewImages)
-    ? meta.previewImages
-    : (meta.previewImage ? [meta.previewImage] : []);
-  return Array.from(new Set(
-    values
-      .map((url) => String(url || '').trim())
-      .filter(Boolean)
-  )).slice(0, MAX_PROMPT_EXAMPLE_IMAGES);
-}
-
-function historyPreviewImageIds(entry) {
-  const ids = Array.isArray(entry?.meta?.previewImageIds) ? entry.meta.previewImageIds : [];
-  return Array.from(new Set(
-    ids
-      .map((id) => String(id || '').trim())
-      .filter(Boolean)
-  )).slice(0, MAX_PROMPT_EXAMPLE_IMAGES);
 }
 
 function renderHistoryExamples(item) {
