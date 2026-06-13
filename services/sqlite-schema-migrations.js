@@ -277,8 +277,6 @@ CREATE INDEX IF NOT EXISTS idx_registration_invites_created
   ON registration_invites(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_registration_invites_active
   ON registration_invites(disabled_at, used_count, max_uses);
-CREATE INDEX IF NOT EXISTS idx_registration_invites_expires
-  ON registration_invites(expires_at);
 
 CREATE TABLE IF NOT EXISTS registration_invite_redemptions (
   id            TEXT PRIMARY KEY,
@@ -601,4 +599,3 @@ function migratePromptSquareNullableOwner(db, { dbPath, migrationBackupDir }) {
     db.exec('PRAGMA foreign_keys = ON;');
   }
 }
-

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { PROMPT_SQUARE_SEED_KEY } from '../services/prompt-square-seeds.js';
+import { migrateSchema } from '../services/sqlite-schema-migrations.js';
 
 let workDir;
 let prevCwd;
@@ -56,6 +57,59 @@ test('migrate creates schema and is idempotent', () => {
     migrations.slice(0, 6).map((item) => item.version),
     [1, 2, 3, 4, 5, 6]
   );
+});
+
+test('migrate upgrades legacy registration invites before creating expiry index', () => {
+  const legacyDir = mkdtempSync(join(tmpdir(), 'image-studio-legacy-invites-'));
+  const legacyDbPath = join(legacyDir, 'app.db');
+  const now = '2026-06-14T00:00:00.000Z';
+  const sqlite = new DatabaseSync(legacyDbPath);
+  try {
+    sqlite.exec(`
+      CREATE TABLE registration_invites (
+        code        TEXT PRIMARY KEY,
+        max_uses    INTEGER NOT NULL DEFAULT 1,
+        used_count  INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL,
+        created_by  TEXT,
+        updated_at  TEXT NOT NULL,
+        disabled_at TEXT,
+        disabled_by TEXT
+      );
+      CREATE TABLE schema_migrations (
+        version    INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+    `);
+    sqlite.prepare(`
+      INSERT INTO registration_invites
+      (code, max_uses, used_count, created_at, created_by, updated_at, disabled_at, disabled_by)
+      VALUES (?, 1, 0, ?, ?, ?, NULL, NULL)
+    `).run('legacy-invite-code', now, 'legacy-admin', now);
+
+    migrateSchema(sqlite, {
+      nowIso: () => now,
+      dbPath: legacyDbPath,
+      migrationBackupDir: join(legacyDir, 'migration-backups'),
+      legacyGallery: join(legacyDir, 'gallery.json'),
+      legacyGalleryDone: join(legacyDir, 'gallery.json.migrated')
+    });
+
+    const cols = sqlite.prepare('PRAGMA table_info(registration_invites)').all();
+    assert.ok(cols.some((col) => col.name === 'expires_at'));
+    assert.equal(
+      sqlite.prepare(`
+        SELECT COUNT(*) AS n
+        FROM sqlite_master
+        WHERE type = 'index' AND name = 'idx_registration_invites_expires'
+      `).get().n,
+      1
+    );
+  } finally {
+    sqlite.close();
+    rmSync(legacyDir, { recursive: true, force: true });
+  }
 });
 
 test('prompt square seed sync refreshes stale rows even when seed marker exists', () => {
