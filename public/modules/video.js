@@ -52,9 +52,9 @@ let currentProjectPrompt = '';
 let projectReferences = [];
 let keyframeResults = [];
 let betweenResults = Object.create(null);
-let activeRun = null;
 let activeStoryboardRequest = null;
 let videoPromptEditorOpen = false;
+const handledVideoFinalJobIds = new Set();
 const videoPreviewController = createImagePreviewController({
   ariaLabel: '视频图片预览',
   closeLabel: '关闭视频图片预览',
@@ -661,13 +661,14 @@ function renderKeyframeResultCard(index) {
   const entry = keyframeResults[index] || { status: 'pending' };
   const status = entry.status || 'pending';
   const prompt = entry.prompt || frame.imagePrompt || '';
+  const active = isActiveEntry(entry);
   return `<article class="image-card gallery-card comic-result-card video-keyframe-result" data-status="${escapeHtml(status)}" data-video-keyframe-result="${index}">
     ${resultImageHtml(entry, `第 ${index + 1} 个关键帧`)}
     <div class="image-meta"><span>K${index + 1}</span><span>${escapeHtml(statusLabel(status))}</span></div>
     <div class="image-meta compact-meta"><span>${escapeHtml(frame.beat || `关键帧 ${index + 1}`)}</span><span>${escapeHtml(entry.jobId ? entry.jobId.slice(0, 8) : '')}</span></div>
     ${entry.error ? `<p class="prompt-preview is-empty">${escapeHtml(entry.error)}</p>` : `<p class="prompt-preview video-prompt-preview-button" data-video-keyframe-prompt-preview="${index}" role="button" tabindex="0" title="${escapeHtml(prompt ? `点击修改提示词：${prompt}` : '点击修改提示词')}">${escapeHtml(prompt || '暂无提示词')}</p>`}
     <div class="comic-result-actions">
-      <button type="button" class="ghost small" data-video-generate-keyframe="${index}" ${activeRun ? 'disabled' : ''}>${imageIdFromItem(entry.item || {}) ? '重新生成' : '生成这一帧'}</button>
+      <button type="button" class="ghost small" data-video-generate-keyframe="${index}" ${active ? 'disabled' : ''}>${active ? '已入队' : (imageIdFromItem(entry.item || {}) ? '重新生成' : '生成这一帧')}</button>
     </div>
   </article>`;
 }
@@ -689,6 +690,25 @@ function imageEntryForTick(tick) {
 
 function imageIdForTick(tick) {
   return imageIdFromItem(imageEntryForTick(tick)?.item || {});
+}
+
+function isActiveEntry(entry = {}) {
+  return ACTIVE_JOB_STATUSES.has(entry?.status);
+}
+
+function isSucceededEntry(entry = {}) {
+  return entry?.status === 'succeeded' && Boolean(imageIdFromItem(entry.item || {}));
+}
+
+function hasQueueableBetweenTargets(segment = {}) {
+  const normalized = normalizeBetweenSegment(segment);
+  if (!normalized) return false;
+  return normalized.targetTicks.some((pointTick) => {
+    const entry = betweenResults[betweenPointKey(pointTick)] || {};
+    if (isActiveEntry(entry)) return false;
+    if (!normalized.force && isSucceededEntry(entry)) return false;
+    return true;
+  });
 }
 
 function frameForTick(tick) {
@@ -742,8 +762,9 @@ function timelineThumbHtml(point = {}) {
   const src = imageUrl(entry.item || entry);
   const isBetween = point.type === 'between';
   const key = betweenPointKey(point.tick);
+  const active = isActiveEntry(entry);
   const action = isBetween
-    ? `<button type="button" class="ghost small" data-video-regenerate-between-point="${escapeHtml(key)}" ${activeRun ? 'disabled' : ''}>${imageIdFromItem(entry.item || {}) ? '重生' : '重试'}</button>`
+    ? `<button type="button" class="ghost small" data-video-regenerate-between-point="${escapeHtml(key)}" ${active ? 'disabled' : ''}>${active ? '已入队' : (imageIdFromItem(entry.item || {}) ? '重生' : '重试')}</button>`
     : '';
   return `<div class="video-timeline-point ${escapeHtml(point.type || '')}" data-status="${escapeHtml(status)}" ${isBetween ? `data-video-between-result="${escapeHtml(key)}"` : ''}>
     <div class="video-timeline-thumb">
@@ -761,7 +782,8 @@ function refineButtonHtml(fromTick, toTick, { label = '', disabled = false } = {
   const fromLabel = pointLabel(fromTick);
   const toLabel = pointLabel(toTick);
   const title = label || `${fromLabel}-${toLabel}`;
-  return `<button type="button" class="ghost small" data-video-refine-segment="${escapeHtml(segmentKey(fromTick, toTick))}" ${disabled || activeRun ? 'disabled' : ''}>细化 ${escapeHtml(title)}</button>`;
+  const hasTargets = hasQueueableBetweenTargets({ fromTick, toTick, count: videoBetweenRefineCount() });
+  return `<button type="button" class="ghost small" data-video-refine-segment="${escapeHtml(segmentKey(fromTick, toTick))}" ${disabled || !hasTargets ? 'disabled' : ''}>细化 ${escapeHtml(title)}</button>`;
 }
 
 function renderRefineControls(points = []) {
@@ -796,13 +818,20 @@ function renderBetweenSlot(fromIndex) {
   const status = active ? 'running' : (failed ? 'failed' : (completed ? 'succeeded' : 'pending'));
   const coarseCount = videoBetweenCoarseCount();
   const refineCount = videoBetweenRefineCount();
+  const coarseHasTargets = hasQueueableBetweenTargets({
+    fromTick: keyframeTick(fromIndex),
+    toTick: keyframeTick(toIndex),
+    count: coarseCount
+  });
+  const refineAllHasTargets = refineSegmentsForInterval(fromIndex)
+    .some((segment) => hasQueueableBetweenTargets(segment));
   return `<article class="image-card gallery-card comic-result-card video-between-result video-between-segment" data-status="${escapeHtml(status)}" data-video-between-segment="${fromIndex}">
     <div class="video-between-header">
       <div>
         <div class="image-meta"><span>${escapeHtml(key)} 帧间图</span><span>${escapeHtml(statusLabel(status))}</span></div>
         <p class="hint">先补 ${coarseCount} 张粗帧；满意后，可在相邻小段内每次再补 ${refineCount} 张细化帧。</p>
       </div>
-      <button type="button" class="primary small" data-video-generate-between-coarse="${fromIndex}" ${ready && !activeRun ? '' : 'disabled'}>生成/补齐 ${coarseCount} 张粗帧</button>
+      <button type="button" class="primary small" data-video-generate-between-coarse="${fromIndex}" ${ready && coarseHasTargets ? '' : 'disabled'}>生成/补齐 ${coarseCount} 张粗帧</button>
     </div>
     <div class="video-between-timeline">
       ${points.map(timelineThumbHtml).join('')}
@@ -813,7 +842,7 @@ function renderBetweenSlot(fromIndex) {
     </label>
     <div class="comic-result-actions video-between-actions">
       ${renderRefineControls(points)}
-      <button type="button" class="ghost small" data-video-refine-all-between="${fromIndex}" ${ready && points.length > 2 && !activeRun ? '' : 'disabled'}>细化全部小段</button>
+      <button type="button" class="ghost small" data-video-refine-all-between="${fromIndex}" ${ready && points.length > 2 && refineAllHasTargets ? '' : 'disabled'}>细化全部小段</button>
     </div>
     ${ready ? '' : '<p class="hint video-between-hint">两端关键帧都完成后才能生成这个区间的帧间图。</p>'}
   </article>`;
@@ -840,7 +869,7 @@ function renderAll() {
   renderReferenceList();
   renderStoryboard();
   renderResults();
-  $('videoGenerateKeyframes')?.toggleAttribute('disabled', !storyboard?.keyframes?.length || Boolean(activeRun || activeStoryboardRequest));
+  $('videoGenerateKeyframes')?.toggleAttribute('disabled', !storyboard?.keyframes?.length || Boolean(activeStoryboardRequest));
 }
 
 function completedKeyframeCount() {
@@ -980,11 +1009,6 @@ function waitForJob(jobId, { signal } = {}) {
 
 async function cancelJobById(jobId) {
   await cancelGenerationJob(jobId, { apiFetch });
-}
-
-async function cancelCurrentJob() {
-  const jobId = activeRun?.currentJobId;
-  if (jobId) await cancelJobById(jobId);
 }
 
 async function cancelCurrentStoryboardJob() {
@@ -1224,25 +1248,30 @@ function ensureKeyframeResultSlots() {
   keyframeResults = storyboard.keyframes.map((_, index) => keyframeResults[index] || { status: 'pending' });
 }
 
-async function runSingleGeneration({ payload, signal, progressMessage, onQueued, onSucceeded }) {
-  const accepted = await submitGenerationJob(payload, { signal });
-  const jobId = accepted.jobId || accepted.job?.id;
+async function queueSingleGeneration({ payload, progressMessage, onQueued }) {
+  const accepted = await submitGenerationJob(payload);
+  const job = accepted.job || {};
+  const jobId = accepted.jobId || job.id;
   if (!jobId) throw new Error('服务端没有返回生图任务 ID。');
-  activeRun.currentJobId = jobId;
-  onQueued?.(jobId);
-  showVideoProgress(progressMessage(jobId), 'busy');
-  if (signal?.aborted) {
-    await cancelJobById(jobId);
-    throw abortError();
-  }
-  const job = await waitForJob(jobId, { signal });
-  if (job.status !== 'succeeded') {
-    throw new Error(job.error || job.progress?.message || `生图任务失败：${job.status}`);
-  }
-  const item = firstResultItem(job);
-  if (!item) throw new Error('生图任务没有返回可用图片。');
-  onSucceeded?.(job, item);
-  return { job, item };
+  onQueued?.(jobId, job);
+  showVideoProgress(progressMessage(jobId, job), 'busy');
+  return { jobId, job };
+}
+
+function keyframeGenerationIndexes(onlyIndex = null) {
+  if (Number.isInteger(onlyIndex)) return [onlyIndex];
+  return storyboard?.keyframes?.map((_, index) => index) || [];
+}
+
+function markKeyframeQueued(index, payload, jobId = '', job = {}) {
+  const status = ACTIVE_JOB_STATUSES.has(job.status) ? job.status : 'queued';
+  keyframeResults[index] = {
+    ...(keyframeResults[index] || { status: 'pending' }),
+    status,
+    jobId,
+    prompt: payload.prompt,
+    error: ''
+  };
 }
 
 async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
@@ -1270,101 +1299,81 @@ async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
     return showVideoError(`视频项目保存失败：${err.message || String(err)}`);
   }
 
-  activeRun = { controller: new AbortController(), currentJobId: '', stopped: false, type: 'keyframes' };
   ensureKeyframeResultSlots();
-  setBusy(true);
   renderResults();
   const started = Date.now();
-  const indexes = Number.isInteger(onlyIndex)
-    ? [onlyIndex]
-    : storyboard.keyframes.map((_, index) => index);
+  const indexes = keyframeGenerationIndexes(onlyIndex);
+  let queued = 0;
+  let skipped = 0;
+  let failed = 0;
+  const errors = [];
 
-  try {
-    for (const index of indexes) {
-      const existingId = imageIdFromItem(keyframeResults[index]?.item || {});
-      if (!Number.isInteger(onlyIndex) && keyframeResults[index]?.status === 'succeeded' && existingId) continue;
-      if (activeRun.controller.signal.aborted) throw abortError();
+  for (const index of indexes) {
+    const existing = keyframeResults[index] || { status: 'pending' };
+    const existingId = imageIdFromItem(existing.item || {});
+    if (isActiveEntry(existing)) {
+      skipped += 1;
+      continue;
+    }
+    if (!Number.isInteger(onlyIndex) && existing.status === 'succeeded' && existingId) {
+      skipped += 1;
+      continue;
+    }
 
-      if (ACTIVE_JOB_STATUSES.has(keyframeResults[index]?.status) && keyframeResults[index]?.jobId) {
-        const jobId = keyframeResults[index].jobId;
-        activeRun.currentJobId = jobId;
-        showVideoProgress(`第 ${index + 1}/${storyboard.keyframes.length} 个关键帧已有任务 ${jobId.slice(0, 8)}，正在等待完成…`, 'busy');
-        const job = await waitForJob(jobId, { signal: activeRun.controller.signal });
-        if (job.status !== 'succeeded') throw new Error(job.error || job.progress?.message || `第 ${index + 1} 帧生成失败：${job.status}`);
-        const item = firstResultItem(job);
-        if (!item) throw new Error(`第 ${index + 1} 帧没有返回可用图片。`);
-        keyframeResults[index] = { status: 'succeeded', jobId, item, prompt: keyframeResults[index]?.prompt || job.payload?.prompt || job.promptPreview || '' };
-        renderResults();
-        onSavedImages?.([item]);
-        continue;
-      }
-
+    try {
       const frame = storyboard.keyframes[index];
       const payload = framePayload({ frame, index, imageInfo });
-      keyframeResults[index] = { ...keyframeResults[index], status: 'queued', prompt: payload.prompt, error: '' };
+      markKeyframeQueued(index, payload);
       renderResults();
       showVideoProgress(`正在提交第 ${index + 1}/${storyboard.keyframes.length} 个关键帧到生图队列…`, 'busy');
-      await runSingleGeneration({
+      const { job } = await queueSingleGeneration({
         payload,
-        signal: activeRun.controller.signal,
-        progressMessage: (jobId) => `第 ${index + 1}/${storyboard.keyframes.length} 个关键帧任务 ${jobId.slice(0, 8)} 已入队，等待完成…`,
-        onQueued: (jobId) => {
-          keyframeResults[index] = { ...keyframeResults[index], status: 'running', jobId };
+        progressMessage: (jobId) => `第 ${index + 1}/${storyboard.keyframes.length} 个关键帧任务 ${jobId.slice(0, 8)} 已入队；你可以继续提交其他关键帧或帧间图。`,
+        onQueued: (jobId, queuedJob) => {
+          markKeyframeQueued(index, payload, jobId, queuedJob);
           renderResults();
-        },
-        onSucceeded: (job, item) => {
-          keyframeResults[index] = { status: 'succeeded', jobId: job.id, item, prompt: payload.prompt };
-          renderResults();
-          onSavedImages?.([item]);
         }
       });
-      try {
-        await saveVideoProject(projectStatusFromKeyframes('generating'));
-      } catch (saveErr) {
-        addLog('error', 'video.project.save_failed', { error: saveErr.message || String(saveErr) });
+      queued += 1;
+      if (FINAL_STATUSES.has(job.status)) {
+        await applyVideoGenerationJobUpdate(job, { onSavedImages });
       }
-      showVideoProgress(`第 ${index + 1}/${storyboard.keyframes.length} 个关键帧完成。`, 'ok');
-    }
-
-    const completed = completedKeyframeCount();
-    const status = completed >= storyboard.keyframes.length ? 'completed' : 'generating';
-    try { await saveVideoProject(status); } catch {}
-    addLog('info', 'video.keyframes.completed', {
-      model: $('videoImageModel')?.value.trim() || imageInfo.config.defaultModel || DEFAULT_IMAGE_MODEL,
-      profileName: imageInfo.profile.name,
-      interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
-      durationMs: Date.now() - started,
-      keyframeCount: storyboard.keyframes.length,
-      completed,
-      projectId: currentProjectId
-    });
-    setStatus(Number.isInteger(onlyIndex) ? '关键帧生成完成' : '视频关键帧生成完成', 'ok', 2200);
-    showVideoProgress(completed >= storyboard.keyframes.length
-      ? '关键帧已全部完成；现在可以先为相邻区间生成粗帧，再继续细化小段。'
-      : `已完成 ${completed}/${storyboard.keyframes.length} 个关键帧，可继续生成剩余关键帧。`, 'ok');
-  } catch (err) {
-    const stopped = err.name === 'AbortError';
-    const message = stopped ? '视频关键帧生成已停止。' : (err.message || String(err));
-    const current = keyframeResults.findIndex((item) => item.status === 'running' || item.status === 'queued');
-    if (current >= 0 && keyframeResults[current]?.status !== 'succeeded') {
-      keyframeResults[current] = { ...keyframeResults[current], status: stopped ? 'cancelled' : 'failed', error: message };
+    } catch (err) {
+      failed += 1;
+      const message = err?.message || String(err);
+      errors.push(`K${index + 1}: ${message}`);
+      keyframeResults[index] = {
+        ...(keyframeResults[index] || { status: 'pending' }),
+        status: 'failed',
+        error: message
+      };
       renderResults();
     }
-    showVideoError(stopped ? '' : message);
-    addLog(stopped ? 'info' : 'error', stopped ? 'video.keyframes.stopped' : 'video.keyframes.failed', {
-      profileName: imageInfo.profile.name,
-      durationMs: Date.now() - started,
-      error: message,
-      projectId: currentProjectId
-    });
-    try { await saveVideoProject(stopped ? 'stopped' : 'failed'); } catch {}
-    setStatus(stopped ? '视频关键帧生成已停止' : '视频关键帧生成失败', stopped ? 'ok' : 'err', 2200);
-    showVideoProgress(stopped ? '已停止；再次点击生成会跳过已完成关键帧并继续。' : message, stopped ? 'muted' : 'err');
-  } finally {
-    activeRun = null;
-    setBusy(false);
-    renderResults();
   }
+
+  try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
+  addLog(failed ? 'error' : 'info', failed ? 'video.keyframes.queue_failed' : 'video.keyframes.queued', {
+    model: $('videoImageModel')?.value.trim() || imageInfo.config.defaultModel || DEFAULT_IMAGE_MODEL,
+    profileName: imageInfo.profile.name,
+    interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
+    durationMs: Date.now() - started,
+    keyframeCount: storyboard.keyframes.length,
+    queued,
+    skipped,
+    failed,
+    projectId: currentProjectId
+  });
+  if (failed) {
+    const message = errors[0] || '部分关键帧提交失败。';
+    showVideoError(message);
+    setStatus('部分关键帧入队失败', 'err', 2200);
+    showVideoProgress(`已入队 ${queued} 个关键帧，${failed} 个提交失败。${message}`, 'err');
+    return;
+  }
+  setStatus(queued ? '关键帧任务已入队' : '没有新的关键帧需要入队', queued ? 'ok' : 'muted', 1800);
+  showVideoProgress(queued
+    ? `已入队 ${queued} 个关键帧任务${skipped ? `，跳过 ${skipped} 个已完成/进行中的关键帧` : ''}；完成后会自动回填。`
+    : `没有新的关键帧需要生成，已跳过 ${skipped} 个已完成/进行中的关键帧。`, queued ? 'busy' : 'muted');
 }
 
 function normalizeBetweenSegment(segment = {}) {
@@ -1424,52 +1433,29 @@ async function generateBetweenSegments(segments = [], { onSavedImages, taskLabel
   }
   try { await saveVideoProject('generating'); } catch (err) { return showVideoError(`视频项目保存失败：${err.message || String(err)}`); }
 
-  activeRun = { controller: new AbortController(), currentJobId: '', stopped: false, type: 'between' };
-  setBusy(true);
   const started = Date.now();
-  let currentPointKey = '';
-  let generated = 0;
+  let queued = 0;
   let skipped = 0;
-  try {
-    for (const segment of normalizedSegments) {
-      const total = segment.targetTicks.length;
-      for (let i = 0; i < total; i += 1) {
-        const pointTick = segment.targetTicks[i];
-        const pointKey = betweenPointKey(pointTick);
-        currentPointKey = pointKey;
-        activeRun.currentPointKey = pointKey;
-        if (activeRun.controller.signal.aborted) throw abortError();
+  let failed = 0;
+  const errors = [];
 
-        const existing = betweenResults[pointKey] || {};
-        const existingId = imageIdFromItem(existing.item || {});
-        if (existing.status === 'succeeded' && existingId && !segment.force) {
-          skipped += 1;
-          continue;
-        }
+  for (const segment of normalizedSegments) {
+    const total = segment.targetTicks.length;
+    for (let i = 0; i < total; i += 1) {
+      const pointTick = segment.targetTicks[i];
+      const pointKey = betweenPointKey(pointTick);
+      const existing = betweenResults[pointKey] || {};
+      const existingId = imageIdFromItem(existing.item || {});
+      if (existing.status === 'succeeded' && existingId && !segment.force) {
+        skipped += 1;
+        continue;
+      }
+      if (isActiveEntry(existing)) {
+        skipped += 1;
+        continue;
+      }
 
-        if (ACTIVE_JOB_STATUSES.has(existing.status) && existing.jobId) {
-          const jobId = existing.jobId;
-          activeRun.currentJobId = jobId;
-          showVideoProgress(`${pointLabel(pointTick)} 已有任务 ${jobId.slice(0, 8)}，正在等待完成…`, 'busy');
-          const job = await waitForJob(jobId, { signal: activeRun.controller.signal });
-          if (job.status !== 'succeeded') throw new Error(job.error || job.progress?.message || `${pointLabel(pointTick)} 生成失败：${job.status}`);
-          const item = firstResultItem(job);
-          if (!item) throw new Error(`${pointLabel(pointTick)} 没有返回可用图片。`);
-          updateBetweenEntry(pointTick, {
-            fromTick: segment.fromTick,
-            toTick: segment.toTick,
-            status: 'succeeded',
-            jobId,
-            item,
-            prompt: existing.prompt || job.payload?.prompt || job.promptPreview || '',
-            error: ''
-          });
-          renderResults();
-          onSavedImages?.([item]);
-          generated += 1;
-          continue;
-        }
-
+      try {
         const payload = betweenPayload({
           fromTick: segment.fromTick,
           toTick: segment.toTick,
@@ -1487,71 +1473,62 @@ async function generateBetweenSegments(segments = [], { onSavedImages, taskLabel
         });
         renderResults();
         showVideoProgress(`正在提交 ${pointLabel(pointTick)}（${segment.label} 第 ${i + 1}/${total} 张）到生图队列…`, 'busy');
-        await runSingleGeneration({
+        const { job } = await queueSingleGeneration({
           payload,
-          signal: activeRun.controller.signal,
-          progressMessage: (jobId) => `${pointLabel(pointTick)} 任务 ${jobId.slice(0, 8)} 已入队，等待完成…`,
-          onQueued: (jobId) => {
+          progressMessage: (jobId) => `${pointLabel(pointTick)} 任务 ${jobId.slice(0, 8)} 已入队；不影响其他关键帧或帧间图继续入队。`,
+          onQueued: (jobId, queuedJob) => {
             updateBetweenEntry(pointTick, {
               fromTick: segment.fromTick,
               toTick: segment.toTick,
-              status: 'running',
-              jobId
-            });
-            renderResults();
-          },
-          onSucceeded: (job, item) => {
-            updateBetweenEntry(pointTick, {
-              fromTick: segment.fromTick,
-              toTick: segment.toTick,
-              status: 'succeeded',
-              jobId: job.id,
-              item,
+              status: ACTIVE_JOB_STATUSES.has(queuedJob.status) ? queuedJob.status : 'queued',
+              jobId,
               prompt: payload.prompt,
               error: ''
             });
             renderResults();
-            onSavedImages?.([item]);
           }
         });
-        generated += 1;
-        try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
-        showVideoProgress(`${pointLabel(pointTick)} 帧间图完成。`, 'ok');
+        queued += 1;
+        if (FINAL_STATUSES.has(job.status)) {
+          await applyVideoGenerationJobUpdate(job, { onSavedImages });
+        }
+      } catch (err) {
+        failed += 1;
+        const message = err?.message || String(err);
+        errors.push(`${pointLabel(pointTick)}: ${message}`);
+        updateBetweenEntry(pointTick, {
+          fromTick: segment.fromTick,
+          toTick: segment.toTick,
+          status: 'failed',
+          error: message
+        });
+        renderResults();
       }
     }
-    try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
-    addLog('info', 'video.between.completed', {
-      segmentCount: normalizedSegments.length,
-      generated,
-      skipped,
-      profileName: imageInfo.profile.name,
-      interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
-      durationMs: Date.now() - started,
-      projectId: currentProjectId
-    });
-    setStatus('帧间图生成完成', 'ok', 1800);
-    showVideoProgress(generated
-      ? `已生成 ${generated} 张帧间图${skipped ? `，跳过 ${skipped} 张已完成帧` : ''}。可以继续细化相邻小段。`
-      : `没有新帧需要生成，已跳过 ${skipped} 张已完成帧。`, 'ok');
-  } catch (err) {
-    const stopped = err.name === 'AbortError';
-    const message = stopped ? '帧间图生成已停止。' : (err.message || String(err));
-    if (currentPointKey) {
-      betweenResults[currentPointKey] = {
-        ...betweenResults[currentPointKey],
-        status: stopped ? 'cancelled' : 'failed',
-        error: message
-      };
-    }
-    renderResults();
-    showVideoError(stopped ? '' : message);
-    setStatus(stopped ? '帧间图生成已停止' : '帧间图生成失败', stopped ? 'ok' : 'err', 2200);
-    showVideoProgress(stopped ? '已停止帧间图生成。' : message, stopped ? 'muted' : 'err');
-  } finally {
-    activeRun = null;
-    setBusy(false);
-    renderResults();
   }
+
+  try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
+  addLog(failed ? 'error' : 'info', failed ? 'video.between.queue_failed' : 'video.between.queued', {
+    segmentCount: normalizedSegments.length,
+    queued,
+    skipped,
+    failed,
+    profileName: imageInfo.profile.name,
+    interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
+    durationMs: Date.now() - started,
+    projectId: currentProjectId
+  });
+  if (failed) {
+    const message = errors[0] || '部分帧间图提交失败。';
+    showVideoError(message);
+    setStatus('部分帧间图入队失败', 'err', 2200);
+    showVideoProgress(`已入队 ${queued} 张帧间图，${failed} 张提交失败。${message}`, 'err');
+    return;
+  }
+  setStatus(queued ? '帧间图任务已入队' : '没有新的帧间图需要入队', queued ? 'ok' : 'muted', 1800);
+  showVideoProgress(queued
+    ? `已入队 ${queued} 张帧间图${skipped ? `，跳过 ${skipped} 张已完成/进行中的帧` : ''}；完成后会自动回填，可继续提交不相关的关键帧或小段。`
+    : `没有新帧需要生成，已跳过 ${skipped} 张已完成/进行中的帧。`, queued ? 'busy' : 'muted');
 }
 
 function stopVideoRun() {
@@ -1561,10 +1538,7 @@ function stopVideoRun() {
     cancelCurrentStoryboardJob();
     return;
   }
-  if (!activeRun) return;
-  activeRun.stopped = true;
-  activeRun.controller.abort();
-  cancelCurrentJob();
+  showVideoProgress('普通生图任务已独立加入左侧队列；如需取消，请在队列中取消对应任务。', 'muted');
 }
 
 function videoFrameKindFromJob(job = {}) {
@@ -1596,6 +1570,81 @@ function videoBetweenMetaFromSource(source = {}) {
     positionTick,
     key: positionTick ? betweenPointKey(positionTick) : ''
   };
+}
+
+function videoProjectIdFromJob(job = {}) {
+  return text(job.payload?.videoProjectId ?? job.videoProjectId ?? job.projectId);
+}
+
+function isCurrentVideoGenerationJob(job = {}) {
+  const kind = videoFrameKindFromJob(job);
+  if (kind !== 'keyframe' && kind !== 'between') return false;
+  const projectId = videoProjectIdFromJob(job);
+  return Boolean(projectId && currentProjectId && projectId === currentProjectId);
+}
+
+function videoEntryFromJob(job = {}) {
+  const prompt = job.payload?.prompt || job.promptPreview || '';
+  const item = firstResultItem(job);
+  if (job.status === 'succeeded') {
+    return item
+      ? { status: 'succeeded', jobId: job.id, item, prompt, error: '' }
+      : { status: 'failed', jobId: job.id, prompt, error: '生图任务没有返回可用图片。' };
+  }
+  return generatedEntryFromJob(job) || {
+    status: job.status === 'timeout' ? 'failed' : (job.status || 'failed'),
+    jobId: job.id,
+    prompt,
+    error: job.error || job.progress?.message || ''
+  };
+}
+
+async function applyVideoGenerationJobUpdate(job = {}, { onSavedImages } = {}) {
+  if (!job?.id || !FINAL_STATUSES.has(job.status) || !isCurrentVideoGenerationJob(job)) return false;
+  if (handledVideoFinalJobIds.has(job.id)) return true;
+  handledVideoFinalJobIds.add(job.id);
+
+  const entry = videoEntryFromJob(job);
+  const item = entry.status === 'succeeded' ? firstResultItem(job) : null;
+  const kind = videoFrameKindFromJob(job);
+  if (kind === 'keyframe') {
+    const frameNo = videoFrameIndexFromJob(job);
+    const index = frameNo ? frameNo - 1 : -1;
+    if (!storyboard?.keyframes?.[index]) return false;
+    keyframeResults[index] = {
+      ...(keyframeResults[index] || { status: 'pending' }),
+      ...entry,
+      prompt: entry.prompt || keyframeResults[index]?.prompt || ''
+    };
+    renderResults();
+    if (item) onSavedImages?.([item]);
+    setStatus(entry.status === 'succeeded' ? `K${frameNo} 已完成` : `K${frameNo} 生成失败`, entry.status === 'succeeded' ? 'ok' : 'err', 1600);
+    showVideoProgress(entry.status === 'succeeded'
+      ? `关键帧 K${frameNo} 已回填。`
+      : `关键帧 K${frameNo} 生成失败：${entry.error || job.status}`, entry.status === 'succeeded' ? 'ok' : 'err');
+  } else {
+    const meta = videoBetweenMetaFromSource(job);
+    if (!meta.key || !meta.positionTick) return false;
+    updateBetweenEntry(meta.positionTick, {
+      ...entry,
+      prompt: entry.prompt || betweenResults[meta.key]?.prompt || '',
+      fromTick: meta.fromTick,
+      toTick: meta.toTick
+    });
+    renderResults();
+    if (item) onSavedImages?.([item]);
+    setStatus(entry.status === 'succeeded' ? `${pointLabel(meta.positionTick)} 已完成` : `${pointLabel(meta.positionTick)} 生成失败`, entry.status === 'succeeded' ? 'ok' : 'err', 1600);
+    showVideoProgress(entry.status === 'succeeded'
+      ? `帧间图 ${pointLabel(meta.positionTick)} 已回填。`
+      : `帧间图 ${pointLabel(meta.positionTick)} 生成失败：${entry.error || job.status}`, entry.status === 'succeeded' ? 'ok' : 'err');
+  }
+
+  try {
+    await saveVideoProject(projectStatusFromKeyframes('generating'));
+  } catch (err) {
+    addLog('error', 'video.project.save_failed', { error: err.message || String(err), projectId: currentProjectId });
+  }
+  return true;
 }
 
 function latestJob(matches = []) {
@@ -1691,7 +1740,7 @@ function loadVideoProject(detail = {}) {
     ...Object.values(betweenResults)
   ].filter((item) => ACTIVE_JOB_STATUSES.has(item.status) && item.jobId).length;
   showVideoProgress(activeJobs
-    ? `已导入视频项目，并恢复 ${activeJobs} 个进行中的任务；再次点击生成会等待这些任务，避免重复提交。`
+    ? `已导入视频项目，并恢复 ${activeJobs} 个进行中的任务；再次点击生成会跳过这些任务，其他不相关帧仍可继续入队。`
     : '已导入视频项目，可继续编辑关键帧、生成关键帧或生成帧间图。', 'ok');
 }
 
@@ -1804,6 +1853,9 @@ function bindEvents({ onSavedImages } = {}) {
     if (ev.key === 'Escape') closeVideoResultPreview();
   });
   window.addEventListener('video-project-import', (ev) => loadVideoProject(ev.detail || {}));
+  window.addEventListener('generation-job-finished', (ev) => {
+    applyVideoGenerationJobUpdate(ev.detail?.job, { onSavedImages });
+  });
 }
 
 export function mountVideoPanel({ onSavedImages } = {}) {
