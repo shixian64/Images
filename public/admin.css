@@ -219,7 +219,8 @@ dialog.app-dialog.app-dialog-fallback[open] {
   font-size: 12px;
   color: var(--text-muted);
 }
-.app-dialog-form input {
+.app-dialog-form input,
+.app-dialog-form textarea {
   height: var(--control-height);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-btn);
@@ -228,7 +229,15 @@ dialog.app-dialog.app-dialog-fallback[open] {
   color: var(--text);
   font: inherit;
 }
-.app-dialog-form input:focus {
+.app-dialog-form textarea {
+  height: auto;
+  min-height: 140px;
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.app-dialog-form input:focus,
+.app-dialog-form textarea:focus {
   outline: 2px solid var(--brand-soft);
   border-color: var(--brand);
 }

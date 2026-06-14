@@ -357,10 +357,25 @@ export function buildVideoKeyframePrompt({ storyboard = {}, keyframe = {}, index
   ]);
 }
 
-export function buildVideoBetweenPrompt({ storyboard = {}, fromFrame = {}, toFrame = {}, transition = {}, projectPrompt = '', config = {} } = {}) {
+export function buildVideoBetweenPrompt({
+  storyboard = {},
+  fromFrame = {},
+  toFrame = {},
+  transition = {},
+  projectPrompt = '',
+  config = {},
+  fromLabel = '',
+  toLabel = '',
+  targetLabel = '',
+  segmentLabel = ''
+} = {}) {
+  const fromText = text(fromLabel || transition.from || '');
+  const toText = text(toLabel || transition.to || '');
+  const segmentText = text(segmentLabel || [fromText, toText].filter(Boolean).join('-') || `${transition.from}-${transition.to}`);
   return compactLines([
     `视频项目：${nonEmpty(storyboard.title, '未命名视频')}`,
-    `生成第 ${transition.from}-${transition.to} 个关键帧之间的帧间图：单张过渡画面。`,
+    `生成 ${segmentText} 之间的帧间图：单张过渡画面。`,
+    targetLabel ? `目标时间点：${targetLabel}，画面必须位于 ${segmentText} 的动作中间状态。` : '',
     projectPrompt ? `用户原始视频提示词：${projectPrompt}` : '',
     ...globalConfigLines(config),
     storyboard.visualStyle ? `全局视觉风格：${storyboard.visualStyle}` : '',

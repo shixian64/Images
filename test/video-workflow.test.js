@@ -95,8 +95,13 @@ test('video prompts include global config and reference rules', () => {
     fromFrame: { beat: '起跳' },
     toFrame: { beat: '落地' },
     transition: { from: 1, to: 2, imagePrompt: '空中到落地之间' },
+    fromLabel: '1',
+    toLabel: '1.1',
+    targetLabel: '1.04',
     config
   });
+  assert.match(betweenPrompt, /1-1\.1/);
+  assert.match(betweenPrompt, /1\.04/);
   assert.match(betweenPrompt, /两端关键帧将作为参考图/);
   assert.match(betweenPrompt, /不要文字/);
 });

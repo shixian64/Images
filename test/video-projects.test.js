@@ -45,7 +45,9 @@ test('video project save normalizes storyboard keyframes and references', () => 
     config: {
       style: '电影感霓虹',
       motion: '镜头从左向右推进',
-      negative: '不要文字'
+      negative: '不要文字',
+      betweenCoarseCount: 4,
+      betweenRefineCount: 6
     },
     references: [
       { id: 'ref-a', label: '角色' },
@@ -64,6 +66,8 @@ test('video project save normalizes storyboard keyframes and references', () => 
   assert.equal(project.status, 'storyboard');
   assert.equal(project.keyframeCount, 2);
   assert.equal(project.config.style, '电影感霓虹');
+  assert.equal(project.config.betweenCoarseCount, 4);
+  assert.equal(project.config.betweenRefineCount, 6);
   assert.equal(project.storyboard.keyframes.length, 2);
   assert.deepEqual(project.storyboard.keyframes[0].referenceIndexes, [1]);
   assert.deepEqual(project.storyboard.keyframes[1].referenceIndexes, [2]);

@@ -1,6 +1,7 @@
 // 视频工作流面板：提示词 + 项目参考图 -> 关键帧规划 -> 关键帧图 -> 相邻帧间图。
 
 import { $, escapeHtml, setStatus } from './dom.js';
+import { form as dialogForm } from './dialog.js';
 import { DEFAULT_CHAT_MODEL, DEFAULT_IMAGE_MODEL, OUTPUT_FORMATS, QUALITIES, SIZES } from '../../shared/constants.js';
 import { getChatConfig, getEffectiveProfile, getImageConfig, onProfilesChanged, usesSystemDefault } from './profiles.js';
 import { apiFetch } from './auth.js';
@@ -16,6 +17,7 @@ import { addPromptHistory } from './prompts.js';
 import { readStringScoped, writeStringScoped } from './state.js';
 import { confirmVolatileCustomKeyUse } from './volatile-secrets.js';
 import { selectOptionsHtml } from './select-options-view.js';
+import { createImagePreviewController } from './image-preview.js';
 import {
   VIDEO_KEYFRAME_LIMITS,
   buildVideoBetweenPrompt,
@@ -35,6 +37,13 @@ import {
 
 const VIDEO_PROMPT_DRAFT_KEY = 'image-studio.videoPromptDraft.v1';
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
+const VIDEO_TIMELINE_SCALE = 1_000_000;
+const VIDEO_BETWEEN_COUNT_LIMITS = Object.freeze({
+  min: 1,
+  max: 8,
+  defaultCoarse: 4,
+  defaultRefine: 4
+});
 
 let mounted = false;
 let storyboard = null;
@@ -45,9 +54,178 @@ let keyframeResults = [];
 let betweenResults = Object.create(null);
 let activeRun = null;
 let activeStoryboardRequest = null;
+let videoPromptEditorOpen = false;
+const videoPreviewController = createImagePreviewController({
+  ariaLabel: '视频图片预览',
+  closeLabel: '关闭视频图片预览',
+  closeAttribute: 'data-video-preview-close'
+});
+
+const STATIC_VIDEO_PROMPT_FIELDS = {
+  videoPrompt: {
+    title: '修改视频提示词',
+    label: '视频提示词',
+    rows: 14,
+    placeholder: '描述你想生成的视频内容、主体、场景和情绪。'
+  },
+  videoGlobalStyle: {
+    title: '修改统一画风 / 角色 / 场景约束',
+    label: '统一画风 / 角色 / 场景约束',
+    rows: 9,
+    placeholder: '例如：电影感，浅景深，霓虹反光；主角服装和角色特征保持一致。'
+  },
+  videoGlobalMotion: {
+    title: '修改统一运动与镜头规则',
+    label: '统一运动与镜头规则',
+    rows: 8,
+    placeholder: '例如：镜头运动、动作连续方向、帧间图过渡规则。'
+  },
+  videoGlobalNegative: {
+    title: '修改负面约束',
+    label: '负面约束',
+    rows: 7,
+    placeholder: '例如：不要文字、Logo、水印、UI 边框；不要突然更换服装或画风。'
+  }
+};
+
+const VIDEO_PROMPT_EDITABLE_SELECTOR = [
+  '#videoPrompt',
+  '#videoGlobalStyle',
+  '#videoGlobalMotion',
+  '#videoGlobalNegative',
+  '[data-video-keyframe-prompt]',
+  '[data-video-transition-prompt]',
+  '[data-video-keyframe-prompt-preview]'
+].join(',');
 
 function text(value = '') {
   return String(value ?? '').trim();
+}
+
+function setPromptTextareaValue(el, value) {
+  if (!el) return;
+  el.value = value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function updateKeyframePrompt(index, value) {
+  if (!storyboard?.keyframes?.[index]) return;
+  const next = text(value);
+  storyboard.keyframes[index].imagePrompt = next;
+  document.querySelectorAll(`[data-video-keyframe-prompt="${index}"]`).forEach((el) => {
+    setPromptTextareaValue(el, next);
+  });
+  keyframeResults[index] = { ...(keyframeResults[index] || { status: 'pending' }), prompt: next };
+  renderResults();
+  setStatus(`K${index + 1} 关键帧提示词已更新`, 'ok', 1600);
+}
+
+function updateTransitionPrompt(fromIndex, value) {
+  ensureStoryboardTransitions();
+  const transition = storyboard?.transitions?.[fromIndex - 1];
+  if (!transition) return;
+  const next = text(value);
+  transition.imagePrompt = next;
+  document.querySelectorAll(`[data-video-transition-prompt="${fromIndex}"]`).forEach((el) => {
+    setPromptTextareaValue(el, next);
+  });
+  const key = `${fromIndex}-${fromIndex + 1}`;
+  if (betweenResults[key]) betweenResults[key] = { ...betweenResults[key], prompt: next };
+  renderResults();
+  setStatus(`${key} 帧间图提示词已更新`, 'ok', 1600);
+}
+
+function videoPromptBindingFromTarget(target) {
+  if (!target) return null;
+  const staticField = target.id ? STATIC_VIDEO_PROMPT_FIELDS[target.id] : null;
+  if (staticField) {
+    return {
+      ...staticField,
+      getValue: () => target.value || '',
+      setValue: (value) => {
+        const next = text(value);
+        setPromptTextareaValue(target, next);
+        if (target.id === 'videoPrompt') writeStringScoped(VIDEO_PROMPT_DRAFT_KEY, next);
+        setStatus(`${staticField.label}已更新`, 'ok', 1600);
+      }
+    };
+  }
+
+  const keyframeRaw = target.dataset?.videoKeyframePrompt ?? target.dataset?.videoKeyframePromptPreview;
+  if (keyframeRaw !== undefined) {
+    const index = Number(keyframeRaw);
+    if (!Number.isInteger(index) || !storyboard?.keyframes?.[index]) return null;
+    const frame = storyboard.keyframes[index];
+    return {
+      title: `修改 K${index + 1} 关键帧提示词`,
+      label: `K${index + 1} 生图提示词`,
+      rows: 14,
+      placeholder: '描述这一关键帧的主体、动作、构图、光线和画面细节。',
+      getValue: () => frame.imagePrompt || target.value || keyframeResults[index]?.prompt || '',
+      setValue: (value) => updateKeyframePrompt(index, value)
+    };
+  }
+
+  const transitionRaw = target.dataset?.videoTransitionPrompt;
+  if (transitionRaw !== undefined) {
+    const fromIndex = Number(transitionRaw);
+    if (!Number.isInteger(fromIndex) || fromIndex < 1) return null;
+    const transition = transitionFor(fromIndex);
+    return {
+      title: `修改 ${fromIndex}-${fromIndex + 1} 帧间图提示词`,
+      label: `${fromIndex}-${fromIndex + 1} 帧间图提示词`,
+      rows: 12,
+      placeholder: '描述两张关键帧之间的自然过渡、动作承接、镜头运动和画面细节。',
+      getValue: () => transition.imagePrompt || target.value || '',
+      setValue: (value) => updateTransitionPrompt(fromIndex, value)
+    };
+  }
+
+  return null;
+}
+
+async function openVideoPromptEditor(target) {
+  if (videoPromptEditorOpen) return;
+  try {
+    if (storyboard?.keyframes?.length) syncStoryboardFromEditors();
+  } catch {
+    // Keep the editor available even if another transient field cannot be synced.
+  }
+  const binding = videoPromptBindingFromTarget(target);
+  if (!binding) return;
+  videoPromptEditorOpen = true;
+  try {
+    const original = binding.getValue();
+    const result = await dialogForm({
+      title: binding.title || '修改提示词',
+      dialogClass: 'video-prompt-dialog',
+      fields: [{
+        name: 'prompt',
+        label: binding.label || '提示词',
+        type: 'textarea',
+        value: original,
+        rows: binding.rows || 12,
+        placeholder: binding.placeholder || '输入提示词…',
+        spellcheck: false
+      }],
+      confirmText: '保存提示词',
+      cancelText: '取消'
+    });
+    if (!result.ok) return;
+    const next = text(result.values.prompt);
+    if (next === text(original)) return;
+    binding.setValue(next);
+  } finally {
+    videoPromptEditorOpen = false;
+  }
+}
+
+function videoPromptEditorTargetFromEvent(ev) {
+  const target = ev.target?.closest?.(VIDEO_PROMPT_EDITABLE_SELECTOR);
+  const panel = $('videoPanel');
+  if (!target || !panel?.contains(target)) return null;
+  return target;
 }
 
 function renderSelect(id, items, selectedValue = '') {
@@ -72,6 +250,8 @@ function renderOptions() {
     limit.max = String(VIDEO_KEYFRAME_LIMITS.max);
     limit.placeholder = `留空：最多 ${VIDEO_KEYFRAME_LIMITS.max} 帧`;
   }
+  syncVideoBetweenCount('videoBetweenCoarseCount', VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse);
+  syncVideoBetweenCount('videoBetweenRefineCount', VIDEO_BETWEEN_COUNT_LIMITS.defaultRefine);
 }
 
 function syncVideoKeyframeLimit(value = undefined, { write = true } = {}) {
@@ -86,6 +266,104 @@ function syncVideoKeyframeLimit(value = undefined, { write = true } = {}) {
   return count;
 }
 
+function clampVideoBetweenCount(value, fallback = VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse) {
+  const n = Number(value);
+  const base = Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  return Math.min(VIDEO_BETWEEN_COUNT_LIMITS.max, Math.max(VIDEO_BETWEEN_COUNT_LIMITS.min, base));
+}
+
+function syncVideoBetweenCount(id, fallback = VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse) {
+  const input = $(id);
+  const count = clampVideoBetweenCount(input?.value, fallback);
+  if (input) {
+    input.min = String(VIDEO_BETWEEN_COUNT_LIMITS.min);
+    input.max = String(VIDEO_BETWEEN_COUNT_LIMITS.max);
+    input.value = String(count);
+  }
+  return count;
+}
+
+function videoBetweenCoarseCount() {
+  return syncVideoBetweenCount('videoBetweenCoarseCount', VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse);
+}
+
+function videoBetweenRefineCount() {
+  return syncVideoBetweenCount('videoBetweenRefineCount', VIDEO_BETWEEN_COUNT_LIMITS.defaultRefine);
+}
+
+function keyframeTick(index) {
+  return Math.max(1, Math.floor(Number(index) || 1)) * VIDEO_TIMELINE_SCALE;
+}
+
+function normalizeTimelineTick(value) {
+  const n = Math.floor(Number(value) || 0);
+  if (!Number.isInteger(n) || n <= 0) return 0;
+  return n < VIDEO_TIMELINE_SCALE ? n * VIDEO_TIMELINE_SCALE : n;
+}
+
+function betweenPointKey(pointTick) {
+  return String(normalizeTimelineTick(pointTick));
+}
+
+function segmentKey(fromTick, toTick) {
+  return `${normalizeTimelineTick(fromTick)}-${normalizeTimelineTick(toTick)}`;
+}
+
+function ticksBetween(fromTick, toTick, count) {
+  const start = normalizeTimelineTick(fromTick);
+  const end = normalizeTimelineTick(toTick);
+  const safeCount = clampVideoBetweenCount(count, VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse);
+  if (!start || !end || end <= start) return [];
+  const gap = end - start;
+  if (gap <= safeCount) return [];
+  return Array.from({ length: safeCount }, (_, index) => (
+    Math.round(start + (gap * (index + 1)) / (safeCount + 1))
+  )).filter((tick, index, list) => tick > start && tick < end && list.indexOf(tick) === index);
+}
+
+function pointLabel(pointTick) {
+  const tick = normalizeTimelineTick(pointTick);
+  if (!tick) return '';
+  const whole = Math.floor(tick / VIDEO_TIMELINE_SCALE);
+  const rest = tick - whole * VIDEO_TIMELINE_SCALE;
+  if (!rest) return String(whole);
+
+  // 第一层粗帧默认展示成用户熟悉的 1.1 / 1.2 / 1.3 / 1.4。
+  const coarseDenominator = VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse + 1;
+  const coarseSlot = Math.round((rest / VIDEO_TIMELINE_SCALE) * coarseDenominator);
+  const coarseTick = Math.round((coarseSlot * VIDEO_TIMELINE_SCALE) / coarseDenominator);
+  if (coarseSlot > 0 && coarseSlot < coarseDenominator && Math.abs(rest - coarseTick) <= 2) {
+    return `${whole}.${coarseSlot}`;
+  }
+
+  const decimal = (tick / VIDEO_TIMELINE_SCALE).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
+  return decimal || String(whole);
+}
+
+function baseIntervalIndexForTick(tick) {
+  const value = normalizeTimelineTick(tick);
+  const max = storyboard?.keyframes?.length || 0;
+  if (!value || max < 2) return 1;
+  const raw = Math.floor((value - 1) / VIDEO_TIMELINE_SCALE);
+  return Math.min(Math.max(1, raw), max - 1);
+}
+
+function updateBetweenEntry(pointTick, patch = {}) {
+  const positionTick = normalizeTimelineTick(pointTick);
+  if (!positionTick) return null;
+  const key = betweenPointKey(positionTick);
+  const existing = betweenResults[key] || {};
+  betweenResults[key] = {
+    ...existing,
+    positionTick,
+    fromTick: normalizeTimelineTick(patch.fromTick ?? existing.fromTick) || existing.fromTick || 0,
+    toTick: normalizeTimelineTick(patch.toTick ?? existing.toTick) || existing.toTick || 0,
+    ...patch,
+    positionTick
+  };
+  return betweenResults[key];
+}
+
 function normalizeProjectPrompt(value = '') {
   return text(value);
 }
@@ -94,7 +372,9 @@ function readVideoConfig() {
   return {
     style: text($('videoGlobalStyle')?.value),
     motion: text($('videoGlobalMotion')?.value),
-    negative: text($('videoGlobalNegative')?.value)
+    negative: text($('videoGlobalNegative')?.value),
+    betweenCoarseCount: videoBetweenCoarseCount(),
+    betweenRefineCount: videoBetweenRefineCount()
   };
 }
 
@@ -102,6 +382,18 @@ function writeVideoConfig(config = {}) {
   if ($('videoGlobalStyle')) $('videoGlobalStyle').value = config.style || '';
   if ($('videoGlobalMotion')) $('videoGlobalMotion').value = config.motion || '';
   if ($('videoGlobalNegative')) $('videoGlobalNegative').value = config.negative || '';
+  if ($('videoBetweenCoarseCount')) {
+    $('videoBetweenCoarseCount').value = String(clampVideoBetweenCount(
+      config.betweenCoarseCount,
+      VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse
+    ));
+  }
+  if ($('videoBetweenRefineCount')) {
+    $('videoBetweenRefineCount').value = String(clampVideoBetweenCount(
+      config.betweenRefineCount,
+      VIDEO_BETWEEN_COUNT_LIMITS.defaultRefine
+    ));
+  }
 }
 
 function updateProfileDefaults() {
@@ -291,7 +583,7 @@ function renderStoryboard() {
         </dl>
         <label class="field">
           <span>第 ${index + 1} 帧生图提示词</span>
-          <textarea data-video-keyframe-prompt="${index}" rows="7">${escapeHtml(frame.imagePrompt || frame.beat || '')}</textarea>
+          <textarea class="video-prompt-popout-target" data-video-keyframe-prompt="${index}" rows="7" spellcheck="false" title="点击弹窗编辑提示词">${escapeHtml(frame.imagePrompt || frame.beat || '')}</textarea>
         </label>
         <div class="video-frame-ref-picker">
           <strong>附带项目参考图</strong>
@@ -319,11 +611,49 @@ function resultImageHtml(entry = {}, alt = '生成图') {
   if (!src) return '<div class="comic-result-placeholder">等待生成</div>';
   const download = entry.item?.downloadUrl || entry.item?.url || src;
   return `<div class="gallery-image-wrap">
-    <button class="image-preview-trigger" type="button" disabled aria-label="${escapeHtml(alt)}">
+    <button class="image-preview-trigger" type="button" data-video-result-preview aria-label="${escapeHtml(alt)}">
       <img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" />
     </button>
     <div class="card-actions"><a href="${escapeHtml(download)}" download>下载</a></div>
   </div>`;
+}
+
+function previewEntryFromResultCard(card) {
+  if (!card) return null;
+  if (card.hasAttribute('data-video-keyframe-result')) {
+    const index = Number(card.dataset.videoKeyframeResult);
+    if (!Number.isInteger(index)) return null;
+    return {
+      entry: keyframeResults[index],
+      alt: `关键帧 ${index + 1}`
+    };
+  }
+  if (card.hasAttribute('data-video-between-result')) {
+    const key = card.dataset.videoBetweenResult || '';
+    if (!key) return null;
+    return {
+      entry: betweenResults[key],
+      alt: `帧间图 ${pointLabel(key)}`
+    };
+  }
+  return null;
+}
+
+function openVideoResultPreview(trigger) {
+  const card = trigger?.closest?.('[data-video-keyframe-result], [data-video-between-result]');
+  const preview = previewEntryFromResultCard(card);
+  const entry = preview?.entry || {};
+  const src = imageUrl(entry.item || entry);
+  if (!src) return false;
+  return videoPreviewController.open({
+    src,
+    alt: trigger?.getAttribute?.('aria-label') || preview?.alt || entry.prompt || '生成图片',
+    trigger
+  });
+}
+
+function closeVideoResultPreview() {
+  return videoPreviewController.close();
 }
 
 function renderKeyframeResultCard(index) {
@@ -335,7 +665,7 @@ function renderKeyframeResultCard(index) {
     ${resultImageHtml(entry, `第 ${index + 1} 个关键帧`)}
     <div class="image-meta"><span>K${index + 1}</span><span>${escapeHtml(statusLabel(status))}</span></div>
     <div class="image-meta compact-meta"><span>${escapeHtml(frame.beat || `关键帧 ${index + 1}`)}</span><span>${escapeHtml(entry.jobId ? entry.jobId.slice(0, 8) : '')}</span></div>
-    ${entry.error ? `<p class="prompt-preview is-empty">${escapeHtml(entry.error)}</p>` : `<p class="prompt-preview" title="${escapeHtml(prompt)}">${escapeHtml(prompt || '暂无提示词')}</p>`}
+    ${entry.error ? `<p class="prompt-preview is-empty">${escapeHtml(entry.error)}</p>` : `<p class="prompt-preview video-prompt-preview-button" data-video-keyframe-prompt-preview="${index}" role="button" tabindex="0" title="${escapeHtml(prompt ? `点击修改提示词：${prompt}` : '点击修改提示词')}">${escapeHtml(prompt || '暂无提示词')}</p>`}
     <div class="comic-result-actions">
       <button type="button" class="ghost small" data-video-generate-keyframe="${index}" ${activeRun ? 'disabled' : ''}>${imageIdFromItem(entry.item || {}) ? '重新生成' : '生成这一帧'}</button>
     </div>
@@ -347,26 +677,145 @@ function transitionFor(fromIndex) {
   return storyboard?.transitions?.[fromIndex - 1] || { from: fromIndex, to: fromIndex + 1, imagePrompt: '' };
 }
 
+function imageEntryForTick(tick) {
+  const normalized = normalizeTimelineTick(tick);
+  if (!normalized) return null;
+  if (normalized % VIDEO_TIMELINE_SCALE === 0) {
+    const index = normalized / VIDEO_TIMELINE_SCALE;
+    return keyframeResults[index - 1] || null;
+  }
+  return betweenResults[betweenPointKey(normalized)] || null;
+}
+
+function imageIdForTick(tick) {
+  return imageIdFromItem(imageEntryForTick(tick)?.item || {});
+}
+
+function frameForTick(tick) {
+  const normalized = normalizeTimelineTick(tick);
+  if (normalized % VIDEO_TIMELINE_SCALE === 0) {
+    const index = normalized / VIDEO_TIMELINE_SCALE;
+    return storyboard?.keyframes?.[index - 1] || {
+      beat: `关键帧 ${index}`,
+      imagePrompt: `关键帧 ${index}`
+    };
+  }
+  const entry = betweenResults[betweenPointKey(normalized)] || {};
+  const label = pointLabel(normalized);
+  return {
+    beat: `帧间图 ${label}`,
+    imagePrompt: entry.prompt || `位于 ${label} 的过渡画面`,
+    notes: entry.error || ''
+  };
+}
+
+function intervalBetweenEntries(fromIndex) {
+  const start = keyframeTick(fromIndex);
+  const end = keyframeTick(fromIndex + 1);
+  return Object.values(betweenResults)
+    .map((entry) => ({
+      ...entry,
+      positionTick: normalizeTimelineTick(entry.positionTick ?? entry.videoFrameIndex)
+    }))
+    .filter((entry) => entry.positionTick > start && entry.positionTick < end)
+    .sort((a, b) => a.positionTick - b.positionTick);
+}
+
+function timelinePointsForInterval(fromIndex) {
+  const start = keyframeTick(fromIndex);
+  const end = keyframeTick(fromIndex + 1);
+  return [
+    { tick: start, label: pointLabel(start), type: 'keyframe', entry: keyframeResults[fromIndex - 1] || { status: 'pending' } },
+    ...intervalBetweenEntries(fromIndex).map((entry) => ({
+      tick: entry.positionTick,
+      label: pointLabel(entry.positionTick),
+      type: 'between',
+      entry
+    })),
+    { tick: end, label: pointLabel(end), type: 'keyframe', entry: keyframeResults[fromIndex] || { status: 'pending' } }
+  ];
+}
+
+function timelineThumbHtml(point = {}) {
+  const entry = point.entry || { status: 'pending' };
+  const status = entry.status || 'pending';
+  const src = imageUrl(entry.item || entry);
+  const isBetween = point.type === 'between';
+  const key = betweenPointKey(point.tick);
+  const action = isBetween
+    ? `<button type="button" class="ghost small" data-video-regenerate-between-point="${escapeHtml(key)}" ${activeRun ? 'disabled' : ''}>${imageIdFromItem(entry.item || {}) ? '重生' : '重试'}</button>`
+    : '';
+  return `<div class="video-timeline-point ${escapeHtml(point.type || '')}" data-status="${escapeHtml(status)}" ${isBetween ? `data-video-between-result="${escapeHtml(key)}"` : ''}>
+    <div class="video-timeline-thumb">
+      ${src
+        ? `<button class="image-preview-trigger" type="button" data-video-result-preview aria-label="${escapeHtml(point.label || '帧间图')}"><img src="${escapeHtml(src)}" alt="${escapeHtml(point.label || '')}" loading="lazy" /></button>`
+        : `<span>${escapeHtml(point.type === 'keyframe' ? 'K' : 'B')}</span>`}
+    </div>
+    <div class="video-timeline-label"><strong>${escapeHtml(point.label || '')}</strong><span>${escapeHtml(statusLabel(status))}</span></div>
+    ${entry.error ? `<p class="video-timeline-error">${escapeHtml(entry.error)}</p>` : ''}
+    ${action}
+  </div>`;
+}
+
+function refineButtonHtml(fromTick, toTick, { label = '', disabled = false } = {}) {
+  const fromLabel = pointLabel(fromTick);
+  const toLabel = pointLabel(toTick);
+  const title = label || `${fromLabel}-${toLabel}`;
+  return `<button type="button" class="ghost small" data-video-refine-segment="${escapeHtml(segmentKey(fromTick, toTick))}" ${disabled || activeRun ? 'disabled' : ''}>细化 ${escapeHtml(title)}</button>`;
+}
+
+function renderRefineControls(points = []) {
+  if (points.length <= 2) {
+    return '<p class="hint video-between-hint">先生成粗帧，再按 1-1.1、1.1-1.2 这类小段继续细化。</p>';
+  }
+  const segments = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const left = points[i];
+    const right = points[i + 1];
+    const ready = Boolean(imageIdForTick(left.tick) && imageIdForTick(right.tick));
+    segments.push(refineButtonHtml(left.tick, right.tick, {
+      label: `${left.label}-${right.label}`,
+      disabled: !ready
+    }));
+  }
+  return `<div class="video-between-refine-grid">${segments.join('')}</div>`;
+}
+
 function renderBetweenSlot(fromIndex) {
   const toIndex = fromIndex + 1;
   const key = `${fromIndex}-${toIndex}`;
-  const entry = betweenResults[key] || { status: 'pending' };
-  const leftId = imageIdFromItem(keyframeResults[fromIndex - 1]?.item || {});
-  const rightId = imageIdFromItem(keyframeResults[toIndex - 1]?.item || {});
+  const leftId = imageIdForTick(keyframeTick(fromIndex));
+  const rightId = imageIdForTick(keyframeTick(toIndex));
   const ready = Boolean(leftId && rightId);
   const transition = transitionFor(fromIndex);
-  const status = entry.status || 'pending';
-  return `<article class="image-card gallery-card comic-result-card video-between-result" data-status="${escapeHtml(status)}" data-video-between-result="${escapeHtml(key)}">
-    ${resultImageHtml(entry, `第 ${fromIndex}-${toIndex} 帧间图`)}
-    <div class="image-meta"><span>${escapeHtml(key)}</span><span>${escapeHtml(statusLabel(status))}</span></div>
-    <label class="field video-transition-prompt-field">
-      <span>帧间图提示词</span>
-      <textarea data-video-transition-prompt="${fromIndex}" rows="5" ${ready ? '' : 'disabled'}>${escapeHtml(transition.imagePrompt || '')}</textarea>
-    </label>
-    <div class="comic-result-actions">
-      <button type="button" class="primary small" data-video-generate-between="${fromIndex}" ${ready && !activeRun ? '' : 'disabled'}>${imageIdFromItem(entry.item || {}) ? '重新生成帧间图' : `生成 ${key} 帧间图`}</button>
+  const entries = intervalBetweenEntries(fromIndex);
+  const points = timelinePointsForInterval(fromIndex);
+  const completed = entries.filter((entry) => imageIdFromItem(entry.item || {})).length;
+  const active = entries.filter((entry) => ACTIVE_JOB_STATUSES.has(entry.status)).length;
+  const failed = entries.filter((entry) => entry.status === 'failed' || entry.status === 'cancelled' || entry.status === 'timeout').length;
+  const status = active ? 'running' : (failed ? 'failed' : (completed ? 'succeeded' : 'pending'));
+  const coarseCount = videoBetweenCoarseCount();
+  const refineCount = videoBetweenRefineCount();
+  return `<article class="image-card gallery-card comic-result-card video-between-result video-between-segment" data-status="${escapeHtml(status)}" data-video-between-segment="${fromIndex}">
+    <div class="video-between-header">
+      <div>
+        <div class="image-meta"><span>${escapeHtml(key)} 帧间图</span><span>${escapeHtml(statusLabel(status))}</span></div>
+        <p class="hint">先补 ${coarseCount} 张粗帧；满意后，可在相邻小段内每次再补 ${refineCount} 张细化帧。</p>
+      </div>
+      <button type="button" class="primary small" data-video-generate-between-coarse="${fromIndex}" ${ready && !activeRun ? '' : 'disabled'}>生成/补齐 ${coarseCount} 张粗帧</button>
     </div>
-    ${ready ? '' : '<p class="hint video-between-hint">两端关键帧都完成后才能生成这个帧间图。</p>'}
+    <div class="video-between-timeline">
+      ${points.map(timelineThumbHtml).join('')}
+    </div>
+    <label class="field video-transition-prompt-field">
+      <span>${escapeHtml(key)} 帧间图基础提示词</span>
+      <textarea class="video-prompt-popout-target" data-video-transition-prompt="${fromIndex}" rows="5" spellcheck="false" title="点击弹窗编辑提示词">${escapeHtml(transition.imagePrompt || '')}</textarea>
+    </label>
+    <div class="comic-result-actions video-between-actions">
+      ${renderRefineControls(points)}
+      <button type="button" class="ghost small" data-video-refine-all-between="${fromIndex}" ${ready && points.length > 2 && !activeRun ? '' : 'disabled'}>细化全部小段</button>
+    </div>
+    ${ready ? '' : '<p class="hint video-between-hint">两端关键帧都完成后才能生成这个区间的帧间图。</p>'}
   </article>`;
 }
 
@@ -576,21 +1025,41 @@ function framePayload({ frame, index, imageInfo }) {
   return payload;
 }
 
-function betweenPayload({ fromIndex, imageInfo }) {
-  const toIndex = fromIndex + 1;
-  const transition = transitionFor(fromIndex);
-  const fromFrame = storyboard.keyframes[fromIndex - 1] || {};
-  const toFrame = storyboard.keyframes[toIndex - 1] || {};
-  const fromId = imageIdFromItem(keyframeResults[fromIndex - 1]?.item || {});
-  const toId = imageIdFromItem(keyframeResults[toIndex - 1]?.item || {});
-  if (!fromId || !toId) throw new Error(`请先完成第 ${fromIndex} 和第 ${toIndex} 个关键帧。`);
+function betweenPayload({ fromTick, toTick, pointTick, slot = 1, total = 1, imageInfo }) {
+  const startTick = normalizeTimelineTick(fromTick);
+  const endTick = normalizeTimelineTick(toTick);
+  const targetTick = normalizeTimelineTick(pointTick);
+  const fromLabel = pointLabel(startTick);
+  const toLabel = pointLabel(endTick);
+  const targetLabel = pointLabel(targetTick);
+  const baseIndex = baseIntervalIndexForTick(startTick);
+  const transition = transitionFor(baseIndex);
+  const fromFrame = frameForTick(startTick);
+  const toFrame = frameForTick(endTick);
+  const fromId = imageIdForTick(startTick);
+  const toId = imageIdForTick(endTick);
+  if (!fromId || !toId) throw new Error(`请先完成 ${fromLabel} 和 ${toLabel} 两端画面。`);
+  const referenceIds = [fromId, toId];
+  const baseStartId = imageIdForTick(keyframeTick(baseIndex));
+  const baseEndId = imageIdForTick(keyframeTick(baseIndex + 1));
+  for (const id of [baseStartId, baseEndId]) {
+    if (id && !referenceIds.includes(id)) referenceIds.push(id);
+  }
+  const targetLine = `目标时间点：${targetLabel}，这是 ${fromLabel}-${toLabel} 之间第 ${slot}/${total} 张帧间图；动作和构图必须严格落在两端之间，不要提前到达终点，也不要退回起点。`;
   const prompt = buildVideoBetweenPrompt({
     storyboard,
     fromFrame,
     toFrame,
-    transition,
+    transition: {
+      ...transition,
+      imagePrompt: [transition.imagePrompt, targetLine].filter(Boolean).join('\n')
+    },
     projectPrompt: normalizeProjectPrompt($('videoPrompt')?.value || ''),
-    config: readVideoConfig()
+    config: readVideoConfig(),
+    fromLabel,
+    toLabel,
+    targetLabel,
+    segmentLabel: `${fromLabel}-${toLabel}`
   });
   const payload = {
     name: imageInfo.profile.name,
@@ -601,14 +1070,12 @@ function betweenPayload({ fromIndex, imageInfo }) {
     quality: $('videoQuality')?.value || 'auto',
     output_format: $('videoOutputFormat')?.value || 'auto',
     n: 1,
-    references: [
-      { type: 'gallery', id: fromId },
-      { type: 'gallery', id: toId }
-    ],
+    references: referenceIds.map((id) => ({ type: 'gallery', id })),
     videoProjectId: currentProjectId || undefined,
     videoFrameKind: 'between',
-    videoFromIndex: fromIndex,
-    videoToIndex: toIndex
+    videoFrameIndex: targetTick,
+    videoFromIndex: startTick,
+    videoToIndex: endTick
   };
   if (!imageInfo.systemMode) {
     payload.baseUrl = imageInfo.config.baseUrl;
@@ -873,7 +1340,7 @@ async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
     });
     setStatus(Number.isInteger(onlyIndex) ? '关键帧生成完成' : '视频关键帧生成完成', 'ok', 2200);
     showVideoProgress(completed >= storyboard.keyframes.length
-      ? '关键帧已全部完成；现在可以选择相邻区间生成帧间图，例如 1-2、2-3。'
+      ? '关键帧已全部完成；现在可以先为相邻区间生成粗帧，再继续细化小段。'
       : `已完成 ${completed}/${storyboard.keyframes.length} 个关键帧，可继续生成剩余关键帧。`, 'ok');
   } catch (err) {
     const stopped = err.name === 'AbortError';
@@ -900,56 +1367,182 @@ async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
   }
 }
 
-async function generateBetween(fromIndex, { onSavedImages } = {}) {
+function normalizeBetweenSegment(segment = {}) {
+  const fromTick = normalizeTimelineTick(segment.fromTick);
+  const toTick = normalizeTimelineTick(segment.toTick);
+  if (!fromTick || !toTick || toTick <= fromTick) return null;
+  const targetTicks = Array.isArray(segment.targetTicks)
+    ? segment.targetTicks.map(normalizeTimelineTick).filter((tick) => tick > fromTick && tick < toTick)
+    : ticksBetween(fromTick, toTick, segment.count ?? videoBetweenRefineCount());
+  const uniqueTargets = [...new Set(targetTicks)].sort((a, b) => a - b);
+  if (!uniqueTargets.length) return null;
+  return {
+    ...segment,
+    fromTick,
+    toTick,
+    targetTicks: uniqueTargets,
+    label: segment.label || `${pointLabel(fromTick)}-${pointLabel(toTick)}`
+  };
+}
+
+function segmentFromKey(raw = '') {
+  const [from, to] = String(raw || '').split('-').map(normalizeTimelineTick);
+  return from && to && to > from ? { fromTick: from, toTick: to } : null;
+}
+
+function refineSegmentsForInterval(fromIndex) {
+  const points = timelinePointsForInterval(fromIndex);
+  const out = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const left = points[i];
+    const right = points[i + 1];
+    if (!imageIdForTick(left.tick) || !imageIdForTick(right.tick)) continue;
+    out.push({
+      fromTick: left.tick,
+      toTick: right.tick,
+      count: videoBetweenRefineCount(),
+      label: `${left.label}-${right.label}`
+    });
+  }
+  return out;
+}
+
+async function generateBetweenSegments(segments = [], { onSavedImages, taskLabel = '视频帧间图任务' } = {}) {
   showVideoError('');
   if (!storyboard?.keyframes?.length) return showVideoError('请先生成关键帧规划。');
   try { syncStoryboardFromEditors(); } catch (err) { return showVideoError(err?.message || String(err)); }
+  const normalizedSegments = (Array.isArray(segments) ? segments : [segments])
+    .map(normalizeBetweenSegment)
+    .filter(Boolean);
+  if (!normalizedSegments.length) return showVideoError('没有可生成的帧间图区间。');
+
   let imageInfo;
   try { imageInfo = resolveProfileConfig('image'); } catch (err) { return showVideoError(err.message || String(err)); }
   if (!imageInfo.systemMode) {
-    const ok = await confirmVolatileCustomKeyUse({ taskLabel: `视频 ${fromIndex}-${fromIndex + 1} 帧间图任务` });
+    const ok = await confirmVolatileCustomKeyUse({ taskLabel });
     if (!ok) return;
   }
   try { await saveVideoProject('generating'); } catch (err) { return showVideoError(`视频项目保存失败：${err.message || String(err)}`); }
 
-  const key = `${fromIndex}-${fromIndex + 1}`;
   activeRun = { controller: new AbortController(), currentJobId: '', stopped: false, type: 'between' };
   setBusy(true);
   const started = Date.now();
+  let currentPointKey = '';
+  let generated = 0;
+  let skipped = 0;
   try {
-    const payload = betweenPayload({ fromIndex, imageInfo });
-    betweenResults[key] = { ...betweenResults[key], status: 'queued', prompt: payload.prompt, error: '' };
-    renderResults();
-    showVideoProgress(`正在提交 ${key} 帧间图到生图队列…`, 'busy');
-    await runSingleGeneration({
-      payload,
-      signal: activeRun.controller.signal,
-      progressMessage: (jobId) => `${key} 帧间图任务 ${jobId.slice(0, 8)} 已入队，等待完成…`,
-      onQueued: (jobId) => {
-        betweenResults[key] = { ...betweenResults[key], status: 'running', jobId };
+    for (const segment of normalizedSegments) {
+      const total = segment.targetTicks.length;
+      for (let i = 0; i < total; i += 1) {
+        const pointTick = segment.targetTicks[i];
+        const pointKey = betweenPointKey(pointTick);
+        currentPointKey = pointKey;
+        activeRun.currentPointKey = pointKey;
+        if (activeRun.controller.signal.aborted) throw abortError();
+
+        const existing = betweenResults[pointKey] || {};
+        const existingId = imageIdFromItem(existing.item || {});
+        if (existing.status === 'succeeded' && existingId && !segment.force) {
+          skipped += 1;
+          continue;
+        }
+
+        if (ACTIVE_JOB_STATUSES.has(existing.status) && existing.jobId) {
+          const jobId = existing.jobId;
+          activeRun.currentJobId = jobId;
+          showVideoProgress(`${pointLabel(pointTick)} 已有任务 ${jobId.slice(0, 8)}，正在等待完成…`, 'busy');
+          const job = await waitForJob(jobId, { signal: activeRun.controller.signal });
+          if (job.status !== 'succeeded') throw new Error(job.error || job.progress?.message || `${pointLabel(pointTick)} 生成失败：${job.status}`);
+          const item = firstResultItem(job);
+          if (!item) throw new Error(`${pointLabel(pointTick)} 没有返回可用图片。`);
+          updateBetweenEntry(pointTick, {
+            fromTick: segment.fromTick,
+            toTick: segment.toTick,
+            status: 'succeeded',
+            jobId,
+            item,
+            prompt: existing.prompt || job.payload?.prompt || job.promptPreview || '',
+            error: ''
+          });
+          renderResults();
+          onSavedImages?.([item]);
+          generated += 1;
+          continue;
+        }
+
+        const payload = betweenPayload({
+          fromTick: segment.fromTick,
+          toTick: segment.toTick,
+          pointTick,
+          slot: i + 1,
+          total,
+          imageInfo
+        });
+        updateBetweenEntry(pointTick, {
+          fromTick: segment.fromTick,
+          toTick: segment.toTick,
+          status: 'queued',
+          prompt: payload.prompt,
+          error: ''
+        });
         renderResults();
-      },
-      onSucceeded: (job, item) => {
-        betweenResults[key] = { status: 'succeeded', jobId: job.id, item, prompt: payload.prompt };
-        renderResults();
-        onSavedImages?.([item]);
+        showVideoProgress(`正在提交 ${pointLabel(pointTick)}（${segment.label} 第 ${i + 1}/${total} 张）到生图队列…`, 'busy');
+        await runSingleGeneration({
+          payload,
+          signal: activeRun.controller.signal,
+          progressMessage: (jobId) => `${pointLabel(pointTick)} 任务 ${jobId.slice(0, 8)} 已入队，等待完成…`,
+          onQueued: (jobId) => {
+            updateBetweenEntry(pointTick, {
+              fromTick: segment.fromTick,
+              toTick: segment.toTick,
+              status: 'running',
+              jobId
+            });
+            renderResults();
+          },
+          onSucceeded: (job, item) => {
+            updateBetweenEntry(pointTick, {
+              fromTick: segment.fromTick,
+              toTick: segment.toTick,
+              status: 'succeeded',
+              jobId: job.id,
+              item,
+              prompt: payload.prompt,
+              error: ''
+            });
+            renderResults();
+            onSavedImages?.([item]);
+          }
+        });
+        generated += 1;
+        try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
+        showVideoProgress(`${pointLabel(pointTick)} 帧间图完成。`, 'ok');
       }
-    });
+    }
     try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
     addLog('info', 'video.between.completed', {
-      fromIndex,
-      toIndex: fromIndex + 1,
+      segmentCount: normalizedSegments.length,
+      generated,
+      skipped,
       profileName: imageInfo.profile.name,
       interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
       durationMs: Date.now() - started,
       projectId: currentProjectId
     });
-    setStatus(`${key} 帧间图生成完成`, 'ok', 1800);
-    showVideoProgress(`${key} 帧间图已完成；可继续选择其他已完成相邻关键帧区间。`, 'ok');
+    setStatus('帧间图生成完成', 'ok', 1800);
+    showVideoProgress(generated
+      ? `已生成 ${generated} 张帧间图${skipped ? `，跳过 ${skipped} 张已完成帧` : ''}。可以继续细化相邻小段。`
+      : `没有新帧需要生成，已跳过 ${skipped} 张已完成帧。`, 'ok');
   } catch (err) {
     const stopped = err.name === 'AbortError';
     const message = stopped ? '帧间图生成已停止。' : (err.message || String(err));
-    betweenResults[key] = { ...betweenResults[key], status: stopped ? 'cancelled' : 'failed', error: message };
+    if (currentPointKey) {
+      betweenResults[currentPointKey] = {
+        ...betweenResults[currentPointKey],
+        status: stopped ? 'cancelled' : 'failed',
+        error: message
+      };
+    }
     renderResults();
     showVideoError(stopped ? '' : message);
     setStatus(stopped ? '帧间图生成已停止' : '帧间图生成失败', stopped ? 'ok' : 'err', 2200);
@@ -983,11 +1576,26 @@ function videoFrameIndexFromJob(job = {}) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function videoBetweenKeyFromJob(job = {}) {
-  const from = Number(job.payload?.videoFromIndex ?? job.videoFromIndex);
-  const to = Number(job.payload?.videoToIndex ?? job.videoToIndex);
-  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < 1) return '';
-  return `${from}-${to}`;
+function videoBetweenMetaFromSource(source = {}) {
+  const payload = source.payload || source;
+  const fromTick = normalizeTimelineTick(
+    payload.videoFromIndex ?? payload.video_from_index ?? source.videoFromIndex ?? source.video_from_index
+  );
+  const toTick = normalizeTimelineTick(
+    payload.videoToIndex ?? payload.video_to_index ?? source.videoToIndex ?? source.video_to_index
+  );
+  let positionTick = normalizeTimelineTick(
+    payload.videoFrameIndex ?? payload.video_frame_index ?? source.videoFrameIndex ?? source.video_frame_index
+  );
+  if (!positionTick && fromTick && toTick && toTick > fromTick) {
+    positionTick = Math.round((fromTick + toTick) / 2);
+  }
+  return {
+    fromTick,
+    toTick,
+    positionTick,
+    key: positionTick ? betweenPointKey(positionTick) : ''
+  };
 }
 
 function latestJob(matches = []) {
@@ -1052,17 +1660,28 @@ function loadVideoProject(detail = {}) {
 
   betweenResults = Object.create(null);
   for (const item of betweenImages) {
-    const from = Number(item.videoFromIndex);
-    const to = Number(item.videoToIndex);
-    if (Number.isInteger(from) && Number.isInteger(to)) {
-      betweenResults[`${from}-${to}`] = { status: 'succeeded', item, prompt: item.prompt || '' };
-    }
+    const meta = videoBetweenMetaFromSource(item);
+    if (!meta.key) continue;
+    betweenResults[meta.key] = {
+      status: 'succeeded',
+      item,
+      prompt: item.prompt || '',
+      fromTick: meta.fromTick,
+      toTick: meta.toTick,
+      positionTick: meta.positionTick
+    };
   }
   for (const job of jobs) {
     if (videoFrameKindFromJob(job) !== 'between') continue;
-    const key = videoBetweenKeyFromJob(job);
+    const meta = videoBetweenMetaFromSource(job);
+    const key = meta.key;
     if (!key || betweenResults[key]?.status === 'succeeded') continue;
-    betweenResults[key] = generatedEntryFromJob(job) || betweenResults[key] || { status: job.status || 'pending' };
+    betweenResults[key] = {
+      ...(generatedEntryFromJob(job) || betweenResults[key] || { status: job.status || 'pending' }),
+      fromTick: meta.fromTick,
+      toTick: meta.toTick,
+      positionTick: meta.positionTick
+    };
   }
 
   renderAll();
@@ -1086,9 +1705,35 @@ function bindEvents({ onSavedImages } = {}) {
   });
   $('videoKeyframeLimit')?.addEventListener('change', () => syncVideoKeyframeLimit());
   $('videoKeyframeLimit')?.addEventListener('blur', () => syncVideoKeyframeLimit());
+  $('videoBetweenCoarseCount')?.addEventListener('change', () => { videoBetweenCoarseCount(); renderResults(); });
+  $('videoBetweenCoarseCount')?.addEventListener('blur', () => { videoBetweenCoarseCount(); renderResults(); });
+  $('videoBetweenRefineCount')?.addEventListener('change', () => { videoBetweenRefineCount(); renderResults(); });
+  $('videoBetweenRefineCount')?.addEventListener('blur', () => { videoBetweenRefineCount(); renderResults(); });
   $('videoChatModel')?.addEventListener('input', () => { $('videoChatModel').dataset.userEdited = '1'; });
   $('videoImageModel')?.addEventListener('input', () => { $('videoImageModel').dataset.userEdited = '1'; });
+  $('videoPanel')?.addEventListener('click', (ev) => {
+    const promptTarget = videoPromptEditorTargetFromEvent(ev);
+    if (!promptTarget) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    openVideoPromptEditor(promptTarget);
+  });
+  $('videoPanel')?.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const promptTarget = videoPromptEditorTargetFromEvent(ev);
+    if (!promptTarget?.matches?.('[data-video-keyframe-prompt-preview]')) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    openVideoPromptEditor(promptTarget);
+  });
   $('videoResults')?.addEventListener('click', (ev) => {
+    const previewBtn = ev.target.closest('[data-video-result-preview]');
+    if (previewBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openVideoResultPreview(previewBtn);
+      return;
+    }
     const keyframeBtn = ev.target.closest('[data-video-generate-keyframe]');
     if (keyframeBtn) {
       ev.preventDefault();
@@ -1097,13 +1742,66 @@ function bindEvents({ onSavedImages } = {}) {
       if (Number.isInteger(index)) generateKeyframes({ onSavedImages, onlyIndex: index });
       return;
     }
-    const betweenBtn = ev.target.closest('[data-video-generate-between]');
-    if (betweenBtn) {
+    const coarseBtn = ev.target.closest('[data-video-generate-between-coarse]');
+    if (coarseBtn) {
       ev.preventDefault();
       ev.stopPropagation();
-      const fromIndex = Number(betweenBtn.dataset.videoGenerateBetween);
-      if (Number.isInteger(fromIndex)) generateBetween(fromIndex, { onSavedImages });
+      const fromIndex = Number(coarseBtn.dataset.videoGenerateBetweenCoarse);
+      if (Number.isInteger(fromIndex)) {
+        generateBetweenSegments([{
+          fromTick: keyframeTick(fromIndex),
+          toTick: keyframeTick(fromIndex + 1),
+          count: videoBetweenCoarseCount(),
+          label: `${fromIndex}-${fromIndex + 1} 粗帧`
+        }], { onSavedImages, taskLabel: `视频 ${fromIndex}-${fromIndex + 1} 粗帧间图任务` });
+      }
+      return;
     }
+    const refineBtn = ev.target.closest('[data-video-refine-segment]');
+    if (refineBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const segment = segmentFromKey(refineBtn.dataset.videoRefineSegment);
+      if (segment) {
+        generateBetweenSegments([{ ...segment, count: videoBetweenRefineCount() }], {
+          onSavedImages,
+          taskLabel: `视频 ${pointLabel(segment.fromTick)}-${pointLabel(segment.toTick)} 细化帧任务`
+        });
+      }
+      return;
+    }
+    const refineAllBtn = ev.target.closest('[data-video-refine-all-between]');
+    if (refineAllBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const fromIndex = Number(refineAllBtn.dataset.videoRefineAllBetween);
+      if (Number.isInteger(fromIndex)) {
+        generateBetweenSegments(refineSegmentsForInterval(fromIndex), {
+          onSavedImages,
+          taskLabel: `视频 ${fromIndex}-${fromIndex + 1} 全部小段细化任务`
+        });
+      }
+      return;
+    }
+    const retryPointBtn = ev.target.closest('[data-video-regenerate-between-point]');
+    if (retryPointBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const pointTick = normalizeTimelineTick(retryPointBtn.dataset.videoRegenerateBetweenPoint);
+      const entry = betweenResults[betweenPointKey(pointTick)] || {};
+      if (pointTick && entry.fromTick && entry.toTick) {
+        generateBetweenSegments([{
+          fromTick: entry.fromTick,
+          toTick: entry.toTick,
+          targetTicks: [pointTick],
+          force: true,
+          label: `${pointLabel(entry.fromTick)}-${pointLabel(entry.toTick)}`
+        }], { onSavedImages, taskLabel: `视频 ${pointLabel(pointTick)} 帧间图重生任务` });
+      }
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeVideoResultPreview();
   });
   window.addEventListener('video-project-import', (ev) => loadVideoProject(ev.detail || {}));
 }

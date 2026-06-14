@@ -450,12 +450,147 @@
   font-size: 12.5px;
 }
 
+.video-prompt-popout-target {
+  cursor: zoom-in;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.video-prompt-popout-target:hover {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand-soft) 35%, var(--surface-2));
+}
+
+.video-prompt-preview-button {
+  cursor: zoom-in;
+  border-radius: var(--radius-btn);
+}
+
+.video-prompt-preview-button:hover,
+.video-prompt-preview-button:focus-visible {
+  outline: 2px solid var(--brand-soft);
+  outline-offset: 2px;
+  color: var(--brand);
+}
+
+dialog.app-dialog.video-prompt-dialog {
+  max-width: min(760px, calc(100vw - 32px));
+}
+
+.video-prompt-dialog .app-dialog-form textarea {
+  min-height: min(52vh, 420px);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
 .video-between-hint {
   margin: 0 12px 12px;
 }
 
 .video-between-result {
   border-style: dashed;
+}
+
+.video-between-segment {
+  grid-column: span 2;
+}
+
+.video-between-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.video-between-header .hint {
+  margin: 4px 0 0;
+}
+
+.video-between-timeline {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.video-timeline-point {
+  flex: 0 0 96px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.video-timeline-point.keyframe {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+}
+
+.video-timeline-point[data-status="succeeded"] {
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-2));
+}
+
+.video-timeline-point[data-status="failed"],
+.video-timeline-point[data-status="cancelled"],
+.video-timeline-point[data-status="timeout"] {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.video-timeline-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.video-timeline-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-timeline-thumb .image-preview-trigger {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.video-timeline-label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.video-timeline-label span,
+.video-timeline-error {
+  color: var(--text-muted);
+}
+
+.video-timeline-error {
+  margin: 0;
+  font-size: 11px;
+  word-break: break-word;
+}
+
+.video-between-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.video-between-refine-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .video-project-card .comic-result-placeholder {

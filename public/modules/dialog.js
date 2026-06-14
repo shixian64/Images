@@ -19,9 +19,9 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
-function buildDialog(innerHtml) {
+function buildDialog(innerHtml, className = '') {
   const dlg = document.createElement('dialog');
-  dlg.className = 'app-dialog';
+  dlg.className = ['app-dialog', className].filter(Boolean).join(' ');
   dlg.innerHTML = innerHtml;
   document.body.appendChild(dlg);
   return dlg;
@@ -192,6 +192,7 @@ export function form({
   fields = [],
   confirmText = dialogText('save'),
   cancelText = dialogText('cancel'),
+  dialogClass = '',
   validate
 } = {}) {
   const fieldHtml = fields.map((f) => {
@@ -209,6 +210,18 @@ export function form({
         </label>`;
     }
     const value = f.value === undefined ? '' : String(f.value);
+    if (f.type === 'textarea') {
+      const rows = Number.isFinite(Number(f.rows)) ? Math.max(2, Math.min(30, Number(f.rows))) : 8;
+      return `
+        <label class="field"><span>${escapeHtml(f.label || f.name)}</span>
+          <textarea id="${id}" name="${escapeHtml(f.name)}" rows="${rows}"
+            ${f.required ? 'required' : ''}
+            ${f.placeholder ? `placeholder="${escapeHtml(f.placeholder)}"` : ''}
+            ${f.minlength ? `minlength="${Number(f.minlength)}"` : ''}
+            ${f.maxlength ? `maxlength="${Number(f.maxlength)}"` : ''}
+            ${f.spellcheck === false ? 'spellcheck="false"' : ''}>${escapeHtml(value)}</textarea>
+        </label>`;
+    }
     return `
       <label class="field"><span>${escapeHtml(f.label || f.name)}</span>
         <input id="${id}" name="${escapeHtml(f.name)}" type="${escapeHtml(f.type || 'text')}"
@@ -230,7 +243,7 @@ export function form({
         <button value="confirm" class="primary" type="submit" data-confirm>${escapeHtml(confirmText)}</button>
       </div>
     </form>
-  `);
+  `, dialogClass);
 
   const formEl = dlg.querySelector('[data-form]');
   const errEl = dlg.querySelector('[data-err]');

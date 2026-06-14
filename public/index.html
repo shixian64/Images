@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="./profiles.css?v=profiles-split-20260610" />
   <link rel="stylesheet" href="./prompts.css?v=prompts-split-20260610" />
   <link rel="stylesheet" href="./logs.css?v=logs-split-20260610" />
-  <link rel="stylesheet" href="./comic.css?v=video-workflow-20260614" />
+  <link rel="stylesheet" href="./comic.css?v=video-layered-between-20260614" />
   <link rel="stylesheet" href="./admin.css?v=admin-split-20260608" />
   <script src="./main-boot.js?v=csp-external-20260609"></script>
 </head>
@@ -349,7 +349,7 @@
             </div>
             <label class="field">
               <span>视频提示词</span>
-              <textarea id="videoPrompt" rows="7" placeholder="例如：雨夜赛博城市中，一名快递员追随发光猫穿过天台与霓虹小巷，最后发现城市灯光组成星河。"></textarea>
+              <textarea id="videoPrompt" class="video-prompt-popout-target" rows="7" placeholder="例如：雨夜赛博城市中，一名快递员追随发光猫穿过天台与霓虹小巷，最后发现城市灯光组成星河。" title="点击弹窗编辑提示词"></textarea>
             </label>
             <section class="reference-panel">
               <div class="reference-head">
@@ -374,6 +374,12 @@
                 <label class="field"><span>关键帧数量由模型自动决定（可选安全上限）</span>
                   <input id="videoKeyframeLimit" type="number" min="2" max="12" placeholder="留空：最多 12 帧" />
                 </label>
+                <label class="field"><span>每段粗帧间图数量</span>
+                  <input id="videoBetweenCoarseCount" type="number" min="1" max="8" value="4" />
+                </label>
+                <label class="field"><span>每次细化帧数量</span>
+                  <input id="videoBetweenRefineCount" type="number" min="1" max="8" value="4" />
+                </label>
                 <label class="field"><span>分镜模型</span>
                   <input id="videoChatModel" value="gpt-5.5" spellcheck="false" />
                 </label>
@@ -390,13 +396,13 @@
                   <select id="videoOutputFormat"></select>
                 </label>
                 <label class="field span-2"><span>统一画风 / 角色 / 场景约束</span>
-                  <textarea id="videoGlobalStyle" rows="3" placeholder="例如：电影感，浅景深，霓虹反光；主角黑色雨衣、银色头盔；发光猫保持蓝色光晕。"></textarea>
+                  <textarea id="videoGlobalStyle" class="video-prompt-popout-target" rows="3" placeholder="例如：电影感，浅景深，霓虹反光；主角黑色雨衣、银色头盔；发光猫保持蓝色光晕。" title="点击弹窗编辑提示词"></textarea>
                 </label>
                 <label class="field span-2"><span>统一运动与镜头规则</span>
-                  <textarea id="videoGlobalMotion" rows="3" placeholder="例如：镜头从远景推进到近景，动作要有连续方向，帧间图只做自然过渡。"></textarea>
+                  <textarea id="videoGlobalMotion" class="video-prompt-popout-target" rows="3" placeholder="例如：镜头从远景推进到近景，动作要有连续方向，帧间图只做自然过渡。" title="点击弹窗编辑提示词"></textarea>
                 </label>
                 <label class="field span-2"><span>负面约束</span>
-                  <textarea id="videoGlobalNegative" rows="2" placeholder="不要文字、Logo、水印、UI 边框；不要突然更换服装、角色脸型或画风。"></textarea>
+                  <textarea id="videoGlobalNegative" class="video-prompt-popout-target" rows="2" placeholder="不要文字、Logo、水印、UI 边框；不要突然更换服装、角色脸型或画风。" title="点击弹窗编辑提示词"></textarea>
                 </label>
               </div>
             </details>
@@ -424,7 +430,7 @@
         <section class="comic-section" aria-labelledby="videoResultsHeading">
           <div class="section-title-row">
             <h3 id="videoResultsHeading" class="section-title">关键帧与帧间图</h3>
-            <p class="hint">关键帧生成完成后，相邻两帧都已有图片的区间会出现“生成帧间图”按钮，例如 1-2、2-3。</p>
+            <p class="hint">关键帧生成完成后，先为 1-2 这类区间补粗帧（如 1.1、1.2、1.3、1.4），再按相邻小段继续细化。</p>
           </div>
           <div id="videoResults" class="gallery comic-results" data-empty="true"></div>
         </section>
@@ -1205,6 +1211,6 @@
     </section>
   </aside>
 
-  <script type="module" src="./app.js?v=video-workflow-20260614"></script>
+  <script type="module" src="./app.js?v=video-layered-between-20260614"></script>
 </body>
 </html>

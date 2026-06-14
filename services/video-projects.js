@@ -67,11 +67,18 @@ function cleanReferences(value = []) {
 
 function cleanConfig(value = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const cleanFrameCount = (input, fallback) => {
+    const n = Math.floor(Number(input) || 0);
+    if (!n) return fallback;
+    return Math.min(8, Math.max(1, n));
+  };
   return {
     style: cleanString(source.style, 2000),
     motion: cleanString(source.motion, 2000),
     negative: cleanString(source.negative, 2000),
-    notes: cleanString(source.notes, 2000)
+    notes: cleanString(source.notes, 2000),
+    betweenCoarseCount: cleanFrameCount(source.betweenCoarseCount, 4),
+    betweenRefineCount: cleanFrameCount(source.betweenRefineCount, 4)
   };
 }
 
