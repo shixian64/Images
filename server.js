@@ -21,6 +21,8 @@ import { handleJobsRoute } from './routes/jobs.js';
 import { handleClientLogsRoute } from './routes/client-logs.js';
 import { handleComicProjectsRoute } from './routes/comic-projects.js';
 import { handleComicStoryboardsRoute } from './routes/comic-storyboards.js';
+import { handleVideoProjectsRoute } from './routes/video-projects.js';
+import { handleVideoStoryboardsRoute } from './routes/video-storyboards.js';
 import { handleRegistrationRoute } from './routes/registration.js';
 import { createStaticHandler } from './routes/static.js';
 
@@ -61,6 +63,8 @@ const API_ROUTES = [
   { match: (pathname) => matchesRoutePrefix(pathname, '/api/client-logs') || matchesRoutePrefix(pathname, '/api/admin/client-logs'), handle: (req, res, pathname, url) => handleClientLogsRoute(req, res, pathname, url) },
   { match: apiPrefix('/api/comic-projects'), handle: (req, res, pathname, url) => handleComicProjectsRoute(req, res, pathname, url) },
   { match: apiPrefix('/api/comic-storyboards'), handle: (req, res, pathname, url) => handleComicStoryboardsRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/video-projects'), handle: (req, res, pathname, url) => handleVideoProjectsRoute(req, res, pathname, url) },
+  { match: apiPrefix('/api/video-storyboards'), handle: (req, res, pathname, url) => handleVideoStoryboardsRoute(req, res, pathname, url) },
   { match: (pathname, req) => req.method === 'GET' && pathname === '/api/generate/config', handle: (req, res) => handleGenerateConfig(req, res) },
   { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate/stream', handle: (req, res) => handleGenerateStream(req, res) },
   { match: (pathname, req) => req.method === 'POST' && pathname === '/api/generate', handle: (req, res) => handleGenerate(req, res) },

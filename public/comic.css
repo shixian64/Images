@@ -388,6 +388,80 @@
   font-size: 12px;
 }
 
+/* Video workflow reuses the comic workflow shell, with denser reference pickers
+   and interleaved keyframe / between-frame result cards. */
+.video-frame-ref-picker {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.video-frame-ref-picker > strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.video-frame-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.video-frame-ref-option {
+  display: grid;
+  grid-template-columns: auto 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.video-frame-ref-option.selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.video-frame-ref-option img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
+
+.video-frame-ref-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-transition-prompt-field {
+  padding: 0 12px;
+}
+
+.video-transition-prompt-field textarea {
+  min-height: 96px;
+  font-size: 12.5px;
+}
+
+.video-between-hint {
+  margin: 0 12px 12px;
+}
+
+.video-between-result {
+  border-style: dashed;
+}
+
+.video-project-card .comic-result-placeholder {
+  min-height: 180px;
+}
+
 @media (max-width: 980px) {
   .comic-workflow-grid,
   .comic-bible-grid {

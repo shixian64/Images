@@ -335,6 +335,7 @@ export function compareScreenshotBaselineEntries(entries = [], baseline = {}) {
 const MAIN_APP_TAB_IDS = Object.freeze([
   'studioPanel',
   'comicPanel',
+  'videoPanel',
   'promptPanel',
   'galleryPanel',
   'configPanel',

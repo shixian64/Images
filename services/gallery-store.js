@@ -7,7 +7,7 @@ import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { mapWithConcurrency } from '../utils/concurrency.js';
-import { images as imagesTable, imageLikes, comicProjects, dbPaths } from './db.js';
+import { images as imagesTable, imageLikes, comicProjects, videoProjects, dbPaths } from './db.js';
 import { assetFromItem, cleanupTempFile } from './gallery-assets.js';
 import { dailyPublicLikeLimit, galleryStatConcurrency } from './gallery-config.js';
 import {
@@ -42,6 +42,9 @@ function buildFileName(createdAt, index, ext) {
 // 把 db 行（snake_case）映射成前端沿用的 camelCase 结构。
 function rowToItem(row) {
   const comicPageIndex = Number.isFinite(row.comic_panel_index) ? row.comic_panel_index : null;
+  const videoFrameIndex = Number.isFinite(row.video_frame_index) ? row.video_frame_index : null;
+  const videoFromIndex = Number.isFinite(row.video_from_index) ? row.video_from_index : null;
+  const videoToIndex = Number.isFinite(row.video_to_index) ? row.video_to_index : null;
   return {
     id: row.id,
     userId: row.user_id,
@@ -67,7 +70,12 @@ function rowToItem(row) {
     comicProjectId: row.comic_project_id || '',
     comicPageIndex,
     // Backward-compatible alias for older clients and the current DB column name.
-    comicPanelIndex: comicPageIndex
+    comicPanelIndex: comicPageIndex,
+    videoProjectId: row.video_project_id || '',
+    videoFrameKind: row.video_frame_kind || '',
+    videoFrameIndex,
+    videoFromIndex,
+    videoToIndex
   };
 }
 
@@ -102,9 +110,30 @@ function comicProjectIdForUser(projectId, userId) {
   return id;
 }
 
+function videoProjectIdForUser(projectId, userId) {
+  const id = String(projectId || '').trim();
+  if (!id) return '';
+  const project = videoProjects.findById(id);
+  if (!project || project.user_id !== userId) throw new Error('video project not found');
+  return id;
+}
+
 function comicPageIndexFromContext(context = {}) {
   const n = Number(context.comicPageIndex ?? context.comicPanelIndex);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function videoFrameMetaFromContext(context = {}) {
+  const kind = String(context.videoFrameKind || '').trim().toLowerCase();
+  const frameIndex = Number(context.videoFrameIndex);
+  const fromIndex = Number(context.videoFromIndex);
+  const toIndex = Number(context.videoToIndex);
+  return {
+    videoFrameKind: ['reference', 'keyframe', 'between'].includes(kind) ? kind : '',
+    videoFrameIndex: Number.isInteger(frameIndex) && frameIndex > 0 ? frameIndex : null,
+    videoFromIndex: Number.isInteger(fromIndex) && fromIndex > 0 ? fromIndex : null,
+    videoToIndex: Number.isInteger(toIndex) && toIndex > 0 ? toIndex : null
+  };
 }
 
 // 保存上游返回的图片到当前用户目录，并写入 SQLite。
@@ -114,6 +143,8 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
   if (!Array.isArray(items) || !items.length) return { items: [], saved: [] };
   const comicProjectId = comicProjectIdForUser(context.comicProjectId, userId);
   const comicPageIndex = comicPageIndexFromContext(context);
+  const videoProjectId = videoProjectIdForUser(context.videoProjectId, userId);
+  const videoFrameMeta = videoFrameMetaFromContext(context);
 
   // 确保用户图片目录存在。
   const userDir = userImageDir(userId);
@@ -198,12 +229,17 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         index: imageIndex + 1,
         comicProjectId,
         comicPageIndex,
-        comicPanelIndex: comicPageIndex
+        comicPanelIndex: comicPageIndex,
+        videoProjectId,
+        ...videoFrameMeta
       });
       dbInserted = true;
 
       if (comicProjectId) {
         comicProjects.touch(comicProjectId, { status: context.comicProjectStatus || null });
+      }
+      if (videoProjectId) {
+        videoProjects.touch(videoProjectId, { status: context.videoProjectStatus || null });
       }
 
       const publicUrl = galleryFileUrl(relPath);
@@ -237,7 +273,9 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         index: imageIndex + 1,
         comicProjectId,
         comicPageIndex,
-        comicPanelIndex: comicPageIndex
+        comicPanelIndex: comicPageIndex,
+        videoProjectId,
+        ...videoFrameMeta
       };
 
       saved.push(meta);
@@ -253,6 +291,11 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
         comic_project_id: comicProjectId || undefined,
         comic_page_index: comicPageIndex || undefined,
         comic_panel_index: comicPageIndex || undefined,
+        video_project_id: videoProjectId || undefined,
+        video_frame_kind: videoFrameMeta.videoFrameKind || undefined,
+        video_frame_index: videoFrameMeta.videoFrameIndex || undefined,
+        video_from_index: videoFrameMeta.videoFromIndex || undefined,
+        video_to_index: videoFrameMeta.videoToIndex || undefined,
         file_name: fileName,
         mime_type: asset.mimeType,
         bytes: assetBytes
@@ -272,6 +315,27 @@ export async function saveGeneratedImages(items, context = {}, options = {}) {
   }
 
   return { items: nextItems, saved };
+}
+
+export async function saveUploadedVideoReference(file = {}, { userId, projectId } = {}) {
+  if (!userId) throw new Error('saveUploadedVideoReference requires userId');
+  const videoProjectId = videoProjectIdForUser(projectId, userId);
+  if (!videoProjectId) throw new Error('video project id required');
+  const buffer = file.buffer || Buffer.alloc(0);
+  const result = await saveGeneratedImages([{
+    b64_json: Buffer.from(buffer).toString('base64')
+  }], {
+    prompt: '视频项目参考图',
+    outputFormat: '',
+    videoProjectId,
+    videoFrameKind: 'reference',
+    videoProjectStatus: 'draft'
+  }, { userId });
+  const saved = result.saved[0] || null;
+  if (saved) {
+    saved.filename = file.filename || saved.filename;
+  }
+  return saved;
 }
 
 async function itemsFromRows(rows, { viewerId = null } = {}) {
@@ -318,7 +382,8 @@ export function galleryCounts(userId) {
     mine: userId ? imagesTable.countByUser(userId) : 0,
     myPublic: userId ? imagesTable.countPublicByUser(userId) : 0,
     public: imagesTable.countPublic(),
-    comicProjects: userId ? comicProjects.countByUser(userId) : 0
+    comicProjects: userId ? comicProjects.countByUser(userId) : 0,
+    videoProjects: userId ? videoProjects.countByUser(userId) : 0
   };
 }
 
@@ -371,6 +436,17 @@ export async function listComicProjectImages({ projectId, userId, isAdmin = fals
   if (!project) throw new Error('comic project not found');
   if (!isAdmin && project.user_id !== userId) throw new Error('forbidden');
   const rows = imagesTable.listByComicProject(projectId, { limit });
+  const items = await itemsFromRows(rows, { viewerId: userId });
+  return items;
+}
+
+export async function listVideoProjectImages({ projectId, userId, isAdmin = false, limit = 500, includeReferences = true } = {}) {
+  if (!projectId) throw new Error('video project id required');
+  if (!userId && !isAdmin) throw new Error('unauthorized');
+  const project = videoProjects.findById(projectId);
+  if (!project) throw new Error('video project not found');
+  if (!isAdmin && project.user_id !== userId) throw new Error('forbidden');
+  const rows = imagesTable.listByVideoProject(projectId, { limit, includeReferences });
   const items = await itemsFromRows(rows, { viewerId: userId });
   return items;
 }

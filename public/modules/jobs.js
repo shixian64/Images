@@ -134,7 +134,7 @@ function hasVisibleRecentJobs() {
 }
 
 function isStudioTabActive() {
-  return currentTabId === 'studioPanel' || currentTabId === 'comicPanel';
+  return currentTabId === 'studioPanel' || currentTabId === 'comicPanel' || currentTabId === 'videoPanel';
 }
 
 function updateQueueVisibility() {

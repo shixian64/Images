@@ -51,6 +51,9 @@ export function galleryScopeEmptyHtml(scope = 'mine') {
   if (scope === 'comic') {
     return galleryEmptyHtml('还没有漫画项目。请到“漫画”页输入小故事并点击“生成页分镜”。');
   }
+  if (scope === 'video') {
+    return galleryEmptyHtml('还没有视频项目。请到“视频”页输入提示词并点击“生成关键帧规划”。');
+  }
   return galleryEmptyHtml();
 }
 
@@ -58,12 +61,18 @@ export function comicProjectImagesEmptyHtml() {
   return galleryEmptyHtml('这个漫画项目还没有生成图片。可导入到漫画菜单继续生成。');
 }
 
+export function videoProjectImagesEmptyHtml() {
+  return galleryEmptyHtml('这个视频项目还没有生成关键帧图片。可导入到视频菜单继续生成。');
+}
+
 export function galleryLoadingHtml(scope = 'mine') {
-  return galleryEmptyHtml(scope === 'comic' ? '正在加载漫画项目…' : '正在加载本地图库…');
+  if (scope === 'comic') return galleryEmptyHtml('正在加载漫画项目…');
+  if (scope === 'video') return galleryEmptyHtml('正在加载视频项目…');
+  return galleryEmptyHtml('正在加载本地图库…');
 }
 
 export function galleryErrorHtml(scope = 'mine', message = '加载失败') {
-  const prefix = scope === 'comic' ? '漫画项目' : '图库';
+  const prefix = scope === 'comic' ? '漫画项目' : (scope === 'video' ? '视频项目' : '图库');
   return galleryEmptyHtml(`${prefix}加载失败：${message || '加载失败'}`);
 }
 
@@ -89,7 +98,7 @@ export function galleryImageCardHtml(item = {}, index = 0, {
   const hasLikeBadge = isPublic || scope === 'public';
   const ownerText = item.ownerUsername ? `作者 ${item.ownerUsername}` : (scope === 'public' ? `用户 ${String(item.userId || '').slice(0, 8)}` : '');
   const publicControls = scope === 'public';
-  const comicProjectControls = scope === 'comic';
+  const projectControls = scope === 'comic' || scope === 'video';
   const cardClass = `image-card gallery-card${publicControls ? ' public-gallery-card' : ''}${hasLikeBadge ? ' has-like-badge' : ''}`;
   const likeLimitReached = publicControls && !item.likedByMe && Number(likeQuota.remaining || 0) <= 0;
   const likeDisabled = item.likedByMe || likeLimitReached;
@@ -104,7 +113,7 @@ export function galleryImageCardHtml(item = {}, index = 0, {
         <a href="${escapeHtml(downloadSrc)}" download="${escapeHtml(downloadName)}">下载</a>
         ${item.id ? `<button type="button" data-gallery-add-reference>加入参考图</button>` : ''}
         <button type="button" data-gallery-copy-prompt ${prompt ? '' : 'disabled'}>复制提示词</button>
-        ${item.id && !comicProjectControls ? `<button type="button" data-gallery-toggle-public>${isPublic ? '取消公开' : '公开'}</button>` : ''}
+        ${item.id && !projectControls ? `<button type="button" data-gallery-toggle-public>${isPublic ? '取消公开' : '公开'}</button>` : ''}
         ${item.id ? `<button type="button" data-gallery-delete>删除</button>` : ''}
       `;
 
@@ -240,6 +249,120 @@ export function comicProjectDetailHtml(project = {}, images = [], {
       <div class="comic-project-detail-actions">
         <button type="button" class="primary" data-comic-project-import>导入至漫画菜单</button>
         <button type="button" class="ghost danger" data-comic-project-delete>删除项目</button>
+      </div>
+    </section>
+    ${images.length ? imageCardsHtml : emptyImagesHtml}
+  `;
+}
+
+export function videoProjectStatusLabel(status) {
+  const map = {
+    draft: '草稿',
+    storyboard: '已规划',
+    generating: '生成中',
+    completed: '已完成',
+    stopped: '已停止',
+    failed: '失败',
+    project: '视频项目'
+  };
+  return map[status] || status || map.project;
+}
+
+export function videoProjectProgress(project = {}, images = []) {
+  const progress = project.progress || {};
+  const total = Number(progress.total ?? project.keyframeCount) || 0;
+  const keyframeImages = (Array.isArray(images) ? images : [])
+    .filter((item) => item.videoFrameKind !== 'between' && item.videoFrameKind !== 'reference');
+  const completed = Number(progress.completed ?? project.imageCount ?? keyframeImages.length) || 0;
+  return {
+    total,
+    completed: total ? Math.min(total, completed) : completed,
+    active: Number(progress.active) || 0,
+    running: Number(progress.running) || 0,
+    queued: Number(progress.queued) || 0,
+    failed: Number(progress.failed) || 0,
+    computedStatus: progress.computedStatus || project.status || 'draft'
+  };
+}
+
+export function videoProjectProgressText(project = {}, images = []) {
+  const progress = videoProjectProgress(project, images);
+  const parts = [`关键帧 ${progress.completed}/${progress.total || '-'}`];
+  if (progress.running) parts.push(`运行中 ${progress.running}`);
+  if (progress.queued) parts.push(`排队 ${progress.queued}`);
+  if (!progress.active && progress.failed) parts.push(`失败 ${progress.failed}`);
+  return parts.join(' · ');
+}
+
+function videoProjectMeta(project = {}) {
+  return [
+    project.imageModel,
+    project.size,
+    project.quality,
+    project.outputFormat
+  ].filter(Boolean).join(' · ');
+}
+
+export function videoProjectCardHtml(project = {}, index = 0, { totalCount = 1 } = {}) {
+  const safeIndex = Number.isFinite(Number(index)) ? Number(index) : 0;
+  const safeTotal = Number.isFinite(Number(totalCount)) ? Number(totalCount) : 1;
+  const thumb = project.thumbnailUrl
+    ? `<img src="${escapeHtml(project.thumbnailUrl)}" alt="${escapeHtml(project.title)}" loading="lazy" />`
+    : '<div class="comic-result-placeholder">视频</div>';
+  const progress = videoProjectProgress(project);
+  const meta = videoProjectMeta(project);
+  return `<article class="image-card gallery-card comic-project-card video-project-card" data-video-project-id="${escapeHtml(project.id)}" data-video-project-index="${safeIndex}">
+      <div class="gallery-image-wrap">
+        <button class="image-preview-trigger comic-project-open" type="button" data-video-project-open aria-label="打开视频项目 ${escapeHtml(project.title)}">
+          ${thumb}
+        </button>
+        <div class="card-actions">
+          <button type="button" data-video-project-open>打开</button>
+          <button type="button" data-video-project-import>导入视频</button>
+          <button type="button" data-video-project-delete>删除</button>
+        </div>
+      </div>
+      <div class="image-meta">
+        <span>#${safeTotal - safeIndex}</span>
+        <span>${escapeHtml(formatTime(project.updatedAt || project.createdAt))}</span>
+      </div>
+      <div class="image-meta compact-meta">
+        <span>${escapeHtml(videoProjectStatusLabel(progress.computedStatus))} · ${escapeHtml(videoProjectProgressText(project))}</span>
+        <span>${escapeHtml(meta || '视频项目')}</span>
+      </div>
+      <p class="prompt-preview" title="${escapeHtml(project.prompt || project.title)}">${escapeHtml(project.title || '未命名视频')}</p>
+    </article>`;
+}
+
+export function videoProjectCardsHtml(projects = []) {
+  const list = Array.isArray(projects) ? projects : [];
+  const totalCount = list.length;
+  return list.map((project, index) => videoProjectCardHtml(project, index, { totalCount })).join('');
+}
+
+export function videoProjectDetailHtml(project = {}, images = [], {
+  imageCardsHtml = '',
+  emptyImagesHtml = galleryEmptyHtml('这个视频项目还没有生成图片。可导入到视频菜单继续生成。')
+} = {}) {
+  const meta = [
+    project.imageModel,
+    project.size,
+    project.quality,
+    project.outputFormat
+  ].filter(Boolean).join(' · ');
+  const progress = videoProjectProgress(project, images);
+  const references = Array.isArray(project.references) ? project.references.length : 0;
+  return `
+    <section class="comic-project-detail video-project-detail span-all">
+      <div>
+        <button class="ghost small" type="button" data-video-project-back>← 返回视频项目</button>
+        <h3>${escapeHtml(project.title || '未命名视频')}</h3>
+        <p class="hint">${escapeHtml(meta || '视频项目')} · ${escapeHtml(videoProjectProgressText(project, images))} · ${escapeHtml(videoProjectStatusLabel(progress.computedStatus))} · 参考图 ${references}</p>
+        <p class="prompt-preview">${escapeHtml(project.prompt || '暂无视频提示词')}</p>
+      </div>
+      <div class="comic-project-detail-actions">
+        <button type="button" class="primary" data-video-project-import>导入至视频菜单</button>
+        <button type="button" class="ghost danger" data-video-project-delete>删除项目</button>
       </div>
     </section>
     ${images.length ? imageCardsHtml : emptyImagesHtml}

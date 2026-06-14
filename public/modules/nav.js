@@ -1,9 +1,9 @@
-// Tab 切换 + 记忆 + 快捷键（G S / G M / G T / G G / G P / G L）。对应 §5.1 键盘友好。
+// Tab 切换 + 记忆 + 快捷键（G S / G M / G V / G T / G G / G P / G L）。对应 §5.1 键盘友好。
 
 import { $, $$ } from './dom.js';
 import { KEYS, readString, writeString } from './state.js';
 
-const FALLBACK_TAB_IDS = ['studioPanel', 'comicPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel', 'usersPanel'];
+const FALLBACK_TAB_IDS = ['studioPanel', 'comicPanel', 'videoPanel', 'promptPanel', 'galleryPanel', 'configPanel', 'logsPanel', 'usersPanel'];
 
 function availableTabIds() {
   const ids = $$('.tab-panel')
@@ -31,7 +31,7 @@ export function mountNav() {
   });
   switchTab(readString(KEYS.activeTab, 'studioPanel'));
 
-  // 键盘序列 G + S/T/G/P/L
+  // 键盘序列 G + S/M/V/T/G/P/L/U
   let pending = false;
   let pendingTimer = null;
   document.addEventListener('keydown', (ev) => {
@@ -50,6 +50,7 @@ export function mountNav() {
       clearTimeout(pendingTimer);
       if (k === 's') switchTab('studioPanel');
       else if (k === 'm') switchTab('comicPanel');
+      else if (k === 'v') switchTab('videoPanel');
       else if (k === 't') switchTab('promptPanel');
       else if (k === 'g') switchTab('galleryPanel');
       else if (k === 'p') switchTab('configPanel');

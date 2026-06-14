@@ -30,6 +30,7 @@
     <nav class="top-menu" aria-label="主导航">
       <button class="tab-button active" data-tab="studioPanel" data-hotkey="gs">生成</button>
       <button class="tab-button" data-tab="comicPanel" data-hotkey="gm">漫画</button>
+      <button class="tab-button" data-tab="videoPanel" data-hotkey="gv">视频</button>
       <button class="tab-button" data-tab="promptPanel" data-hotkey="gt">提示词</button>
       <button class="tab-button" data-tab="galleryPanel" data-hotkey="gg">图库</button>
       <button class="tab-button" data-tab="configPanel" data-hotkey="gp">配置</button>
@@ -320,6 +321,117 @@
     </section>
 
     <!-- ============================================================ -->
+    <!-- Video -->
+    <!-- ============================================================ -->
+    <section id="videoPanel" class="tab-panel" aria-labelledby="videoHeading">
+      <section class="panel comic-workflow-panel video-workflow-panel">
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">Video Workflow</p>
+            <h2 id="videoHeading">视频工作流</h2>
+            <p class="hint">输入视频提示词，可上传项目参考图；先生成可编辑关键帧规划，再逐个生成关键帧图片，关键帧完成后可选择生成相邻关键帧之间的帧间图。</p>
+          </div>
+          <div class="active-profile-chip">
+            <span class="dot" data-status="unknown"></span>
+            <span>当前配置：<strong id="videoActiveConfigName">-</strong></span>
+            <button class="ghost small tab-link" data-tab="configPanel">切换</button>
+          </div>
+        </header>
+
+        <div class="comic-workflow-grid">
+          <section class="comic-step-card">
+            <div class="comic-step-head">
+              <span>1</span>
+              <div>
+                <h3>提示词、参考图与全局配置</h3>
+                <p>全局配置会统一附加到关键帧和帧间图生成中；项目参考图可在关键帧规划后为每个关键帧单独勾选。</p>
+              </div>
+            </div>
+            <label class="field">
+              <span>视频提示词</span>
+              <textarea id="videoPrompt" rows="7" placeholder="例如：雨夜赛博城市中，一名快递员追随发光猫穿过天台与霓虹小巷，最后发现城市灯光组成星河。"></textarea>
+            </label>
+            <section class="reference-panel">
+              <div class="reference-head">
+                <div>
+                  <h3>项目参考图</h3>
+                  <p class="hint">上传后会保存到当前视频项目，只在视频项目中展示；规划结果会建议每个关键帧附带哪些参考图，你也可以手动取消或更换选择。</p>
+                </div>
+                <div class="reference-actions">
+                  <label class="ghost small reference-upload-button">
+                    上传参考图
+                    <input id="videoReferenceUpload" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+                  </label>
+                </div>
+              </div>
+              <div id="videoReferenceList" class="reference-list" data-empty="true">
+                <div class="reference-empty">还没有项目参考图。可先上传，也可以之后再上传并重新保存项目。</div>
+              </div>
+            </section>
+            <details class="advanced" open>
+              <summary>项目全局配置</summary>
+              <div class="options">
+                <label class="field"><span>最多关键帧数（模型自动决定，2-12）</span>
+                  <input id="videoKeyframeLimit" type="number" min="2" max="12" value="5" />
+                </label>
+                <label class="field"><span>分镜模型</span>
+                  <input id="videoChatModel" value="gpt-5.5" spellcheck="false" />
+                </label>
+                <label class="field"><span>生图模型</span>
+                  <input id="videoImageModel" value="gpt-image-2" spellcheck="false" />
+                </label>
+                <label class="field"><span>尺寸</span>
+                  <select id="videoSize"></select>
+                </label>
+                <label class="field"><span>质量</span>
+                  <select id="videoQuality"></select>
+                </label>
+                <label class="field"><span>输出格式</span>
+                  <select id="videoOutputFormat"></select>
+                </label>
+                <label class="field span-2"><span>统一画风 / 角色 / 场景约束</span>
+                  <textarea id="videoGlobalStyle" rows="3" placeholder="例如：电影感，浅景深，霓虹反光；主角黑色雨衣、银色头盔；发光猫保持蓝色光晕。"></textarea>
+                </label>
+                <label class="field span-2"><span>统一运动与镜头规则</span>
+                  <textarea id="videoGlobalMotion" rows="3" placeholder="例如：镜头从远景推进到近景，动作要有连续方向，帧间图只做自然过渡。"></textarea>
+                </label>
+                <label class="field span-2"><span>负面约束</span>
+                  <textarea id="videoGlobalNegative" rows="2" placeholder="不要文字、Logo、水印、UI 边框；不要突然更换服装、角色脸型或画风。"></textarea>
+                </label>
+              </div>
+            </details>
+            <div class="action-row">
+              <button id="videoAnalyze" class="primary" type="button">生成关键帧规划</button>
+              <button id="videoGenerateKeyframes" class="ghost" type="button" disabled>逐个生成关键帧</button>
+              <button id="videoStop" class="ghost danger" type="button" disabled>停止</button>
+            </div>
+            <div id="videoError" class="error" hidden role="alert"></div>
+            <div id="videoProgress" class="progress comic-progress" hidden aria-live="polite">
+              <strong>视频工作流</strong>
+              <span id="videoProgressText"></span>
+            </div>
+          </section>
+        </div>
+
+        <section class="comic-section" aria-labelledby="videoStoryboardHeading">
+          <div class="section-title-row">
+            <h3 id="videoStoryboardHeading" class="section-title">关键帧规划</h3>
+            <p class="hint">模型决定关键帧数量、每个关键帧的生图提示词和建议参考图；你可以直接编辑提示词和勾选参考图。</p>
+          </div>
+          <div id="videoStoryboard" class="comic-storyboard" data-empty="true"></div>
+        </section>
+
+        <section class="comic-section" aria-labelledby="videoResultsHeading">
+          <div class="section-title-row">
+            <h3 id="videoResultsHeading" class="section-title">关键帧与帧间图</h3>
+            <p class="hint">关键帧生成完成后，相邻两帧都已有图片的区间会出现“生成帧间图”按钮，例如 1-2、2-3。</p>
+          </div>
+          <div id="videoResults" class="gallery comic-results" data-empty="true"></div>
+        </section>
+      </section>
+    </section>
+
+    <!-- ============================================================ -->
     <!-- Prompt Manager -->
     <!-- ============================================================ -->
     <section id="promptPanel" class="tab-panel" aria-labelledby="promptHeading">
@@ -537,6 +649,9 @@
           </button>
           <button class="gallery-scope-tab" type="button" data-gallery-scope="comic" role="tab" aria-selected="false">
             漫画项目 <span id="galleryComicCount" class="soft-count">0</span>
+          </button>
+          <button class="gallery-scope-tab" type="button" data-gallery-scope="video" role="tab" aria-selected="false">
+            视频项目 <span id="galleryVideoCount" class="soft-count">0</span>
           </button>
         </div>
         <div class="gallery-summary" id="gallerySummary" aria-live="polite" hidden></div>

@@ -58,6 +58,16 @@ export function jobMeta(job = {}) {
       .filter(Boolean)
       .join(' · ');
   }
+  if (payload.jobType === 'video_storyboard') {
+    const keyframeLimit = payload.keyframeLimit ?? payload.keyframeCount;
+    return [
+      t('jobs.meta.videoStoryboard'),
+      job.model || payload.model,
+      keyframeLimit ? t('jobs.meta.autoKeyframes', { count: keyframeLimit }) : ''
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
   return [job.model || payload.model, payload.size, payload.quality, `n=${job.n || payload.n || 1}`]
     .filter(Boolean)
     .join(' · ');

@@ -5,6 +5,7 @@ import { mountNav } from './modules/nav.js';
 import { mountTheme } from './modules/theme.js';
 import { mountStudioPanel, loadPromptFromLog } from './modules/studio.js';
 import { mountComicPanel } from './modules/comic.js';
+import { mountVideoPanel } from './modules/video.js';
 import { mountPromptPanel } from './modules/prompts.js';
 import { mountProfilesPanel } from './modules/profiles.js';
 import { mountGalleryPanel, refreshGalleryPanel } from './modules/gallery.js';
@@ -50,6 +51,9 @@ async function main() {
     onSavedImages: () => refreshGalleryPanel({ silent: true })
   });
   mountComicPanel({
+    onSavedImages: () => refreshGalleryPanel({ silent: true })
+  });
+  mountVideoPanel({
     onSavedImages: () => refreshGalleryPanel({ silent: true })
   });
   mountJobQueue();

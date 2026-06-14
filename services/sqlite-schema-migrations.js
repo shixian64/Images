@@ -122,7 +122,12 @@ CREATE TABLE IF NOT EXISTS images (
   preview_path    TEXT,
   image_index     INTEGER,
   comic_project_id TEXT,
-  comic_panel_index INTEGER
+  comic_panel_index INTEGER,
+  video_project_id TEXT,
+  video_frame_kind TEXT,
+  video_frame_index INTEGER,
+  video_from_index INTEGER,
+  video_to_index INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_images_user_created ON images(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_created      ON images(created_at DESC);
@@ -148,6 +153,27 @@ CREATE TABLE IF NOT EXISTS comic_projects (
   updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comic_projects_user_updated ON comic_projects(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS video_projects (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  prompt          TEXT NOT NULL,
+  keyframe_count  INTEGER NOT NULL DEFAULT 0,
+  chat_model      TEXT,
+  image_model     TEXT,
+  size            TEXT,
+  quality         TEXT,
+  output_format   TEXT,
+  use_references  INTEGER NOT NULL DEFAULT 1,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  config_json     TEXT NOT NULL DEFAULT '{}',
+  storyboard_json TEXT NOT NULL DEFAULT '{}',
+  reference_json  TEXT NOT NULL DEFAULT '[]',
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_video_projects_user_updated ON video_projects(user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS image_likes (
   image_id    TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
@@ -351,6 +377,7 @@ export function migrateSchema(db, { nowIso, dbPath, migrationBackupDir, legacyGa
   runSchemaMigration(db, 12, 'prompt_square_fts_index', () => migratePromptSquareFtsIndex(db));
   runSchemaMigration(db, 13, 'image_variant_paths', () => migrateImageVariantPaths(db));
   runSchemaMigration(db, 14, 'queue_event_log', () => migrateQueueEventLog(db));
+  runSchemaMigration(db, 15, 'video_project_tables', () => migrateVideoProjectTables(db));
   seedPromptSquareDefaults(db, { nowIso });
   migrateLegacyGallery(db, { legacyGallery, legacyGalleryDone, nowIso });
 }
@@ -551,6 +578,40 @@ function migrateComicProjectTables(db) {
     CREATE INDEX IF NOT EXISTS idx_comic_projects_user_updated ON comic_projects(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_images_comic_project ON images(comic_project_id, comic_panel_index, created_at);
     CREATE INDEX IF NOT EXISTS idx_images_user_comic_created ON images(user_id, comic_project_id, created_at DESC);
+  `);
+}
+
+function migrateVideoProjectTables(db) {
+  addColumnIfMissing(db, 'images', 'video_project_id', 'video_project_id TEXT');
+  addColumnIfMissing(db, 'images', 'video_frame_kind', 'video_frame_kind TEXT');
+  addColumnIfMissing(db, 'images', 'video_frame_index', 'video_frame_index INTEGER');
+  addColumnIfMissing(db, 'images', 'video_from_index', 'video_from_index INTEGER');
+  addColumnIfMissing(db, 'images', 'video_to_index', 'video_to_index INTEGER');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS video_projects (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title           TEXT NOT NULL,
+      prompt          TEXT NOT NULL,
+      keyframe_count  INTEGER NOT NULL DEFAULT 0,
+      chat_model      TEXT,
+      image_model     TEXT,
+      size            TEXT,
+      quality         TEXT,
+      output_format   TEXT,
+      use_references  INTEGER NOT NULL DEFAULT 1,
+      status          TEXT NOT NULL DEFAULT 'draft',
+      config_json     TEXT NOT NULL DEFAULT '{}',
+      storyboard_json TEXT NOT NULL DEFAULT '{}',
+      reference_json  TEXT NOT NULL DEFAULT '[]',
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_video_projects_user_updated ON video_projects(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_images_video_project
+      ON images(video_project_id, video_frame_kind, video_frame_index, video_from_index, video_to_index, created_at);
+    CREATE INDEX IF NOT EXISTS idx_images_user_video_created
+      ON images(user_id, video_project_id, created_at DESC);
   `);
 }
 

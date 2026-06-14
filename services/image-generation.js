@@ -15,7 +15,7 @@ import {
 import { saveGeneratedImages } from './gallery-store.js';
 import { getSystemEndpoint } from './interface-defaults.js';
 import { recordSuccess, recordFailure } from './quota.js';
-import { comicProjects } from './db.js';
+import { comicProjects, videoProjects } from './db.js';
 import {
   publicReferencePayload,
   runnableReferenceImages,
@@ -39,7 +39,12 @@ const PERSISTED_IMAGE_FIELDS = [
   'input_fidelity',
   'comicProjectId',
   'comicPageIndex',
-  'comicPanelIndex'
+  'comicPanelIndex',
+  'videoProjectId',
+  'videoFrameKind',
+  'videoFrameIndex',
+  'videoFromIndex',
+  'videoToIndex'
 ];
 
 const EDIT_ONLY_PASSTHROUGH_FIELDS = [
@@ -99,12 +104,44 @@ function comicProjectIdForUser(projectId, userId) {
   return id;
 }
 
+function videoProjectIdForUser(projectId, userId) {
+  const id = String(projectId || '').trim();
+  if (!id) return '';
+  if (!userId) throw new Error('unauthorized');
+  const project = videoProjects.findById(id);
+  if (!project || project.user_id !== userId) throw new Error('video project not found');
+  return id;
+}
+
 function comicPageIndexFromBody(...sources) {
   for (const source of sources) {
     const n = Number(source?.comicPageIndex ?? source?.comicPanelIndex);
     if (Number.isInteger(n) && n > 0) return n;
   }
   return undefined;
+}
+
+function videoFrameMetaFromBody(...sources) {
+  const out = {
+    videoFrameKind: '',
+    videoFrameIndex: undefined,
+    videoFromIndex: undefined,
+    videoToIndex: undefined
+  };
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    if (!out.videoFrameKind && source.videoFrameKind) {
+      const kind = String(source.videoFrameKind).trim().toLowerCase();
+      if (['keyframe', 'between', 'reference'].includes(kind)) out.videoFrameKind = kind;
+    }
+    const frameIndex = Number(source.videoFrameIndex);
+    if (out.videoFrameIndex === undefined && Number.isInteger(frameIndex) && frameIndex > 0) out.videoFrameIndex = frameIndex;
+    const fromIndex = Number(source.videoFromIndex);
+    if (out.videoFromIndex === undefined && Number.isInteger(fromIndex) && fromIndex > 0) out.videoFromIndex = fromIndex;
+    const toIndex = Number(source.videoToIndex);
+    if (out.videoToIndex === undefined && Number.isInteger(toIndex) && toIndex > 0) out.videoToIndex = toIndex;
+  }
+  return out;
 }
 
 export function resolveImageRequest(body = {}) {
@@ -366,6 +403,11 @@ export async function prepareImageGenerationJob(body = {}, { jobId = '', userInf
     userInfo?.id
   );
   const comicPageIndex = comicPageIndexFromBody(bodyForPayload, body);
+  const videoProjectId = videoProjectIdForUser(
+    bodyForPayload.videoProjectId || body.videoProjectId,
+    userInfo?.id
+  );
+  const videoFrameMeta = videoFrameMetaFromBody(bodyForPayload, body);
   const payload = buildImagePayload(bodyForPayload);
   const requestedImages = validateRequestedImages(payload.n);
   const referenceImages = await stageReferenceImages({ body, jobId, userInfo });
@@ -378,6 +420,8 @@ export async function prepareImageGenerationJob(body = {}, { jobId = '', userInf
     comicProjectId,
     comicPageIndex,
     comicPanelIndex: comicPageIndex,
+    videoProjectId,
+    ...videoFrameMeta,
     model: payload.model,
     prompt: payload.prompt,
     n: requestedImages,
@@ -413,6 +457,11 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
     userInfo?.id
   );
   const comicPageIndex = comicPageIndexFromBody(bodyForPayload, body);
+  const videoProjectId = videoProjectIdForUser(
+    bodyForPayload.videoProjectId || body.videoProjectId,
+    userInfo?.id
+  );
+  const videoFrameMeta = videoFrameMetaFromBody(bodyForPayload, body);
   const referenceImages = Array.isArray(bodyForPayload.referenceImages) ? bodyForPayload.referenceImages : [];
   const mode = referenceImages.length ? 'edit' : 'generate';
   const targetUrl = imageTargetUrl(requestConfig.baseUrl, mode);
@@ -519,6 +568,9 @@ export async function runImageGeneration(body, userInfo, { signal, onProgress, t
         comicPageIndex,
         comicPanelIndex: comicPageIndex,
         comicProjectStatus: 'generating',
+        videoProjectId,
+        ...videoFrameMeta,
+        videoProjectStatus: 'generating',
         generationMode: mode,
         referenceImageIds: publicReferencePayload(referenceImages)
           .map((item) => item.originalId)

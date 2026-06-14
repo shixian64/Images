@@ -47,7 +47,7 @@ npm run e2e:smoke -- --username alice --password "test-password"
 - 校验 `#loginForm` 存在。
 - 校验 `#registerForm` 默认隐藏。
 - 校验入口 HTML 没有 inline `<script>`，与当前 CSP 约束一致。
-- 如果提供 `E2E_USERNAME` / `E2E_PASSWORD` 或 `--username` / `--password`，会提交真实登录表单，进入 `/` 后校验 `#studioPanel.active`、`#prompt`、主导航 tab、主应用无 inline `<script>`，并逐个切换 `studioPanel`、`comicPanel`、`promptPanel`、`galleryPanel`、`configPanel`、`logsPanel`。
+- 如果提供 `E2E_USERNAME` / `E2E_PASSWORD` 或 `--username` / `--password`，会提交真实登录表单，进入 `/` 后校验 `#studioPanel.active`、`#prompt`、主导航 tab、主应用无 inline `<script>`，并逐个切换 `studioPanel`、`comicPanel`、`videoPanel`、`promptPanel`、`galleryPanel`、`configPanel`、`logsPanel`。
 - 如果提供 `E2E_SCREENSHOT_DIR` 或 `--screenshot-dir`，会为登录页和已验证的主应用 tab 生成 PNG；配合 `--screenshot-manifest` 可沉淀 SHA-256 baseline，配合 `--screenshot-baseline` 可在后续运行中检测截图是否发生严格字节级变化。
 
 这仍不是完整感知型视觉 diff；当前 baseline 是严格 PNG 哈希比对，适合固定浏览器 / 固定环境下的冒烟级视觉漂移检测。后续可在同一 CDP 基础上扩展像素级差异阈值。

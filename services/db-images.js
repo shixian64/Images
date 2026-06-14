@@ -94,8 +94,9 @@ export function createImageRepository({ open, nowIso }) {
          is_public, published_at,
          prompt, revised_prompt, model, size, quality, output_format,
          profile_name, source_type, thumbnail_path, preview_path,
-         image_index, comic_project_id, comic_panel_index)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         image_index, comic_project_id, comic_panel_index,
+         video_project_id, video_frame_kind, video_frame_index, video_from_index, video_to_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         meta.id,
         meta.userId,
@@ -120,7 +121,12 @@ export function createImageRepository({ open, nowIso }) {
         meta.comicProjectId || null,
         Number.isFinite(meta.comicPageIndex)
           ? meta.comicPageIndex
-          : (Number.isFinite(meta.comicPanelIndex) ? meta.comicPanelIndex : null)
+          : (Number.isFinite(meta.comicPanelIndex) ? meta.comicPanelIndex : null),
+        meta.videoProjectId || null,
+        meta.videoFrameKind || null,
+        Number.isFinite(meta.videoFrameIndex) ? meta.videoFrameIndex : null,
+        Number.isFinite(meta.videoFromIndex) ? meta.videoFromIndex : null,
+        Number.isFinite(meta.videoToIndex) ? meta.videoToIndex : null
       );
       return repo.findById(meta.id);
     },
@@ -140,7 +146,9 @@ export function createImageRepository({ open, nowIso }) {
     listByUser(userId, limit = 500) {
       return open().prepare(`
         SELECT * FROM images
-        WHERE user_id = ? AND (comic_project_id IS NULL OR comic_project_id = '')
+        WHERE user_id = ?
+          AND (comic_project_id IS NULL OR comic_project_id = '')
+          AND (video_project_id IS NULL OR video_project_id = '')
         ORDER BY created_at DESC LIMIT ?
       `).all(userId, limit);
     },
@@ -174,6 +182,25 @@ export function createImageRepository({ open, nowIso }) {
         SELECT * FROM images
         WHERE comic_project_id = ?
         ORDER BY COALESCE(comic_panel_index, image_index, 999999) ASC, created_at ASC
+        LIMIT ?
+      `).all(projectId, Math.max(1, Math.floor(Number(limit) || 500)));
+    },
+    listByVideoProject(projectId, { limit = 500, includeReferences = true } = {}) {
+      const refSql = includeReferences ? '' : "AND COALESCE(video_frame_kind, '') != 'reference'";
+      return open().prepare(`
+        SELECT * FROM images
+        WHERE video_project_id = ?
+        ${refSql}
+        ORDER BY
+          CASE COALESCE(video_frame_kind, '')
+            WHEN 'reference' THEN 0
+            WHEN 'keyframe' THEN 1
+            WHEN 'between' THEN 2
+            ELSE 3
+          END,
+          COALESCE(video_frame_index, video_from_index, image_index, 999999) ASC,
+          COALESCE(video_to_index, 999999) ASC,
+          created_at ASC
         LIMIT ?
       `).all(projectId, Math.max(1, Math.floor(Number(limit) || 500)));
     },
@@ -249,7 +276,9 @@ export function createImageRepository({ open, nowIso }) {
     countByUser(userId) {
       return open().prepare(`
         SELECT COUNT(*) AS n FROM images
-        WHERE user_id = ? AND (comic_project_id IS NULL OR comic_project_id = '')
+        WHERE user_id = ?
+          AND (comic_project_id IS NULL OR comic_project_id = '')
+          AND (video_project_id IS NULL OR video_project_id = '')
       `).get(userId)?.n || 0;
     },
     countPublic() {

@@ -15,15 +15,20 @@ import {
   galleryLoadingHtml,
   galleryScopeEmptyHtml,
   getImagePrompt,
-  previewSrcFromGalleryItem
+  previewSrcFromGalleryItem,
+  videoProjectCardsHtml,
+  videoProjectDetailHtml,
+  videoProjectImagesEmptyHtml
 } from './gallery-view.js';
 
 let galleryItems = [];
 let galleryScope = 'mine';
-let galleryCounts = { mine: 0, myPublic: 0, public: 0, comicProjects: 0 };
+let galleryCounts = { mine: 0, myPublic: 0, public: 0, comicProjects: 0, videoProjects: 0 };
 let likeQuota = { limit: 10, used: 0, remaining: 10 };
 let comicProjects = [];
 let activeComicProject = null;
+let videoProjects = [];
+let activeVideoProject = null;
 let mounted = false;
 
 let previewIndex = -1;
@@ -86,9 +91,11 @@ function renderScopeTabs() {
   const mine = $('galleryMineCount');
   const pub = $('galleryPublicCount');
   const comic = $('galleryComicCount');
+  const video = $('galleryVideoCount');
   if (mine) mine.textContent = String(galleryCounts.mine || 0);
   if (pub) pub.textContent = String(galleryCounts.public || 0);
   if (comic) comic.textContent = String(galleryCounts.comicProjects || 0);
+  if (video) video.textContent = String(galleryCounts.videoProjects || 0);
 }
 
 function hideGallerySummary() {
@@ -129,9 +136,24 @@ function comicProjectDetailFromResponse(data = {}) {
   };
 }
 
+function videoProjectDetailFromResponse(data = {}) {
+  const progress = data.progress || data.project?.progress || null;
+  const references = Array.isArray(data.project?.references)
+    ? data.project.references
+    : (Array.isArray(data.references) ? data.references : []);
+  return {
+    project: data.project ? { ...data.project, references, progress } : data.project,
+    references,
+    images: Array.isArray(data.images) ? data.images : [],
+    jobs: Array.isArray(data.jobs) ? data.jobs : [],
+    progress
+  };
+}
+
 function renderComicProjects() {
   const list = $('savedGallery');
   activeComicProject = null;
+  activeVideoProject = null;
   galleryItems = [];
   if (!comicProjects.length) {
     list.dataset.empty = 'true';
@@ -140,6 +162,20 @@ function renderComicProjects() {
   }
   list.dataset.empty = 'false';
   list.innerHTML = comicProjectCardsHtml(comicProjects);
+}
+
+function renderVideoProjects() {
+  const list = $('savedGallery');
+  activeVideoProject = null;
+  activeComicProject = null;
+  galleryItems = [];
+  if (!videoProjects.length) {
+    list.dataset.empty = 'true';
+    list.innerHTML = galleryScopeEmptyHtml('video');
+    return;
+  }
+  list.dataset.empty = 'false';
+  list.innerHTML = videoProjectCardsHtml(videoProjects);
 }
 
 function renderComicProjectDetail() {
@@ -155,11 +191,29 @@ function renderComicProjectDetail() {
   });
 }
 
+function renderVideoProjectDetail() {
+  const list = $('savedGallery');
+  const project = activeVideoProject?.project;
+  if (!project) return renderVideoProjects();
+  const images = activeVideoProject.images || [];
+  galleryItems = images;
+  list.dataset.empty = 'false';
+  list.innerHTML = videoProjectDetailHtml(project, images, {
+    imageCardsHtml: renderImageCards(images),
+    emptyImagesHtml: videoProjectImagesEmptyHtml()
+  });
+}
+
 function renderGallery() {
   const list = $('savedGallery');
   if (galleryScope === 'comic') {
     if (activeComicProject) renderComicProjectDetail();
     else renderComicProjects();
+    return;
+  }
+  if (galleryScope === 'video') {
+    if (activeVideoProject) renderVideoProjectDetail();
+    else renderVideoProjects();
     return;
   }
   if (!galleryItems.length) {
@@ -191,8 +245,24 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
       renderScopeTabs();
       hideGallerySummary();
       activeComicProject = null;
+      activeVideoProject = null;
       renderGallery();
       if (!silent) setStatus('漫画项目已刷新', 'ok', 1200);
+      return;
+    }
+
+    if (galleryScope === 'video') {
+      const resp = await apiFetch('/api/video-projects?limit=500', { headers: { accept: 'application/json' } });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      videoProjects = Array.isArray(data.items) ? data.items : [];
+      galleryCounts = { ...galleryCounts, videoProjects: Number(data.count ?? videoProjects.length) || 0 };
+      renderScopeTabs();
+      hideGallerySummary();
+      activeComicProject = null;
+      activeVideoProject = null;
+      renderGallery();
+      if (!silent) setStatus('视频项目已刷新', 'ok', 1200);
       return;
     }
 
@@ -210,7 +280,7 @@ export async function refreshGalleryPanel({ silent = false } = {}) {
     hideGallerySummary();
     list.dataset.empty = 'true';
     list.innerHTML = galleryErrorHtml(galleryScope, message);
-    setStatus(`${galleryScope === 'comic' ? '漫画项目' : '图库'}加载失败`, 'err', 1800);
+    setStatus(`${galleryScope === 'comic' ? '漫画项目' : (galleryScope === 'video' ? '视频项目' : '图库')}加载失败`, 'err', 1800);
   }
 }
 
@@ -231,6 +301,8 @@ async function handleDeleteFromCard(card) {
     setStatus('图片已删除', 'ok', 1400);
     if (galleryScope === 'comic' && activeComicProject?.project?.id) {
       await openComicProject(activeComicProject.project.id, { silent: true });
+    } else if (galleryScope === 'video' && activeVideoProject?.project?.id) {
+      await openVideoProject(activeVideoProject.project.id, { silent: true });
     } else {
       await refreshGalleryPanel({ silent: true });
     }
@@ -325,6 +397,7 @@ async function openComicProject(projectId, { silent = false } = {}) {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    activeVideoProject = null;
     activeComicProject = comicProjectDetailFromResponse(data);
     renderGallery();
     if (!silent) setStatus('漫画项目已打开', 'ok', 1200);
@@ -376,7 +449,72 @@ async function deleteComicProject(projectId) {
   }
 }
 
-function projectIdFromElement(el) {
+async function openVideoProject(projectId, { silent = false } = {}) {
+  if (!projectId) return;
+  try {
+    if (!silent) setStatus('正在打开视频项目…', 'busy');
+    const resp = await apiFetch(`/api/video-projects/${encodeURIComponent(projectId)}`, {
+      headers: { accept: 'application/json' }
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    activeComicProject = null;
+    activeVideoProject = videoProjectDetailFromResponse(data);
+    renderGallery();
+    if (!silent) setStatus('视频项目已打开', 'ok', 1200);
+  } catch (err) {
+    setStatus(`打开视频项目失败：${err?.message || err}`, 'err', 2200);
+  }
+}
+
+async function loadVideoProjectForImport(projectId) {
+  if (activeVideoProject?.project?.id === projectId) return activeVideoProject;
+  const resp = await apiFetch(`/api/video-projects/${encodeURIComponent(projectId)}`, {
+    headers: { accept: 'application/json' }
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+  return videoProjectDetailFromResponse(data);
+}
+
+async function importVideoProject(projectId) {
+  if (!projectId) return;
+  try {
+    const detail = await loadVideoProjectForImport(projectId);
+    window.dispatchEvent(new CustomEvent('video-project-import', { detail }));
+    switchTab('videoPanel');
+    setStatus('已导入视频项目，可继续编辑或生成', 'ok', 1800);
+  } catch (err) {
+    setStatus(`导入失败：${err?.message || err}`, 'err', 2200);
+  }
+}
+
+async function deleteVideoProject(projectId) {
+  if (!projectId) return;
+  const ok = await dialog.confirm({
+    title: '删除视频项目',
+    message: '将删除该视频项目、项目参考图及项目内所有图片，且不可恢复。继续？',
+    confirmText: '删除项目',
+    danger: true
+  });
+  if (!ok) return;
+  try {
+    const resp = await apiFetch(`/api/video-projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+    setStatus('视频项目已删除', 'ok', 1400);
+    activeVideoProject = null;
+    await refreshGalleryPanel({ silent: true });
+  } catch (err) {
+    setStatus(`删除视频项目失败：${err?.message || err}`, 'err', 2400);
+  }
+}
+
+function projectIdFromElement(el, kind = 'comic') {
+  if (kind === 'video') {
+    if (activeVideoProject?.project?.id) return activeVideoProject.project.id;
+    return el?.closest?.('[data-video-project-id]')?.dataset?.videoProjectId || '';
+  }
   if (activeComicProject?.project?.id) return activeComicProject.project.id;
   return el?.closest?.('[data-comic-project-id]')?.dataset?.comicProjectId || '';
 }
@@ -387,10 +525,11 @@ export function mountGalleryPanel() {
   $('galleryScopeTabs')?.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-gallery-scope]');
     if (!btn) return;
-    const next = ['public', 'comic'].includes(btn.dataset.galleryScope) ? btn.dataset.galleryScope : 'mine';
+    const next = ['public', 'comic', 'video'].includes(btn.dataset.galleryScope) ? btn.dataset.galleryScope : 'mine';
     if (next === galleryScope) return;
     galleryScope = next;
     activeComicProject = null;
+    activeVideoProject = null;
     renderScopeTabs();
     refreshGalleryPanel();
   });
@@ -425,6 +564,39 @@ export function mountGalleryPanel() {
       ev.preventDefault();
       ev.stopPropagation();
       deleteComicProject(projectIdFromElement(projectDelete));
+      return;
+    }
+
+    const videoProjectBack = ev.target.closest('[data-video-project-back]');
+    if (videoProjectBack) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      activeVideoProject = null;
+      renderGallery();
+      return;
+    }
+
+    const videoProjectOpen = ev.target.closest('[data-video-project-open]');
+    if (videoProjectOpen) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openVideoProject(projectIdFromElement(videoProjectOpen, 'video'));
+      return;
+    }
+
+    const videoProjectImport = ev.target.closest('[data-video-project-import]');
+    if (videoProjectImport) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      importVideoProject(projectIdFromElement(videoProjectImport, 'video'));
+      return;
+    }
+
+    const videoProjectDelete = ev.target.closest('[data-video-project-delete]');
+    if (videoProjectDelete) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      deleteVideoProject(projectIdFromElement(videoProjectDelete, 'video'));
       return;
     }
 
@@ -499,6 +671,22 @@ export function mountGalleryPanel() {
       const data = await resp.json().catch(() => ({}));
       if (resp.ok) {
         galleryCounts = { ...galleryCounts, comicProjects: Number(data.count) || 0 };
+        renderScopeTabs();
+      }
+    } catch {
+      // 计数刷新失败不影响生成流程。
+    }
+  });
+  window.addEventListener('video-project-saved', async () => {
+    if (galleryScope === 'video') {
+      refreshGalleryPanel({ silent: true });
+      return;
+    }
+    try {
+      const resp = await apiFetch('/api/video-projects?limit=1', { headers: { accept: 'application/json' } });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        galleryCounts = { ...galleryCounts, videoProjects: Number(data.count) || 0 };
         renderScopeTabs();
       }
     } catch {

@@ -41,6 +41,7 @@ test('jobs view formats status, durations, image sources and metadata', () => {
   assert.equal(jobFirstThumb({ result: { data: [{ url: '/thumb' }] } }), '/thumb');
 
   assert.equal(jobMeta({ payload: { jobType: 'comic_storyboard', model: 'm', pageLimit: 3 } }), '漫画页分镜 · m · 模型自动页数 · 最多 3 页');
+  assert.equal(jobMeta({ payload: { jobType: 'video_storyboard', model: 'm', keyframeLimit: 5 } }), '视频关键帧规划 · m · 模型自动帧数 · 最多 5 帧');
   assert.equal(jobMeta({ payload: { model: 'm', size: 's', quality: 'q', n: 2 } }), 'm · s · q · n=2');
 });
 
@@ -116,6 +117,7 @@ test('jobs view uses locale messages for queue chrome', () => {
   assert.equal(formatJobDuration(0), '0s');
   assert.equal(jobProgressInfo({ status: 'running', startedAt: 1_000 }, { nowMs: 66_000 }).text, 'Running for 1m 5s');
   assert.equal(jobMeta({ payload: { jobType: 'comic_storyboard', model: 'm', pageLimit: 3 } }), 'Comic storyboard · m · Auto page count · up to 3 pages');
+  assert.equal(jobMeta({ payload: { jobType: 'video_storyboard', model: 'm', keyframeLimit: 5 } }), 'Video keyframe plan · m · Auto keyframes · up to 5 frames');
   assert.equal(jobQueueEmptyText('running'), 'No running jobs.');
   assert.equal(jobQueueEmptyText('queued'), 'Queue is empty.');
   assert.equal(jobQueueEmptyText('recent'), 'No completed jobs yet.');

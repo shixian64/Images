@@ -20,6 +20,7 @@ import { createGenerationJobRepository } from './db-generation-jobs.js';
 import { createQueueEventRepository } from './db-queue-events.js';
 import { createImageRepository } from './db-images.js';
 import { createComicProjectRepository } from './db-comic-projects.js';
+import { createVideoProjectRepository } from './db-video-projects.js';
 import { createRegistrationInviteRepositories } from './db-registration-invites.js';
 
 const DB_DIR = join(process.cwd(), 'generated');
@@ -104,6 +105,8 @@ export const sessions = createSessionRepository({ open, nowIso });
 export const images = createImageRepository({ open, nowIso });
 
 export const comicProjects = createComicProjectRepository({ open, nowIso });
+
+export const videoProjects = createVideoProjectRepository({ open, nowIso });
 
 // ---- image_likes ----
 

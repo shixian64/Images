@@ -24,6 +24,12 @@ import {
   runComicStoryboardJob
 } from './comic-storyboard-jobs.js';
 import {
+  getVideoStoryboardTimeoutMs,
+  isVideoStoryboardPayload,
+  prepareVideoStoryboardJob,
+  runVideoStoryboardJob
+} from './video-storyboard-jobs.js';
+import {
   getQueueSettings,
   persistQueueSettings,
   priorityForUser
@@ -99,20 +105,40 @@ function syncComicProjectStatusForJob(job) {
     });
 }
 
+function syncVideoProjectStatusForJob(job) {
+  const projectId = job?.payload?.videoProjectId;
+  if (!projectId || !job?.user_id) return;
+  import('./video-projects.js')
+    .then(({ syncVideoProjectStatus }) => syncVideoProjectStatus(projectId, { userId: job.user_id }))
+    .catch((err) => {
+      if (err?.message === 'video project not found') return;
+      logger.warn('job.video_project_status_sync_failed', {
+        jobId: job.id,
+        projectId,
+        userId: job.user_id,
+        error: err?.message || String(err)
+      });
+    });
+}
+
 function emitJobStatus(job, event = 'job') {
   emitJob(job, event);
   syncComicProjectStatusForJob(job);
+  syncVideoProjectStatusForJob(job);
 }
 
 function timeoutMsForJob(job, settings = getQueueSettings()) {
   if (settings.execution_timeout_ms) return settings.execution_timeout_ms;
-  return isComicStoryboardPayload(job?.payload)
-    ? getComicStoryboardTimeoutMs()
+  if (isComicStoryboardPayload(job?.payload)) return getComicStoryboardTimeoutMs();
+  return isVideoStoryboardPayload(job?.payload)
+    ? getVideoStoryboardTimeoutMs()
     : getImageGenerationTimeoutMs();
 }
 
 function compactJobResult(job, body = {}) {
-  return isComicStoryboardPayload(job?.payload) ? (body || {}) : compactGenerationResult(body);
+  return (isComicStoryboardPayload(job?.payload) || isVideoStoryboardPayload(job?.payload))
+    ? (body || {})
+    : compactGenerationResult(body);
 }
 
 function isRestartRecoverableJob(job) {
@@ -145,6 +171,7 @@ function recoverRunningJobsOnStartup() {
       result.failed += 1;
       cleanupRecoveredFailedJob(failed);
       syncComicProjectStatusForJob(failed);
+      syncVideoProjectStatusForJob(failed);
     }
   }
   return result;
@@ -214,6 +241,7 @@ export async function enqueueImageGeneration(body, userInfo) {
   });
   emitJob(job, 'job');
   syncComicProjectStatusForJob(job);
+  syncVideoProjectStatusForJob(job);
   kickScheduler();
   return serializeJob(job);
 }
@@ -273,6 +301,61 @@ export async function enqueueComicStoryboard(body, userInfo) {
     priority: job.priority
   });
   emitJob(job, 'job');
+  kickScheduler();
+  return serializeJob(job);
+}
+
+export async function enqueueVideoStoryboard(body, userInfo) {
+  if (!userInfo?.id) throw httpError(401, 'unauthorized');
+  const freshUser = users.findById(userInfo.id) || userInfo;
+  const settings = getQueueSettings();
+  if (settings.maintenance_mode) {
+    throw httpError(503, '生成队列维护中，请稍后再试。', 'queue_maintenance');
+  }
+
+  const id = randomUUID();
+  const prepared = await prepareVideoStoryboardJob(body || {}, { jobId: id, userInfo: freshUser });
+  checkQueueCapacity(freshUser, settings);
+
+  if (freshUser.role !== 'admin' && prepared.usingSystemDefault) {
+    const check = assertCanGenerate(freshUser.id, {
+      n: prepared.requestedCalls,
+      includeQueued: true,
+      checkCallLimits: true,
+      checkStorage: false
+    });
+    if (!check.ok) {
+      logger.warn('video.storyboard.quota_exceeded', {
+        userId: freshUser.id,
+        code: check.code,
+        model: prepared.model
+      });
+      throw httpError(429, check.message, check.code);
+    }
+  }
+
+  const job = generationJobs.create({
+    id,
+    userId: freshUser.id,
+    status: 'queued',
+    priority: priorityForUser(freshUser, settings),
+    payload: prepared.payload,
+    promptPreview: prepared.promptPreview,
+    profileName: prepared.profileName,
+    model: prepared.model,
+    n: prepared.requestedCalls
+  });
+  rememberTransientSecret(id, prepared.transientSecret);
+
+  logger.info('video.storyboard.enqueued', {
+    jobId: job.id,
+    userId: freshUser.id,
+    model: prepared.model,
+    usingSystemDefault: prepared.usingSystemDefault,
+    priority: job.priority
+  });
+  emitJob(job, 'job');
+  syncVideoProjectStatusForJob(job);
   kickScheduler();
   return serializeJob(job);
 }
@@ -372,7 +455,14 @@ async function executeJob(job, slot, userInfo) {
         timeoutMs,
         onProgress
       })
-      : await runImageGeneration(runtimeBodyForJob(running), userInfo, {
+      : isVideoStoryboardPayload(running.payload)
+        ? await runVideoStoryboardJob(running.payload, userInfo, {
+          transientSecret: getTransientSecret(running.id),
+          signal: controller.signal,
+          timeoutMs,
+          onProgress
+        })
+        : await runImageGeneration(runtimeBodyForJob(running), userInfo, {
         signal: controller.signal,
         timeoutMs,
         onProgress

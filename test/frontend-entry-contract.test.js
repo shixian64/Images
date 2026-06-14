@@ -56,6 +56,7 @@ test('top-level navigation tabs have matching tab panels', () => {
   assert.deepEqual(tabTargets, [
     'studioPanel',
     'comicPanel',
+    'videoPanel',
     'promptPanel',
     'galleryPanel',
     'configPanel',
@@ -113,6 +114,7 @@ test('literal frontend DOM id references resolve to static or generated markup',
       'studio.js',
       'theme.js',
       'users.js',
+      'video.js',
       'volatile-secrets.js'
     ].map((name) => `${MODULE_DIR}/${name}`)
   ];

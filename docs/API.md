@@ -100,13 +100,17 @@
 
 Prompt Square `meta.previewImages` 仅保留本地提示词示例图路径或无凭据的 HTTPS 外部图片 URL。
 
-## 漫画工作流
+## 漫画与视频工作流
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET/POST | `/api/comic-projects` | 登录 | 列表 / 创建漫画项目；列表响应只返回故事与分镜预览，并通过 `storyLength`、`storyTruncated`、`storyboardLength`、`storyboardTruncated` 标识裁剪状态。 |
 | GET/PUT/PATCH/DELETE | `/api/comic-projects/:id` | 登录 | 读取、更新、删除漫画项目；详情响应保留完整故事与分镜。 |
 | POST | `/api/comic-storyboards` | 登录 | 创建分镜生成任务。 |
+| GET/POST | `/api/video-projects` | 登录 | 列表 / 创建视频项目；视频项目保存提示词、全局配置、参考图、关键帧规划和项目内图片。 |
+| GET/PUT/PATCH/DELETE | `/api/video-projects/:id` | 登录 | 读取、更新、删除视频项目；详情响应包含参考图、关键帧图、帧间图和关联任务。 |
+| POST | `/api/video-projects/:id/references` | 登录 | 上传一张或多张视频项目参考图。 |
+| POST | `/api/video-storyboards` | 登录 | 创建视频关键帧规划任务。 |
 
 ## 管理后台
 
