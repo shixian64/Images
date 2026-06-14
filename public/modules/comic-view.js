@@ -35,7 +35,9 @@ export function comicResultCardHtml(entry = {}, index = 0, {
   const status = entry.status || 'pending';
   const statusLabel = comicResultStatusLabel(status);
   const image = src
-    ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(title.slice(0, 80))}" loading="lazy" />`
+    ? `<button class="image-preview-trigger" type="button" data-comic-result-preview="${index}" aria-label="${escapeHtml(t('studio.result.previewAria', { index: itemIndex }))}">
+        <img src="${escapeHtml(src)}" alt="${escapeHtml(title.slice(0, 80))}" loading="lazy" />
+      </button>`
     : `<div class="comic-result-placeholder">${escapeHtml(statusLabel)}</div>`;
   const actions = src
     ? `<a href="${escapeHtml(src)}" download="comic-panel-${itemIndex}.png">${escapeHtml(t('comic.result.download'))}</a>`

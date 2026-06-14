@@ -32,6 +32,7 @@ import {
   firstResultItem,
   generatedEntryFromJob,
   imageIdFromItem,
+  imageSrcFromItem,
   itemPanelIndex,
   latestJobForPage,
   pageStoryboardEditorEnabled,
@@ -44,6 +45,7 @@ import {
   comicStyleGuideHtml
 } from './comic-storyboard-view.js';
 import { selectOptionsHtml } from './select-options-view.js';
+import { createImagePreviewController } from './image-preview.js';
 
 const COMIC_STORY_DRAFT_KEY = 'image-studio.comicStoryDraft.v1';
 const JOB_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
@@ -55,6 +57,11 @@ let activeRun = null;
 let activeStoryboardRequest = null;
 let currentProjectId = '';
 let currentProjectStory = '';
+const comicPreviewController = createImagePreviewController({
+  ariaLabel: '漫画图片预览',
+  closeLabel: '关闭漫画图片预览',
+  closeAttribute: 'data-comic-preview-close'
+});
 
 function renderSelect(id, items, selectedValue = '') {
   const el = $(id);
@@ -216,6 +223,23 @@ function renderComicResults() {
   const view = comicResultsView(generatedPanels, storyboard);
   list.dataset.empty = view.empty ? 'true' : 'false';
   list.innerHTML = view.html;
+}
+
+function openComicResultPreview(index, trigger = null) {
+  if (!Number.isInteger(index)) return false;
+  const entry = generatedPanels[index] || {};
+  const src = imageSrcFromItem(entry.item || {});
+  if (!src) return false;
+  const title = storyboard?.panels?.[index]?.beat || entry.prompt || `漫画第 ${index + 1} 页`;
+  return comicPreviewController.open({
+    src,
+    alt: title,
+    trigger
+  });
+}
+
+function closeComicResultPreview() {
+  return comicPreviewController.close();
 }
 
 function syncStoryboardFromEditors() {
@@ -750,6 +774,17 @@ function bindEvents({ onSavedImages } = {}) {
   $('comicPanelCount')?.addEventListener('blur', () => syncComicPageLimitInput());
   $('comicChatModel')?.addEventListener('input', () => { $('comicChatModel').dataset.userEdited = '1'; });
   $('comicImageModel')?.addEventListener('input', () => { $('comicImageModel').dataset.userEdited = '1'; });
+  $('comicResults')?.addEventListener('click', (ev) => {
+    const previewBtn = ev.target.closest('[data-comic-result-preview]');
+    if (!previewBtn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const index = Number(previewBtn.dataset.comicResultPreview);
+    openComicResultPreview(index, previewBtn);
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeComicResultPreview();
+  });
   window.addEventListener('comic-project-import', (ev) => loadComicProject(ev.detail || {}));
 }
 
