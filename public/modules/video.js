@@ -55,6 +55,8 @@ let betweenResults = Object.create(null);
 let activeStoryboardRequest = null;
 let videoPromptEditorOpen = false;
 const handledVideoFinalJobIds = new Set();
+const pendingKeyframeSubmissions = new Set();
+const pendingBetweenSubmissions = new Set();
 const videoPreviewController = createImagePreviewController({
   ariaLabel: '视频图片预览',
   closeLabel: '关闭视频图片预览',
@@ -295,10 +297,30 @@ function keyframeTick(index) {
   return Math.max(1, Math.floor(Number(index) || 1)) * VIDEO_TIMELINE_SCALE;
 }
 
+function snapTimelineTick(tick) {
+  const normalized = Math.max(0, Math.round(Number(tick) || 0));
+  if (!normalized) return 0;
+  const whole = Math.floor(normalized / VIDEO_TIMELINE_SCALE);
+  const rest = normalized - whole * VIDEO_TIMELINE_SCALE;
+  if (!rest) return normalized;
+  const coarseDenominator = VIDEO_BETWEEN_COUNT_LIMITS.defaultCoarse + 1;
+  const coarseSlot = Math.round((rest / VIDEO_TIMELINE_SCALE) * coarseDenominator);
+  if (coarseSlot > 0 && coarseSlot < coarseDenominator) {
+    const coarseTick = Math.round((coarseSlot * VIDEO_TIMELINE_SCALE) / coarseDenominator);
+    if (Math.abs(rest - coarseTick) <= 2) {
+      return whole * VIDEO_TIMELINE_SCALE + coarseTick;
+    }
+  }
+  return normalized;
+}
+
 function normalizeTimelineTick(value) {
-  const n = Math.floor(Number(value) || 0);
-  if (!Number.isInteger(n) || n <= 0) return 0;
-  return n < VIDEO_TIMELINE_SCALE ? n * VIDEO_TIMELINE_SCALE : n;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const tick = n < VIDEO_TIMELINE_SCALE
+    ? Math.round(n * VIDEO_TIMELINE_SCALE)
+    : Math.round(n);
+  return snapTimelineTick(tick);
 }
 
 function betweenPointKey(pointTick) {
@@ -661,7 +683,7 @@ function renderKeyframeResultCard(index) {
   const entry = keyframeResults[index] || { status: 'pending' };
   const status = entry.status || 'pending';
   const prompt = entry.prompt || frame.imagePrompt || '';
-  const active = isActiveEntry(entry);
+  const active = isActiveEntry(entry) || isKeyframeSubmitting(index);
   return `<article class="image-card gallery-card comic-result-card video-keyframe-result" data-status="${escapeHtml(status)}" data-video-keyframe-result="${index}">
     ${resultImageHtml(entry, `第 ${index + 1} 个关键帧`)}
     <div class="image-meta"><span>K${index + 1}</span><span>${escapeHtml(statusLabel(status))}</span></div>
@@ -700,11 +722,20 @@ function isSucceededEntry(entry = {}) {
   return entry?.status === 'succeeded' && Boolean(imageIdFromItem(entry.item || {}));
 }
 
+function isKeyframeSubmitting(index) {
+  return pendingKeyframeSubmissions.has(String(index));
+}
+
+function isBetweenSubmitting(pointTick) {
+  return pendingBetweenSubmissions.has(betweenPointKey(pointTick));
+}
+
 function hasQueueableBetweenTargets(segment = {}) {
   const normalized = normalizeBetweenSegment(segment);
   if (!normalized) return false;
   return normalized.targetTicks.some((pointTick) => {
     const entry = betweenResults[betweenPointKey(pointTick)] || {};
+    if (isBetweenSubmitting(pointTick)) return false;
     if (isActiveEntry(entry)) return false;
     if (!normalized.force && isSucceededEntry(entry)) return false;
     return true;
@@ -762,7 +793,7 @@ function timelineThumbHtml(point = {}) {
   const src = imageUrl(entry.item || entry);
   const isBetween = point.type === 'between';
   const key = betweenPointKey(point.tick);
-  const active = isActiveEntry(entry);
+  const active = isActiveEntry(entry) || isBetweenSubmitting(point.tick);
   const action = isBetween
     ? `<button type="button" class="ghost small" data-video-regenerate-between-point="${escapeHtml(key)}" ${active ? 'disabled' : ''}>${active ? '已入队' : (imageIdFromItem(entry.item || {}) ? '重生' : '重试')}</button>`
     : '';
@@ -1274,6 +1305,16 @@ function markKeyframeQueued(index, payload, jobId = '', job = {}) {
   };
 }
 
+function queueableKeyframeIndexes(indexes = [], onlyIndex = null) {
+  return indexes.filter((index) => {
+    const existing = keyframeResults[index] || { status: 'pending' };
+    const existingId = imageIdFromItem(existing.item || {});
+    if (isKeyframeSubmitting(index) || isActiveEntry(existing)) return false;
+    if (!Number.isInteger(onlyIndex) && existing.status === 'succeeded' && existingId) return false;
+    return true;
+  });
+}
+
 async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
   showVideoError('');
   if (!storyboard?.keyframes?.length) return showVideoError('请先生成关键帧规划。');
@@ -1282,98 +1323,111 @@ async function generateKeyframes({ onSavedImages, onlyIndex = null } = {}) {
   } catch (err) {
     return showVideoError(err?.message || String(err));
   }
+
+  ensureKeyframeResultSlots();
+  const indexes = keyframeGenerationIndexes(onlyIndex);
+  const lockedIndexes = queueableKeyframeIndexes(indexes, onlyIndex);
+  if (!lockedIndexes.length) {
+    setStatus('没有新的关键帧需要入队', 'muted', 1600);
+    showVideoProgress('所选关键帧已完成或正在队列中。', 'muted');
+    renderResults();
+    return;
+  }
+  lockedIndexes.forEach((index) => pendingKeyframeSubmissions.add(String(index)));
+  renderResults();
+
   let imageInfo;
   try {
     imageInfo = resolveProfileConfig('image');
-  } catch (err) {
-    return showVideoError(err.message || String(err));
-  }
-  if (!imageInfo.systemMode) {
-    const ok = await confirmVolatileCustomKeyUse({ taskLabel: '视频关键帧生图任务' });
-    if (!ok) return;
-  }
-
-  try {
-    await saveVideoProject('generating');
-  } catch (err) {
-    return showVideoError(`视频项目保存失败：${err.message || String(err)}`);
-  }
-
-  ensureKeyframeResultSlots();
-  renderResults();
-  const started = Date.now();
-  const indexes = keyframeGenerationIndexes(onlyIndex);
-  let queued = 0;
-  let skipped = 0;
-  let failed = 0;
-  const errors = [];
-
-  for (const index of indexes) {
-    const existing = keyframeResults[index] || { status: 'pending' };
-    const existingId = imageIdFromItem(existing.item || {});
-    if (isActiveEntry(existing)) {
-      skipped += 1;
-      continue;
-    }
-    if (!Number.isInteger(onlyIndex) && existing.status === 'succeeded' && existingId) {
-      skipped += 1;
-      continue;
+    if (!imageInfo.systemMode) {
+      const ok = await confirmVolatileCustomKeyUse({ taskLabel: '视频关键帧生图任务' });
+      if (!ok) return;
     }
 
     try {
-      const frame = storyboard.keyframes[index];
-      const payload = framePayload({ frame, index, imageInfo });
-      markKeyframeQueued(index, payload);
-      renderResults();
-      showVideoProgress(`正在提交第 ${index + 1}/${storyboard.keyframes.length} 个关键帧到生图队列…`, 'busy');
-      const { job } = await queueSingleGeneration({
-        payload,
-        progressMessage: (jobId) => `第 ${index + 1}/${storyboard.keyframes.length} 个关键帧任务 ${jobId.slice(0, 8)} 已入队；你可以继续提交其他关键帧或帧间图。`,
-        onQueued: (jobId, queuedJob) => {
-          markKeyframeQueued(index, payload, jobId, queuedJob);
-          renderResults();
-        }
-      });
-      queued += 1;
-      if (FINAL_STATUSES.has(job.status)) {
-        await applyVideoGenerationJobUpdate(job, { onSavedImages });
-      }
+      await saveVideoProject('generating');
     } catch (err) {
-      failed += 1;
-      const message = err?.message || String(err);
-      errors.push(`K${index + 1}: ${message}`);
-      keyframeResults[index] = {
-        ...(keyframeResults[index] || { status: 'pending' }),
-        status: 'failed',
-        error: message
-      };
-      renderResults();
+      return showVideoError(`视频项目保存失败：${err.message || String(err)}`);
     }
-  }
 
-  try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
-  addLog(failed ? 'error' : 'info', failed ? 'video.keyframes.queue_failed' : 'video.keyframes.queued', {
-    model: $('videoImageModel')?.value.trim() || imageInfo.config.defaultModel || DEFAULT_IMAGE_MODEL,
-    profileName: imageInfo.profile.name,
-    interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
-    durationMs: Date.now() - started,
-    keyframeCount: storyboard.keyframes.length,
-    queued,
-    skipped,
-    failed,
-    projectId: currentProjectId
-  });
-  if (failed) {
-    const message = errors[0] || '部分关键帧提交失败。';
-    showVideoError(message);
-    setStatus('部分关键帧入队失败', 'err', 2200);
-    showVideoProgress(`已入队 ${queued} 个关键帧，${failed} 个提交失败。${message}`, 'err');
-    return;
+    const locked = new Set(lockedIndexes.map((index) => String(index)));
+    const started = Date.now();
+    let queued = 0;
+    let skipped = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const index of indexes) {
+      if (!locked.has(String(index))) {
+        skipped += 1;
+        continue;
+      }
+      const existing = keyframeResults[index] || { status: 'pending' };
+      if (isActiveEntry(existing)) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        const frame = storyboard.keyframes[index];
+        const payload = framePayload({ frame, index, imageInfo });
+        markKeyframeQueued(index, payload);
+        renderResults();
+        showVideoProgress(`正在提交第 ${index + 1}/${storyboard.keyframes.length} 个关键帧到生图队列…`, 'busy');
+        const { job } = await queueSingleGeneration({
+          payload,
+          progressMessage: (jobId) => `第 ${index + 1}/${storyboard.keyframes.length} 个关键帧任务 ${jobId.slice(0, 8)} 已入队；你可以继续提交其他关键帧或帧间图。`,
+          onQueued: (jobId, queuedJob) => {
+            markKeyframeQueued(index, payload, jobId, queuedJob);
+            renderResults();
+          }
+        });
+        queued += 1;
+        if (FINAL_STATUSES.has(job.status)) {
+          await applyVideoGenerationJobUpdate(job, { onSavedImages });
+        }
+      } catch (err) {
+        failed += 1;
+        const message = err?.message || String(err);
+        errors.push(`K${index + 1}: ${message}`);
+        keyframeResults[index] = {
+          ...(keyframeResults[index] || { status: 'pending' }),
+          status: 'failed',
+          error: message
+        };
+        renderResults();
+      }
+    }
+
+    try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
+    addLog(failed ? 'error' : 'info', failed ? 'video.keyframes.queue_failed' : 'video.keyframes.queued', {
+      model: $('videoImageModel')?.value.trim() || imageInfo.config.defaultModel || DEFAULT_IMAGE_MODEL,
+      profileName: imageInfo.profile.name,
+      interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
+      durationMs: Date.now() - started,
+      keyframeCount: storyboard.keyframes.length,
+      queued,
+      skipped,
+      failed,
+      projectId: currentProjectId
+    });
+    if (failed) {
+      const message = errors[0] || '部分关键帧提交失败。';
+      showVideoError(message);
+      setStatus('部分关键帧入队失败', 'err', 2200);
+      showVideoProgress(`已入队 ${queued} 个关键帧，${failed} 个提交失败。${message}`, 'err');
+      return;
+    }
+    setStatus(queued ? '关键帧任务已入队' : '没有新的关键帧需要入队', queued ? 'ok' : 'muted', 1800);
+    showVideoProgress(queued
+      ? `已入队 ${queued} 个关键帧任务${skipped ? `，跳过 ${skipped} 个已完成/进行中的关键帧` : ''}；完成后会自动回填。`
+      : `没有新的关键帧需要生成，已跳过 ${skipped} 个已完成/进行中的关键帧。`, queued ? 'busy' : 'muted');
+  } catch (err) {
+    showVideoError(err.message || String(err));
+  } finally {
+    lockedIndexes.forEach((index) => pendingKeyframeSubmissions.delete(String(index)));
+    renderResults();
   }
-  setStatus(queued ? '关键帧任务已入队' : '没有新的关键帧需要入队', queued ? 'ok' : 'muted', 1800);
-  showVideoProgress(queued
-    ? `已入队 ${queued} 个关键帧任务${skipped ? `，跳过 ${skipped} 个已完成/进行中的关键帧` : ''}；完成后会自动回填。`
-    : `没有新的关键帧需要生成，已跳过 ${skipped} 个已完成/进行中的关键帧。`, queued ? 'busy' : 'muted');
 }
 
 function normalizeBetweenSegment(segment = {}) {
@@ -1416,6 +1470,21 @@ function refineSegmentsForInterval(fromIndex) {
   return out;
 }
 
+function queueableBetweenPointKeys(segments = []) {
+  const keys = [];
+  for (const segment of segments) {
+    for (const pointTick of segment.targetTicks || []) {
+      const pointKey = betweenPointKey(pointTick);
+      const existing = betweenResults[pointKey] || {};
+      const existingId = imageIdFromItem(existing.item || {});
+      if (pendingBetweenSubmissions.has(pointKey) || isActiveEntry(existing)) continue;
+      if (existing.status === 'succeeded' && existingId && !segment.force) continue;
+      if (!keys.includes(pointKey)) keys.push(pointKey);
+    }
+  }
+  return keys;
+}
+
 async function generateBetweenSegments(segments = [], { onSavedImages, taskLabel = '视频帧间图任务' } = {}) {
   showVideoError('');
   if (!storyboard?.keyframes?.length) return showVideoError('请先生成关键帧规划。');
@@ -1425,110 +1494,132 @@ async function generateBetweenSegments(segments = [], { onSavedImages, taskLabel
     .filter(Boolean);
   if (!normalizedSegments.length) return showVideoError('没有可生成的帧间图区间。');
 
-  let imageInfo;
-  try { imageInfo = resolveProfileConfig('image'); } catch (err) { return showVideoError(err.message || String(err)); }
-  if (!imageInfo.systemMode) {
-    const ok = await confirmVolatileCustomKeyUse({ taskLabel });
-    if (!ok) return;
-  }
-  try { await saveVideoProject('generating'); } catch (err) { return showVideoError(`视频项目保存失败：${err.message || String(err)}`); }
-
-  const started = Date.now();
-  let queued = 0;
-  let skipped = 0;
-  let failed = 0;
-  const errors = [];
-
-  for (const segment of normalizedSegments) {
-    const total = segment.targetTicks.length;
-    for (let i = 0; i < total; i += 1) {
-      const pointTick = segment.targetTicks[i];
-      const pointKey = betweenPointKey(pointTick);
-      const existing = betweenResults[pointKey] || {};
-      const existingId = imageIdFromItem(existing.item || {});
-      if (existing.status === 'succeeded' && existingId && !segment.force) {
-        skipped += 1;
-        continue;
-      }
-      if (isActiveEntry(existing)) {
-        skipped += 1;
-        continue;
-      }
-
-      try {
-        const payload = betweenPayload({
-          fromTick: segment.fromTick,
-          toTick: segment.toTick,
-          pointTick,
-          slot: i + 1,
-          total,
-          imageInfo
-        });
-        updateBetweenEntry(pointTick, {
-          fromTick: segment.fromTick,
-          toTick: segment.toTick,
-          status: 'queued',
-          prompt: payload.prompt,
-          error: ''
-        });
-        renderResults();
-        showVideoProgress(`正在提交 ${pointLabel(pointTick)}（${segment.label} 第 ${i + 1}/${total} 张）到生图队列…`, 'busy');
-        const { job } = await queueSingleGeneration({
-          payload,
-          progressMessage: (jobId) => `${pointLabel(pointTick)} 任务 ${jobId.slice(0, 8)} 已入队；不影响其他关键帧或帧间图继续入队。`,
-          onQueued: (jobId, queuedJob) => {
-            updateBetweenEntry(pointTick, {
-              fromTick: segment.fromTick,
-              toTick: segment.toTick,
-              status: ACTIVE_JOB_STATUSES.has(queuedJob.status) ? queuedJob.status : 'queued',
-              jobId,
-              prompt: payload.prompt,
-              error: ''
-            });
-            renderResults();
-          }
-        });
-        queued += 1;
-        if (FINAL_STATUSES.has(job.status)) {
-          await applyVideoGenerationJobUpdate(job, { onSavedImages });
-        }
-      } catch (err) {
-        failed += 1;
-        const message = err?.message || String(err);
-        errors.push(`${pointLabel(pointTick)}: ${message}`);
-        updateBetweenEntry(pointTick, {
-          fromTick: segment.fromTick,
-          toTick: segment.toTick,
-          status: 'failed',
-          error: message
-        });
-        renderResults();
-      }
-    }
-  }
-
-  try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
-  addLog(failed ? 'error' : 'info', failed ? 'video.between.queue_failed' : 'video.between.queued', {
-    segmentCount: normalizedSegments.length,
-    queued,
-    skipped,
-    failed,
-    profileName: imageInfo.profile.name,
-    interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
-    durationMs: Date.now() - started,
-    projectId: currentProjectId
-  });
-  if (failed) {
-    const message = errors[0] || '部分帧间图提交失败。';
-    showVideoError(message);
-    setStatus('部分帧间图入队失败', 'err', 2200);
-    showVideoProgress(`已入队 ${queued} 张帧间图，${failed} 张提交失败。${message}`, 'err');
+  const lockedPointKeys = queueableBetweenPointKeys(normalizedSegments);
+  if (!lockedPointKeys.length) {
+    setStatus('没有新的帧间图需要入队', 'muted', 1600);
+    showVideoProgress('所选帧间点已完成或正在队列中。', 'muted');
+    renderResults();
     return;
   }
-  setStatus(queued ? '帧间图任务已入队' : '没有新的帧间图需要入队', queued ? 'ok' : 'muted', 1800);
-  showVideoProgress(queued
-    ? `已入队 ${queued} 张帧间图${skipped ? `，跳过 ${skipped} 张已完成/进行中的帧` : ''}；完成后会自动回填，可继续提交不相关的关键帧或小段。`
-    : `没有新帧需要生成，已跳过 ${skipped} 张已完成/进行中的帧。`, queued ? 'busy' : 'muted');
+  lockedPointKeys.forEach((key) => pendingBetweenSubmissions.add(key));
+  renderResults();
+
+  let imageInfo;
+  try {
+    imageInfo = resolveProfileConfig('image');
+    if (!imageInfo.systemMode) {
+      const ok = await confirmVolatileCustomKeyUse({ taskLabel });
+      if (!ok) return;
+    }
+    try { await saveVideoProject('generating'); } catch (err) { return showVideoError(`视频项目保存失败：${err.message || String(err)}`); }
+
+    const locked = new Set(lockedPointKeys);
+    const started = Date.now();
+    let queued = 0;
+    let skipped = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const segment of normalizedSegments) {
+      const total = segment.targetTicks.length;
+      for (let i = 0; i < total; i += 1) {
+        const pointTick = segment.targetTicks[i];
+        const pointKey = betweenPointKey(pointTick);
+        if (!locked.has(pointKey)) {
+          skipped += 1;
+          continue;
+        }
+        const existing = betweenResults[pointKey] || {};
+        const existingId = imageIdFromItem(existing.item || {});
+        if (existing.status === 'succeeded' && existingId && !segment.force) {
+          skipped += 1;
+          continue;
+        }
+        if (isActiveEntry(existing)) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const payload = betweenPayload({
+            fromTick: segment.fromTick,
+            toTick: segment.toTick,
+            pointTick,
+            slot: i + 1,
+            total,
+            imageInfo
+          });
+          updateBetweenEntry(pointTick, {
+            fromTick: segment.fromTick,
+            toTick: segment.toTick,
+            status: 'queued',
+            prompt: payload.prompt,
+            error: ''
+          });
+          renderResults();
+          showVideoProgress(`正在提交 ${pointLabel(pointTick)}（${segment.label} 第 ${i + 1}/${total} 张）到生图队列…`, 'busy');
+          const { job } = await queueSingleGeneration({
+            payload,
+            progressMessage: (jobId) => `${pointLabel(pointTick)} 任务 ${jobId.slice(0, 8)} 已入队；不影响其他关键帧或帧间图继续入队。`,
+            onQueued: (jobId, queuedJob) => {
+              updateBetweenEntry(pointTick, {
+                fromTick: segment.fromTick,
+                toTick: segment.toTick,
+                status: ACTIVE_JOB_STATUSES.has(queuedJob.status) ? queuedJob.status : 'queued',
+                jobId,
+                prompt: payload.prompt,
+                error: ''
+              });
+              renderResults();
+            }
+          });
+          queued += 1;
+          if (FINAL_STATUSES.has(job.status)) {
+            await applyVideoGenerationJobUpdate(job, { onSavedImages });
+          }
+        } catch (err) {
+          failed += 1;
+          const message = err?.message || String(err);
+          errors.push(`${pointLabel(pointTick)}: ${message}`);
+          updateBetweenEntry(pointTick, {
+            fromTick: segment.fromTick,
+            toTick: segment.toTick,
+            status: 'failed',
+            error: message
+          });
+          renderResults();
+        }
+      }
+    }
+
+    try { await saveVideoProject(projectStatusFromKeyframes('generating')); } catch {}
+    addLog(failed ? 'error' : 'info', failed ? 'video.between.queue_failed' : 'video.between.queued', {
+      segmentCount: normalizedSegments.length,
+      queued,
+      skipped,
+      failed,
+      profileName: imageInfo.profile.name,
+      interfaceMode: imageInfo.systemMode ? 'system' : 'custom',
+      durationMs: Date.now() - started,
+      projectId: currentProjectId
+    });
+    if (failed) {
+      const message = errors[0] || '部分帧间图提交失败。';
+      showVideoError(message);
+      setStatus('部分帧间图入队失败', 'err', 2200);
+      showVideoProgress(`已入队 ${queued} 张帧间图，${failed} 张提交失败。${message}`, 'err');
+      return;
+    }
+    setStatus(queued ? '帧间图任务已入队' : '没有新的帧间图需要入队', queued ? 'ok' : 'muted', 1800);
+    showVideoProgress(queued
+      ? `已入队 ${queued} 张帧间图${skipped ? `，跳过 ${skipped} 张已完成/进行中的帧` : ''}；完成后会自动回填，可继续提交不相关的关键帧或小段。`
+      : `没有新帧需要生成，已跳过 ${skipped} 张已完成/进行中的帧。`, queued ? 'busy' : 'muted');
+  } catch (err) {
+    showVideoError(err.message || String(err));
+  } finally {
+    lockedPointKeys.forEach((key) => pendingBetweenSubmissions.delete(key));
+    renderResults();
+  }
 }
 
 function stopVideoRun() {
@@ -1590,6 +1681,14 @@ function videoEntryFromJob(job = {}) {
     return item
       ? { status: 'succeeded', jobId: job.id, item, prompt, error: '' }
       : { status: 'failed', jobId: job.id, prompt, error: '生图任务没有返回可用图片。' };
+  }
+  if (isActiveEntry(job)) {
+    return {
+      status: job.status || 'queued',
+      jobId: job.id,
+      prompt,
+      error: ''
+    };
   }
   return generatedEntryFromJob(job) || {
     status: job.status === 'timeout' ? 'failed' : (job.status || 'failed'),
@@ -1703,7 +1802,7 @@ function loadVideoProject(detail = {}) {
       const image = keyframeImages.find((item) => Number(item.videoFrameIndex) === frameNo) || null;
       if (image) return { status: 'succeeded', item: image, prompt: image.prompt || '' };
       const job = latestJob(jobs.filter((item) => videoFrameKindFromJob(item) === 'keyframe' && videoFrameIndexFromJob(item) === frameNo));
-      return generatedEntryFromJob(job) || { status: 'pending' };
+      return job ? videoEntryFromJob(job) : { status: 'pending' };
     })
     : keyframeImages.map((item) => ({ status: 'succeeded', item, prompt: item.prompt || '' }));
 
@@ -1726,7 +1825,7 @@ function loadVideoProject(detail = {}) {
     const key = meta.key;
     if (!key || betweenResults[key]?.status === 'succeeded') continue;
     betweenResults[key] = {
-      ...(generatedEntryFromJob(job) || betweenResults[key] || { status: job.status || 'pending' }),
+      ...(videoEntryFromJob(job) || betweenResults[key] || { status: job.status || 'pending' }),
       fromTick: meta.fromTick,
       toTick: meta.toTick,
       positionTick: meta.positionTick

@@ -12,6 +12,7 @@ import {
   jobQueueSummaryHtml,
   jobStatusLabel,
   jobStatusTone,
+  jobTitle,
   renderJobCard,
   renderJobListSection
 } from '../public/modules/jobs-view.js';
@@ -43,6 +44,10 @@ test('jobs view formats status, durations, image sources and metadata', () => {
   assert.equal(jobMeta({ payload: { jobType: 'comic_storyboard', model: 'm', pageLimit: 3 } }), '漫画页分镜 · m · 模型自动页数 · 最多 3 页');
   assert.equal(jobMeta({ payload: { jobType: 'video_storyboard', model: 'm', keyframeLimit: 5 } }), '视频关键帧规划 · m · 模型自动帧数 · 最多 5 帧');
   assert.equal(jobMeta({ payload: { model: 'm', size: 's', quality: 'q', n: 2 } }), 'm · s · q · n=2');
+  assert.equal(jobTitle({ payload: { jobType: 'video_storyboard' }, promptPreview: 'long storyboard prompt' }), '视频规划');
+  assert.equal(jobTitle({ payload: { videoFrameKind: 'keyframe', videoFrameIndex: 2 }, promptPreview: 'long keyframe prompt' }), '视频 K2');
+  assert.equal(jobTitle({ payload: { videoFrameKind: 'between', videoFrameIndex: 1_200_000 }, promptPreview: 'long between prompt' }), '视频 1.1');
+  assert.equal(jobTitle({ payload: { videoFrameKind: 'between', videoFrameIndex: 1_200_001 }, promptPreview: 'near duplicate tick' }), '视频 1.1');
 });
 
 test('jobs view renders queue summaries and empty lines', () => {
@@ -101,6 +106,16 @@ test('jobs view renders actions by state and running progress', () => {
   assert.match(running, /data-job-act="cancel"/);
   assert.match(running, /已运行 1m 5s/);
 
+  const video = renderJobCard({
+    id: 'v1',
+    status: 'running',
+    startedAt: 10_000,
+    promptPreview: '视频项目：很长很长的提示词',
+    payload: { videoFrameKind: 'between', videoFrameIndex: 1_200_000, model: 'gpt-image-2' }
+  }, 'running', { nowMs: 75_000 });
+  assert.match(video, />视频 1\.1<\/div>/);
+  assert.match(video, /title="视频项目：很长很长的提示词"/);
+
   const failed = renderJobCard({ id: 'f1', status: 'failed', promptPreview: 'fail' }, 'recent');
   assert.match(failed, /data-job-act="retry"/);
   assert.match(failed, /data-job-act="dismiss"/);
@@ -118,6 +133,7 @@ test('jobs view uses locale messages for queue chrome', () => {
   assert.equal(jobProgressInfo({ status: 'running', startedAt: 1_000 }, { nowMs: 66_000 }).text, 'Running for 1m 5s');
   assert.equal(jobMeta({ payload: { jobType: 'comic_storyboard', model: 'm', pageLimit: 3 } }), 'Comic storyboard · m · Auto page count · up to 3 pages');
   assert.equal(jobMeta({ payload: { jobType: 'video_storyboard', model: 'm', keyframeLimit: 5 } }), 'Video keyframe plan · m · Auto keyframes · up to 5 frames');
+  assert.equal(jobTitle({ payload: { videoFrameKind: 'between', videoFrameIndex: 1_200_000 } }), 'Video 1.1');
   assert.equal(jobQueueEmptyText('running'), 'No running jobs.');
   assert.equal(jobQueueEmptyText('queued'), 'Queue is empty.');
   assert.equal(jobQueueEmptyText('recent'), 'No completed jobs yet.');

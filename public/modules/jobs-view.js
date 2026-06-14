@@ -2,6 +2,8 @@ import { escapeHtml } from './dom.js';
 import { t } from './i18n.js';
 
 const FINAL_JOB_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
+const VIDEO_TIMELINE_SCALE = 1_000_000;
+const VIDEO_DEFAULT_COARSE_COUNT = 4;
 
 export function jobStatusLabel(status) {
   return t(`job.status.${status}`, {}, status || t('common.empty'));
@@ -73,6 +75,39 @@ export function jobMeta(job = {}) {
     .join(' · ');
 }
 
+function videoTimelineLabel(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw <= 0) return '?';
+  const tick = raw < VIDEO_TIMELINE_SCALE
+    ? Math.round(raw * VIDEO_TIMELINE_SCALE)
+    : Math.round(raw);
+  const whole = Math.floor(tick / VIDEO_TIMELINE_SCALE);
+  const rest = tick - whole * VIDEO_TIMELINE_SCALE;
+  if (!rest) return String(whole);
+
+  const coarseDenominator = VIDEO_DEFAULT_COARSE_COUNT + 1;
+  const coarseSlot = Math.round((rest / VIDEO_TIMELINE_SCALE) * coarseDenominator);
+  const coarseTick = Math.round((coarseSlot * VIDEO_TIMELINE_SCALE) / coarseDenominator);
+  if (coarseSlot > 0 && coarseSlot < coarseDenominator && Math.abs(rest - coarseTick) <= 2) {
+    return `${whole}.${coarseSlot}`;
+  }
+  return (tick / VIDEO_TIMELINE_SCALE).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '') || String(whole);
+}
+
+export function jobTitle(job = {}) {
+  const payload = job.payload || {};
+  if (payload.jobType === 'video_storyboard') return t('jobs.title.videoStoryboard');
+  if (payload.videoFrameKind === 'keyframe') {
+    const index = Number(payload.videoFrameIndex);
+    return t('jobs.title.videoKeyframe', { index: Number.isInteger(index) && index > 0 ? index : '?' });
+  }
+  if (payload.videoFrameKind === 'between') {
+    return t('jobs.title.videoBetween', { label: videoTimelineLabel(payload.videoFrameIndex) });
+  }
+  if (payload.videoFrameKind === 'reference') return t('jobs.title.videoReference');
+  return job.promptPreview || payload.prompt || t('jobs.prompt.untitled');
+}
+
 export function jobQueueEmptyLine(text) {
   return `<div class="job-queue-empty">${escapeHtml(text)}</div>`;
 }
@@ -96,6 +131,7 @@ export function jobQueueSummaryHtml({ queuedCount = 0, runningCount = 0 } = {}) 
 
 export function renderJobCard(job = {}, kind = '', { nowMs = Date.now() } = {}) {
   const prompt = job.promptPreview || job.payload?.prompt || t('jobs.prompt.untitled');
+  const title = jobTitle(job);
   const tone = jobStatusTone(job.status);
   const info = jobProgressInfo(job, { nowMs });
   const canCancel = job.status === 'queued' || job.status === 'running';
@@ -118,7 +154,7 @@ export function renderJobCard(job = {}, kind = '', { nowMs = Date.now() } = {}) 
       <div class="job-card-main">
         ${resultThumb}
         <div class="job-card-text">
-          <div class="job-card-title" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</div>
+          <div class="job-card-title" title="${escapeHtml(prompt)}">${escapeHtml(title)}</div>
           <div class="job-card-meta">${escapeHtml(jobMeta(job) || '-')}</div>
           <div class="job-card-sub"><span>${escapeHtml(jobStatusLabel(job.status))}</span>${position}</div>
           ${progress}
