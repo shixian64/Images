@@ -70,13 +70,18 @@ function renderOptions() {
   if (limit) {
     limit.min = String(VIDEO_KEYFRAME_LIMITS.min);
     limit.max = String(VIDEO_KEYFRAME_LIMITS.max);
-    limit.value = String(VIDEO_KEYFRAME_LIMITS.default);
+    limit.placeholder = `留空：最多 ${VIDEO_KEYFRAME_LIMITS.max} 帧`;
   }
 }
 
-function syncVideoKeyframeLimit(value = undefined) {
+function syncVideoKeyframeLimit(value = undefined, { write = true } = {}) {
   const input = $('videoKeyframeLimit');
-  const count = clampVideoKeyframeCount(value ?? input?.value);
+  const raw = value ?? input?.value;
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    if (write && input && input.value !== '') input.value = '';
+    return VIDEO_KEYFRAME_LIMITS.max;
+  }
+  const count = clampVideoKeyframeCount(raw);
   if (input && input.value !== String(count)) input.value = String(count);
   return count;
 }
@@ -430,7 +435,7 @@ function syncStoryboardFromEditors() {
 
 function collectVideoProjectPayload(status = 'draft') {
   const prompt = normalizeProjectPrompt($('videoPrompt')?.value || '');
-  const frameCount = storyboard?.keyframes?.length || syncVideoKeyframeLimit();
+  const frameCount = storyboard?.keyframes?.length || syncVideoKeyframeLimit(undefined, { write: false });
   return {
     id: currentProjectId || undefined,
     title: storyboard?.title || prompt.slice(0, 40) || '未命名视频',
@@ -1011,7 +1016,9 @@ function loadVideoProject(detail = {}) {
     promptEl.value = project.prompt || '';
     writeStringScoped(VIDEO_PROMPT_DRAFT_KEY, promptEl.value);
   }
-  syncVideoKeyframeLimit(project.keyframeCount || storyboard?.keyframes?.length || VIDEO_KEYFRAME_LIMITS.default);
+  const existingLimit = Number(project.keyframeCount || storyboard?.keyframes?.length || 0);
+  if (existingLimit) syncVideoKeyframeLimit(existingLimit);
+  else if ($('videoKeyframeLimit')) $('videoKeyframeLimit').value = '';
   setSelectValue('videoSize', project.size);
   setSelectValue('videoQuality', project.quality);
   setSelectValue('videoOutputFormat', project.outputFormat);

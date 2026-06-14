@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="./profiles.css?v=profiles-split-20260610" />
   <link rel="stylesheet" href="./prompts.css?v=prompts-split-20260610" />
   <link rel="stylesheet" href="./logs.css?v=logs-split-20260610" />
-  <link rel="stylesheet" href="./comic.css?v=comic-split-20260610" />
+  <link rel="stylesheet" href="./comic.css?v=video-workflow-20260614" />
   <link rel="stylesheet" href="./admin.css?v=admin-split-20260608" />
   <script src="./main-boot.js?v=csp-external-20260609"></script>
 </head>
@@ -371,8 +371,8 @@
             <details class="advanced" open>
               <summary>项目全局配置</summary>
               <div class="options">
-                <label class="field"><span>最多关键帧数（模型自动决定，2-12）</span>
-                  <input id="videoKeyframeLimit" type="number" min="2" max="12" value="5" />
+                <label class="field"><span>关键帧数量由模型自动决定（可选安全上限）</span>
+                  <input id="videoKeyframeLimit" type="number" min="2" max="12" placeholder="留空：最多 12 帧" />
                 </label>
                 <label class="field"><span>分镜模型</span>
                   <input id="videoChatModel" value="gpt-5.5" spellcheck="false" />
@@ -1205,6 +1205,6 @@
     </section>
   </aside>
 
-  <script type="module" src="./app.js?v=c5902f1-comic-style-menu"></script>
+  <script type="module" src="./app.js?v=video-workflow-20260614"></script>
 </body>
 </html>
